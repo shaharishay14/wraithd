@@ -260,14 +260,19 @@ class PermissionGate:
 
     callback is how the gate reaches the owner (the terminal prompt, the web UI, Telegram buttons). None
     means nobody is watching (a schedule firing): writes then run only if the owner pre-approved the tool.
+
+    tool_access gives this run's tools their tier where the name rules don't apply (an MCP tool's tier comes from
+    its read-only annotation). preapproved are writes the owner allowed in advance ("always allow" for an MCP
+    tool): they run without asking, but after third-party content only to recipients the owner wrote.
     """
 
     def __init__(self, store, callback=None, chat_history=None, user_message=None, instructions: str = '',
-                 owner_email: str = '', unattended_write_tools=()):
+                 owner_email: str = '', unattended_write_tools=(), tool_access=None, preapproved=()):
         self.store = store
         self.callback = callback
         self.owner_email = owner_email.lower()
-        self.unattended_write_tools = set(unattended_write_tools)
+        self.preapproved = set(unattended_write_tools) | set(preapproved)
+        self.tool_access = dict(tool_access or {})
 
         # Everything the owner wrote: their message, their earlier messages, and their standing instructions
         # (AGENTS.md). Assistant messages don't count: they can repeat text copied from emails or pages. Values
@@ -310,9 +315,20 @@ class PermissionGate:
         for url in extract_urls(text):
             self.url_sources.setdefault(url, source)
 
+    def access(self, tool_name: str) -> ToolAccess:
+        """This tool's tier in this run: its MCP tier if it has one, else the name rules."""
+        return self.tool_access.get(tool_name) or classify_tool(tool_name)
+
+    def label(self, tool_name: str) -> str:
+        """How the access shows in discovery results: read, needs approval, always allowed, blocked."""
+        access = self.access(tool_name)
+        if access == ToolAccess.WRITE and tool_name in self.preapproved:
+            return 'always allowed'
+        return {ToolAccess.READ: 'read', ToolAccess.WRITE: 'needs approval', ToolAccess.DENY: 'blocked'}[access]
+
     def record_completed(self, tool_name: str, arguments: dict[str, Any]) -> None:
         """Called after a tool finished running (its effects, like a sent email, have happened)."""
-        self.completed_actions.append({'tool': tool_name, 'arguments': arguments, 'access': classify_tool(tool_name)})
+        self.completed_actions.append({'tool': tool_name, 'arguments': arguments, 'access': self.access(tool_name)})
 
     def completed_writes(self) -> list[str]:
         """Readable list of actions that changed something this run."""
@@ -364,7 +380,7 @@ class PermissionGate:
 
     async def check(self, tool_name: str, arguments: dict[str, Any]) -> str | None:
         """Returns None if the tool may run, or a denial message to give the model instead."""
-        access = classify_tool(tool_name)
+        access = self.access(tool_name)
         logger.info(f'Policy: {tool_name} -> {access.value}')
 
         if access == ToolAccess.READ:
@@ -377,37 +393,26 @@ class PermissionGate:
                 'themselves.'
             )
 
-        if self.callback is None:
-            if tool_name in NEVER_UNATTENDED:
-                return denial(
-                    f'{tool_name} never runs unattended: nobody is here to approve it. Do not retry. Tell the user '
-                    'to ask for it in a conversation.'
-                )
-            if tool_name in self.unattended_write_tools:
-                # Pre-approval was given for the owner's intent. After reading third-party content, the request
-                # may be an attacker's: it may only go to recipients the owner wrote.
-                if self.untrusted_sources:
-                    not_from_user = self._recipients_not_from_user(arguments)
-                    if not_from_user is None:
-                        return denial(
-                            f'{tool_name} was blocked: this run read third-party content '
-                            f'({", ".join(self.untrusted_sources)}), and this action has no recipient that can be '
-                            'checked. Do not retry. Tell the user the action needs their approval.'
-                        )
-                    if not_from_user:
-                        listed = ', '.join(f'{r["value"]} (from {r["source"]})' for r in not_from_user)
-                        return denial(
-                            f'{tool_name} was blocked: after reading third-party content, pre-approved actions may '
-                            'only go to recipients the user wrote in their messages or the agent instructions. '
-                            f'Not written by the user: {listed}. Do not retry with other recipients. '
-                            'Tell the user the action needs their approval.'
-                        )
+        if self.callback is None and tool_name in NEVER_UNATTENDED:
+            return denial(
+                f'{tool_name} never runs unattended: nobody is here to approve it. Do not retry. Tell the user '
+                'to ask for it in a conversation.'
+            )
+
+        if tool_name in self.preapproved:
+            # Pre-approval was given for the owner's intent. After reading third-party content, the request may be
+            # an attacker's: it may only go to recipients the owner wrote. Otherwise ask (or, unattended, refuse).
+            refusal = self._preapproved_refusal(tool_name, arguments)
+            if refusal is None:
                 self._record_preapproved(tool_name, arguments)
                 return None
+            if self.callback is None:
+                return refusal
+        elif self.callback is None:
             return denial(
                 f'{tool_name} changes data and needs the user\'s approval, but no one is available to approve it '
-                'here. Do not retry. Tell the user to pre-approve this action for unattended runs, or ask for it '
-                'in a conversation.'
+                'here. Do not retry. Tell the user to pre-approve this action for unattended runs (always allow), '
+                'or ask for it in a conversation.'
             )
 
         # Live conversation: warn precisely. Name recipients the owner didn't write; if the action has no
@@ -421,6 +426,27 @@ class PermissionGate:
                 suspicious = not_from_user
         return await self._ask_user(tool_name, arguments, untrusted_sources=general, suspicious_recipients=suspicious,
                                     reason=APPROVAL_REASONS.get(tool_name, ''))
+
+    def _preapproved_refusal(self, tool_name: str, arguments: dict[str, Any]) -> str | None:
+        """Why a pre-approved write can't run without asking now, or None if it can."""
+        if not self.untrusted_sources:
+            return None
+        not_from_user = self._recipients_not_from_user(arguments)
+        if not_from_user is None:
+            return denial(
+                f'{tool_name} was blocked: this run read third-party content ({", ".join(self.untrusted_sources)}), '
+                'and this action has no recipient that can be checked. Do not retry. Tell the user the action '
+                'needs their approval.'
+            )
+        if not_from_user:
+            listed = ', '.join(f'{r["value"]} (from {r["source"]})' for r in not_from_user)
+            return denial(
+                f'{tool_name} was blocked: after reading third-party content, pre-approved actions may only go to '
+                'recipients the user wrote in their messages or the agent instructions. '
+                f'Not written by the user: {listed}. Do not retry with other recipients. '
+                'Tell the user the action needs their approval.'
+            )
+        return None
 
     async def _check_url_fetch(self, tool_name: str, arguments: dict[str, Any]) -> str | None:
         """
@@ -455,7 +481,7 @@ class PermissionGate:
 
     def _record_preapproved(self, tool_name: str, arguments: dict[str, Any]) -> None:
         """Logs an unattended write in the same table as live approvals, so there's one audit trail."""
-        logger.info(f'{tool_name} pre-approved for unattended runs')
+        logger.info(f'{tool_name} pre-approved: runs without asking')
         self.store.create_approval(tool_name, arguments, status=store_base.PREAPPROVED)
 
     async def _ask_user(self, tool_name: str, arguments: dict[str, Any], reason: str = '',
@@ -544,12 +570,12 @@ def guard_function_tools(tools: list[Any], gate: PermissionGate, log: ev.EventLo
                 arguments = parse_arguments(input_json)
                 answer = prechecks[name](arguments) if prechecks and name in prechecks else None
                 if answer:
-                    record(ev.TOOL_CALL, tool=name, arguments=arguments, access=classify_tool(name).value,
+                    record(ev.TOOL_CALL, tool=name, arguments=arguments, access=gate.access(name).value,
                            allowed=False, rejected_by='precheck')
                     record(ev.TOOL_RESULT, **render.for_log(name, answer, render.outcome_of(answer), untrusted=False))
                     return answer
                 blocked = await gate.check(name, arguments)
-                record(ev.TOOL_CALL, tool=name, arguments=arguments, access=classify_tool(name).value,
+                record(ev.TOOL_CALL, tool=name, arguments=arguments, access=gate.access(name).value,
                        allowed=blocked is None)
                 if blocked:
                     record(ev.TOOL_RESULT, **render.for_log(name, blocked, 'denied', untrusted=False))

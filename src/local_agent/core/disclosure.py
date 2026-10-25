@@ -124,12 +124,13 @@ def described_actions(events) -> set:
             for event in events if event.type == ev.TOOL_CALL and event.payload.get('tool') == DESCRIBE}
 
 
-def discovery_tools(catalog: AppCatalog, log: ev.EventLog) -> list[FunctionTool]:
+def discovery_tools(catalog: AppCatalog, log: ev.EventLog, label=None) -> list[FunctionTool]:
     """
     The three tools that replace the catalog's schemas. find and describe still go through the
     permission gate like any tool (they're read-only); run is a dispatcher whose check is the
     guarded action it calls.
     """
+    label = label or (lambda name: ACCESS_LABELS[classify_tool(name)])  # the run's gate knows MCP tiers
     guides_shown = set()  # apps whose guide this run's model has already seen
 
     async def find(ctx, input_json: str) -> str:
@@ -144,7 +145,7 @@ def discovery_tools(catalog: AppCatalog, log: ev.EventLog) -> list[FunctionTool]
         # Ordered by relevance, but no scores: the model should judge the summaries, not anchor on numbers
         return json.dumps({
             'actions': [{'action': name, 'app': app_of(name), 'summary': _summary(catalog.tools[name].description),
-                         'access': ACCESS_LABELS[classify_tool(name)]} for name in names],
+                         'access': label(name)} for name in names],
             'hint': f'Call {DESCRIBE} with the action you want, to see its arguments before running it.',
         })
 
@@ -157,7 +158,7 @@ def discovery_tools(catalog: AppCatalog, log: ev.EventLog) -> list[FunctionTool]
         description = {
             'action': action,
             'app': app_of(action),
-            'access': ACCESS_LABELS[classify_tool(action)],
+            'access': label(action),
             'description': (tool.description or '')[:DESCRIPTION_CHARS],
             'parameters': _parameters(tool.params_json_schema or {}),
             'hint': f'Call {RUN} with "action": "{action}" and "arguments" as an object.',
