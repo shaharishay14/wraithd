@@ -132,7 +132,12 @@ function TelegramPanel() {
       actions={t && (t.paired ? <Badge status="live">Paired{t.owner ? ` with ${t.owner}` : ''}</Badge> : t.configured ? <Badge status="busy">Not paired</Badge> : <Badge status="idle">Not set up</Badge>)}>
       {telegram.loading && <Spinner label="Loading Telegram" />}
       {telegram.error && !t && <p className="m-0 text-sm text-off" role="alert">{telegram.error}</p>}
-      {t && !t.configured && <p className="m-0 text-sm text-white/65">Add a bot token with <Code>local-agent onboard</Code> to talk to your agent from Telegram.</p>}
+      {t && !t.configured && (
+        <p className="m-0 text-sm text-white/65">
+          To talk to your agent from Telegram, store your bot's token with <Code>local-agent key set telegram</Code>, restart{' '}
+          <Code>local-agent daemon</Code>, then pair from this page.
+        </p>
+      )}
       {t?.configured && (
         <div className="flex flex-col gap-3 text-sm text-white/70">
           <p className="m-0">Only the paired chat is you; anyone else's message is treated as third-party content. A new code replaces the old pairing.</p>
