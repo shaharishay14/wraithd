@@ -12,8 +12,7 @@ from agents.usage import Usage
 
 from local_agent.core import egress, secrets
 from local_agent.core import events as ev
-from local_agent.core.stop import StopPolicy
-from tests.scripted import ScriptedModel, call, fake_tool, run_agent, say
+from tests.scripted import ScriptedModel, call, fake_tool, of_type, run_once, say
 
 OPENAI_LIKE = 'sk-proj-' + 'a1B2' * 10
 
@@ -171,16 +170,35 @@ def test_the_owners_own_keys_are_redacted_by_value(monkeypatch):
                                     ['owner_secret'])
 
 
-async def test_a_secret_in_a_tool_result_never_reaches_the_model_or_the_log(store):
+async def test_a_secret_in_a_tool_result_never_reaches_the_model_or_the_log(make_runtime):
     model = ScriptedModel([[call('1', 'web_search', {'query': 'my key'})], [say('done')]])
-    _, log = await run_agent(model, [fake_tool('web_search', lambda **a: f'Your key is {OPENAI_LIKE}')], 'find my key',
-                             store=store)
+    _, events = await run_once(make_runtime(model), 'find my key',
+                               tools=[fake_tool('web_search', lambda **a: f'Your key is {OPENAI_LIKE}')])
 
     seen = model.tool_outputs(1)['call_1']
     assert OPENAI_LIKE not in seen and '[REDACTED:openai_key]' in seen
-    [result] = [e for e in store.run_events(log.run_id) if e.type == ev.TOOL_RESULT]
+    [result] = of_type(events, ev.TOOL_RESULT)
     assert result.payload['redacted'] == ['openai_key']
-    assert OPENAI_LIKE not in json.dumps([e.payload for e in store.run_events(log.run_id)])
+    assert OPENAI_LIKE not in json.dumps([e.payload for e in events])
+
+
+async def test_secrets_are_not_saved_to_memory(make_runtime, home):
+    model = ScriptedModel([[call('1', 'memory_append', {'path': 'profile/profile', 'text': f'API key {OPENAI_LIKE}'})],
+                           [say('ok')]])
+    _, events = await run_once(make_runtime(model), 'remember my key')
+    saved = (home.memory_dir / 'profile' / 'profile.md').read_text()
+    assert OPENAI_LIKE not in saved and '[REDACTED:openai_key]' in saved
+    assert OPENAI_LIKE not in json.dumps([e.payload for e in events])
+
+
+async def test_the_providers_key_is_redacted_by_value(make_runtime, isolated):
+    from local_agent import config
+    config.set_key('openai', 'plain-looking-provider-key-42')
+    assert config.get_key('openai') == 'plain-looking-provider-key-42'  # reading it registers it
+    model = ScriptedModel([[call('1', 'web_search', {'query': 'x'})], [say('done')]])
+    await run_once(make_runtime(model), 'search',
+                   tools=[fake_tool('web_search', lambda **a: 'echo: plain-looking-provider-key-42')])
+    assert '[REDACTED:owner_secret]' in model.tool_outputs(1)['call_1']
 
 
 def test_secrets_in_arguments_are_redacted_before_storage():
@@ -192,24 +210,26 @@ def test_secrets_in_arguments_are_redacted_before_storage():
 
 # --- budgets -----------------------------------------------------------------------------------------------
 
-async def test_a_run_stops_at_its_tool_call_limit(store):
+async def test_a_run_stops_at_its_tool_call_limit(make_runtime, home):
+    home.config_path.write_text('[budget]\nrun_tool_calls = 2\n')
     model = ScriptedModel([[call('1', 'calculate', {'expression': '1+1'})],
                            [call('2', 'calculate', {'expression': '2+2'})],
                            [say('Stopped after two.')]])
-    answer, _ = await run_agent(model, [fake_tool('calculate', lambda **a: 1)], 'calculate a lot', store=store,
-                                policy=StopPolicy(max_tool_calls=2))
-    assert answer == 'Stopped after two.'
+    result, _ = await run_once(make_runtime(model), 'calculate a lot', tools=[fake_tool('calculate', lambda **a: 1)])
+    assert result.answer == 'Stopped after two.'
     assert model.tool_names[-1] == [] and 'its limit' in model.inputs[-1][-1]['content']
 
 
-async def test_token_usage_is_logged_and_the_run_budget_stops_the_run(store):
+async def test_token_usage_is_logged_and_the_run_budget_stops_the_run(make_runtime, home):
+    home.config_path.write_text('[budget]\nrun_tokens = 1000\n')
     usage = Usage(requests=1, input_tokens=600, output_tokens=50, total_tokens=650)
     model = ScriptedModel([[call('1', 'calculate', {'expression': '1+1'})],
                            [call('2', 'calculate', {'expression': '2+2'})],
                            [say('Over budget, stopping.')]], usage=usage)
-    answer, log = await run_agent(model, [fake_tool('calculate', lambda **a: 1)], 'calculate a lot', store=store,
-                                  policy=StopPolicy(token_budget=1000))
-    assert answer == 'Over budget, stopping.'
-    assert [e.payload['input_tokens'] for e in log.of_type(ev.MODEL_OUTPUT)][:2] == [600, 600]
-    assert log.of_type(ev.STOP)[0].payload['reason'] == 'token_budget'
+    result, events = await run_once(make_runtime(model), 'calculate a lot',
+                                    tools=[fake_tool('calculate', lambda **a: 1)])
+    assert result.answer == 'Over budget, stopping.'
+    assert [e.payload['input_tokens'] for e in of_type(events, ev.MODEL_OUTPUT)][:2] == [600, 600]
+    assert of_type(events, ev.STOP)[0].payload['reason'] == 'token_budget'
     assert len(model.inputs) == 3  # two calls used 1300 tokens: the third is the final answer, without tools
+    assert events[-1].payload['tokens'] == 1950  # what the daily budget adds up

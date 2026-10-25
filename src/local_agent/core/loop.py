@@ -10,7 +10,8 @@ from agents.exceptions import MaxTurnsExceeded
 from openai.types.responses import ResponseTextDeltaEvent
 
 from local_agent.core import events as ev
-from local_agent.core.hooks import HarnessHooks
+from local_agent.core import views
+from local_agent.core.hooks import HarnessHooks, ModelUpgrade
 from local_agent.core.stop import RunStopped, StopPolicy, final_answer_instruction
 
 logger = logging.getLogger(__name__)
@@ -31,38 +32,54 @@ class RunAlreadyStartedError(Exception):
 
 
 async def run_with_step_limit(agent: Agent, chat_history: list[dict], callback=None, log: ev.EventLog | None = None,
-                              policy: StopPolicy | None = None, max_steps: int = MAX_AGENT_STEPS):
+                              policy: StopPolicy | None = None, max_steps: int = MAX_AGENT_STEPS, upgrade=None):
     """
     Runs the agent loop for at most max_steps model calls, stopping earlier if a stop condition fires. Either
     way the model gets one more call without tools, with everything it did so far, and must answer with what
     it has. Without this, an early stop could end in an answer that claims actions that never happened.
+
+    upgrade(events) -> (model, skill) or None switches the rest of the run to a stronger model, once, keeping
+    everything the run did so far (see hooks.ModelUpgrade).
     """
     log = log or ev.EventLog()  # direct callers (tests) don't keep the log
     policy = policy or StopPolicy.default()
     progress = {'started': False, 'index': 0}
+    run_input = chat_history
     try:
-        try:
-            return await stream_run(agent, chat_history, max_steps, callback, progress, HarnessHooks(log, policy))
-        except (MaxTurnsExceeded, RunStopped) as e:
-            if e.run_data is None:
-                raise
-            if isinstance(e, RunStopped):
-                instruction = final_answer_instruction(e.reason)
-            else:
-                logger.warning(f'Agent hit step limit ({max_steps}), forcing final answer')
-                log.append(ev.STOP, reason='max_turns', message=f'Reached {max_steps} model calls.')
-                instruction = STEP_LIMIT_INSTRUCTION
-            run_input = e.run_data.input
-            history = list(run_input) if isinstance(run_input, list) else [{'role': 'user', 'content': run_input}]
-            history += [item.to_input_item() for item in e.run_data.new_items]
-            history.append({'role': 'system', 'content': instruction})
-            # No stop policy on the final call: it has no tools, and it must be allowed to answer
-            return await stream_run(agent.clone(tools=[]), history, 1, callback, progress,
-                                    HarnessHooks(log, policy=None))
+        while True:
+            hooks = HarnessHooks(log, policy, upgrade)
+            try:
+                remaining = max(max_steps - views.turns(log.events), 0)
+                return await stream_run(agent, run_input, remaining, callback, progress, hooks)
+            except ModelUpgrade as e:
+                if e.run_data is None:
+                    raise
+                agent, upgrade = agent.clone(model=e.model), None
+                run_input = _continued(e.run_data)
+            except (MaxTurnsExceeded, RunStopped) as e:
+                if e.run_data is None:
+                    raise
+                if isinstance(e, RunStopped):
+                    instruction = final_answer_instruction(e.reason)
+                else:
+                    logger.warning(f'Agent hit step limit ({max_steps}), forcing final answer')
+                    log.append(ev.STOP, reason='max_turns', message=f'Reached {max_steps} model calls.')
+                    instruction = STEP_LIMIT_INSTRUCTION
+                history = _continued(e.run_data) + [{'role': 'system', 'content': instruction}]
+                # No stop policy on the final call: it has no tools, and it must be allowed to answer
+                return await stream_run(agent.clone(tools=[]), history, 1, callback, progress,
+                                        HarnessHooks(log, policy=None))
     except Exception as e:
         if progress['started'] and not isinstance(e, RunAlreadyStartedError):
             raise RunAlreadyStartedError(f'{type(e).__name__}: {e}') from e
         raise
+
+
+def _continued(run_data) -> list:
+    """The run so far as input for the next run: what it was given, then every item it produced."""
+    run_input = run_data.input
+    history = list(run_input) if isinstance(run_input, list) else [{'role': 'user', 'content': run_input}]
+    return history + [item.to_input_item() for item in run_data.new_items]
 
 
 async def stream_run(agent: Agent, run_input, max_turns: int, callback, progress, hooks: HarnessHooks | None = None):

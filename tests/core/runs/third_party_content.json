@@ -4,11 +4,10 @@
    "seq": 0,
    "type": "run_start",
    "payload": {
-    "source": "unattended",
+    "source": "chat",
     "message": "summarize my inbox",
     "history_messages": 0,
-    "files": 0,
-    "connected_apps": true,
+    "owner": true,
     "untrusted_inputs": []
    }
   },
@@ -21,8 +20,6 @@
     "app_actions": 1,
     "tools_offered": [
      "GMAIL_FETCH_EMAILS",
-     "get_weather",
-     "calculate",
      "memory_search",
      "memory_read",
      "memory_append",
@@ -31,14 +28,13 @@
      "skill_propose",
      "skill_adjust"
     ],
-    "tool_schema_chars": 4281,
+    "tool_schema_chars": 3053,
     "memory_notes": 0,
     "skills_offered": [
-     "inbox-triage",
      "skill-writer",
      "weekly-review"
     ],
-    "instructions_chars": 19705
+    "instructions_chars": 1858
    }
   },
   {

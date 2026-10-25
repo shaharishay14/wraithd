@@ -1,8 +1,23 @@
-"""The `local-agent` command. Subcommands arrive with later phases."""
+"""
+The `local-agent` command.
+
+    local-agent chat                     talk to the agent in the terminal
+    local-agent runs list                the latest runs
+    local-agent runs show <id> [--json]  one run's timeline (a unique prefix of the id is enough)
+    local-agent key set <provider>       store an API key in the OS keychain
+"""
 
 import argparse
+import asyncio
+import getpass
+import json
+import sys
 
 from local_agent import __version__
+from local_agent.config import PROVIDERS, ConfigError, Home, set_key
+from local_agent.core import inspector
+from local_agent.providers import ProviderError
+from local_agent.store import SQLiteStore
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -11,13 +26,97 @@ def build_parser() -> argparse.ArgumentParser:
         description='A personal agent that runs on your own machine.',
     )
     parser.add_argument('--version', action='version', version=f'local-agent {__version__}')
+    commands = parser.add_subparsers(dest='command')
+
+    commands.add_parser('chat', help='talk to the agent in the terminal')
+
+    runs = commands.add_parser('runs', help='look at what runs did').add_subparsers(dest='runs_command',
+                                                                                   required=True)
+    listing = runs.add_parser('list', help='the latest runs')
+    listing.add_argument('--limit', type=int, default=20)
+    show = runs.add_parser('show', help="one run's timeline")
+    show.add_argument('run_id', help='the run id, or a unique prefix of it')
+    show.add_argument('--json', action='store_true', help='the summary and every event, as JSON')
+
+    key = commands.add_parser('key', help='API keys, kept in the OS keychain').add_subparsers(dest='key_command',
+                                                                                           required=True)
+    key_set = key.add_parser('set', help='store a key (asked for without echo)')
+    key_set.add_argument('provider', choices=[p for p in PROVIDERS if p != 'ollama'])
     return parser
+
+
+def _store(home: Home) -> SQLiteStore | None:
+    return SQLiteStore(home.db_path) if home.db_path.exists() else None
+
+
+def runs_list(home: Home, limit: int) -> int:
+    store = _store(home)
+    runs = store.recent_runs(limit) if store else []
+    if not runs:
+        print('No runs yet.')
+        return 0
+    for info in runs:
+        message = info.message if len(info.message) <= 60 else info.message[:57] + '...'
+        print(f'{info.run_id[:8]}  {info.started_at.astimezone():%Y-%m-%d %H:%M}  {info.source:<9} {message}')
+    return 0
+
+
+def runs_show(home: Home, prefix: str, as_json: bool) -> int:
+    store = _store(home)
+    matches = store.find_runs(prefix) if store and prefix else []
+    if len(matches) != 1:
+        print(f'No run matches {prefix!r}.' if not matches else
+              f'{len(matches)} runs start with {prefix!r}; give more of the id.', file=sys.stderr)
+        return 1
+    events = store.run_events(matches[0])
+    if as_json:
+        print(json.dumps({'run_id': matches[0], 'summary': inspector.summarize(events),
+                          'events': inspector.timeline(events)}, indent=1, default=str))
+    else:
+        print(inspector.render_text(matches[0], events))
+    return 0
+
+
+def key_set(provider: str) -> int:
+    value = getpass.getpass(f'{provider} API key (not shown): ').strip()
+    if not value:
+        print('Nothing saved.', file=sys.stderr)
+        return 1
+    set_key(provider, value)
+    print(f'Saved the {provider} key in the keychain.')
+    return 0
+
+
+def chat(home: Home) -> int:
+    from local_agent.channels.terminal import chat as chat_session
+    from local_agent.run import Runtime
+
+    try:
+        rt = Runtime.open(home)
+    except (ConfigError, ProviderError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    try:
+        asyncio.run(chat_session(rt))
+    except KeyboardInterrupt:
+        pass
+    finally:
+        rt.close()
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    parser.parse_args(argv)
-    # No subcommands yet, so a bare invocation just explains itself.
+    args = parser.parse_args(argv)
+    home = Home.locate()
+    if args.command == 'chat':
+        return chat(home)
+    if args.command == 'runs':
+        if args.runs_command == 'list':
+            return runs_list(home, args.limit)
+        return runs_show(home, args.run_id, args.json)
+    if args.command == 'key':
+        return key_set(args.provider)
     parser.print_help()
     return 0
 

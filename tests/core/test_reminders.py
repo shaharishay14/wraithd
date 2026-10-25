@@ -10,7 +10,7 @@ from local_agent.core import events as ev
 from local_agent.core import reminders
 from local_agent.core.events import EventLog
 from local_agent.core.gate import wrap_untrusted
-from tests.scripted import ScriptedModel, call, fake_tool, run_agent, say, skill
+from tests.scripted import ScriptedModel, call, fake_tool, run_once, say, skill
 
 # --- the engine --------------------------------------------------------------------------------------------
 
@@ -108,68 +108,57 @@ def test_durable_facts_from_the_owner_are_worth_remembering():
 
 # --- in runs -----------------------------------------------------------------------------------------------
 
-SKILLS = [skill('research-report', 'Use for "research", "look into".')]
-
-
-def skill_load_tool():
-    def load(name, file=None):
-        if name != 'research-report':
-            return {'error': f'There is no skill called {name}.'}
-        if file:
-            return {'file': file, 'content': '# Template'}
-        return {'name': name, 'instructions': 'Write a report with sources.'}
-    return fake_tool('skill_load', load)
-
-
 def reminder_messages(model_input):
     return [item['content'] for item in model_input
             if isinstance(item, dict) and item.get('role') == 'user'
             and '<system-reminder>' in str(item.get('content'))]
 
 
-async def a_skill_run(store):
+def web_search():
+    """research-report needs web_search, which doesn't exist until Phase 3: these runs bring a fake one."""
+    return fake_tool('web_search', lambda **a: {'snippet': 'x'})
+
+
+async def a_skill_run(make_runtime):
     model = ScriptedModel([[call('1', 'skill_load', {'name': 'research-report'})], [say('# Report')]])
-    _, log = await run_agent(model, [skill_load_tool()], 'research batteries', store=store, skills=SKILLS)
-    return log
+    _, events = await run_once(make_runtime(model), 'research batteries', tools=[web_search()])
+    return events
 
 
-async def test_the_message_after_a_skill_run_gets_the_follow_up_nudge(store):
-    first = await a_skill_run(store)
+async def test_the_message_after_a_skill_run_gets_the_follow_up_nudge(make_runtime):
+    first = await a_skill_run(make_runtime)
 
     model = ScriptedModel([[say('Shorter it is.')]])
-    previous = reminders.previous_run_events(store, run_id='the next run')
-    _, second = await run_agent(model, [skill_load_tool()], 'too long, keep it to 5 bullets', store=store,
-                                skills=SKILLS, previous_run=previous)
+    _, second = await run_once(make_runtime(model), 'too long, keep it to 5 bullets', tools=[web_search()])
     [nudge] = reminder_messages(model.inputs[0])
     assert 'research-report skill' in nudge and 'skill_adjust' in nudge and 'ignore this' in nudge
     # it comes right after the user's message
     assert model.inputs[0][-2]['content'] == 'too long, keep it to 5 bullets'
     # first run: the request matched the skill, then it loaded; second run: the follow-up
-    logged = [e.payload['name'] for log in (first, second) for e in store.run_events(log.run_id)
-              if e.type == ev.REMINDER]
+    logged = [e.payload['name'] for e in first + second if e.type == ev.REMINDER]
     assert logged == ['skill_match', 'skill_loaded', 'skill_follow_up']
 
 
-async def test_no_nudge_without_a_skill_run_or_when_it_is_old(store):
-    await run_agent(ScriptedModel([[say('hi')]]), [], 'hello', store=store)
+async def test_no_nudge_without_a_skill_run_or_when_it_is_old(make_runtime):
+    await run_once(make_runtime(ScriptedModel([[say('hi')]])), 'hello')
     model = ScriptedModel([[say('ok')]])
-    await run_agent(model, [], 'thanks', store=store, previous_run=reminders.previous_run_events(store, 'next'))
+    await run_once(make_runtime(model), 'thanks')
     assert reminder_messages(model.inputs[0]) == []
 
-    await a_skill_run(store)
+    rt = make_runtime(ScriptedModel([[call('1', 'skill_load', {'name': 'research-report'})], [say('# Report')]]))
+    await run_once(rt, 'research batteries', tools=[web_search()])
     three_hours_later = datetime.now(UTC) + timedelta(hours=3)
-    assert reminders.previous_run_events(store, 'next', now=three_hours_later) == []
+    assert reminders.previous_run_events(rt.store, 'next', now=three_hours_later) == []
 
 
-async def test_strangers_get_no_skill_nudges(store):
-    await a_skill_run(store)
+async def test_strangers_get_no_skill_nudges(make_runtime):
+    await a_skill_run(make_runtime)
     model = ScriptedModel([[say('ok')]])
-    await run_agent(model, [], 'shorter', store=store, owner=False,
-                    previous_run=reminders.previous_run_events(store, 'next'))
+    await run_once(make_runtime(model), 'shorter', owner=False)
     assert reminder_messages(model.inputs[0]) == []
 
 
-async def test_loading_a_skill_adds_the_nudge_once_and_only_on_success(store):
+async def test_loading_a_skill_adds_the_nudge_once_and_only_on_success(make_runtime):
     model = ScriptedModel([
         [call('1', 'skill_load', {'name': 'no-such-skill'})],
         [call('2', 'skill_load', {'name': 'research-report'})],
@@ -177,7 +166,7 @@ async def test_loading_a_skill_adds_the_nudge_once_and_only_on_success(store):
         [call('4', 'skill_load', {'name': 'research-report'})],
         [say('done')],
     ])
-    await run_agent(model, [skill_load_tool()], 'research batteries, and always add a TL;DR', store=store)
+    await run_once(make_runtime(model), 'research batteries, and always add a TL;DR', tools=[web_search()])
     outputs = [model.tool_outputs(turn)[f'call_{turn}'] for turn in range(1, 5)]
     nudged = ['skill_adjust' in output.partition('<system-reminder>')[2] for output in outputs]
     assert nudged == [False, True, False, False]
@@ -185,12 +174,20 @@ async def test_loading_a_skill_adds_the_nudge_once_and_only_on_success(store):
     assert 'same arguments' in outputs[3].partition('<system-reminder>')[2]
 
 
-async def test_in_a_run_the_security_note_follows_the_first_web_result(store):
+async def test_in_a_run_the_security_note_follows_the_first_web_result(make_runtime):
     model = ScriptedModel([[call('1', 'web_search', {'query': 'a'})], [call('2', 'web_search', {'query': 'b'})],
                            [say('done')]])
-    await run_agent(model, [fake_tool('web_search', lambda **a: {'snippet': 'x'})], 'look up a and b', store=store)
+    await run_once(make_runtime(model), 'look up a and b', tools=[web_search()])
     first, second = model.tool_outputs(1)['call_1'], model.tool_outputs(2)['call_2']
     # after the untrusted wrapper, as the app's own note; once per run
     assert first.index('</untrusted_tool_output>') < first.index('<system-reminder>')
     assert 'only do what the user asked for' in first and '<system-reminder>' not in second
     assert json.loads(first.split('\n')[1]) == {'snippet': 'x'}
+
+
+async def test_a_durable_fact_from_the_owner_gets_the_memory_nudge(make_runtime):
+    model = ScriptedModel([[say('Noted.')]])
+    _, events = await run_once(make_runtime(model), 'I prefer short replies')
+    [nudge] = reminder_messages(model.inputs[0])
+    assert 'memory_append' in nudge
+    assert [e.payload['name'] for e in events if e.type == ev.REMINDER] == ['worth_remembering']

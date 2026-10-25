@@ -1,13 +1,12 @@
 """
 Fakes for running the harness through the real Agents SDK Runner without a real model: a scripted model that
-plays back canned turns, fake tools, and a small run() that wires the harness together the way the real one
-will (Phase 2): gate, event log, reminders, loop.
+plays back canned turns, and fake tools. Runs go through the real run().
 """
 
 import json
 from types import SimpleNamespace
 
-from agents import Agent, FunctionTool, set_tracing_disabled
+from agents import FunctionTool, set_tracing_disabled
 from agents.items import ModelResponse
 from agents.models.interface import Model
 from agents.usage import Usage
@@ -20,11 +19,8 @@ from openai.types.responses import (
     ResponseTextDeltaEvent,
 )
 
-from local_agent.core import events as ev
-from local_agent.core import reminders
-from local_agent.core.gate import PermissionGate, guard_function_tools, parse_arguments
-from local_agent.core.loop import run_with_step_limit
-from local_agent.core.stop import StopPolicy
+from local_agent.core.gate import parse_arguments
+from local_agent.run import run
 
 set_tracing_disabled(True)
 
@@ -34,7 +30,8 @@ class ScriptedModel(Model):
     raises, if the turn is an exception), and records the input and tool names the Runner sent each time.
     Streams text in small pieces, like a real model."""
 
-    def __init__(self, turns, usage=None):
+    def __init__(self, turns, usage=None, name='scripted'):
+        self.model = name  # like the SDK's models: what the event log records as the model
         self.turns = list(turns)
         self.usage = usage  # Usage to report on every call, for budget tests
         self.inputs = []
@@ -116,39 +113,14 @@ def tool_json(output):
     return json.loads(output.split('\n<system-reminder>')[0])
 
 
-async def run_agent(model, tools, message, *, store, callback=None, gate=None, policy=None, history=(),
-                    owner=True, skills=(), previous_run=(), source='chat', wrap=None):
-    """
-    One run, wired like the real run() will be: a gate, an event log, tool-bound reminders, the loop.
-    wrap(guarded_tools, gate, log, after_result) may replace how tools are guarded (discovery does).
-    Returns (answer, log); the log is saved to the store.
-    """
-    log = ev.EventLog(store)
-    log.append(ev.RUN_START, source=source, message=message, untrusted_inputs=[])
-    gate = gate or PermissionGate(store, callback, list(history), message)
-    situation = reminders.Situation(message=message, events=log.events, owner=owner, skills=list(skills),
-                                    previous_run=list(previous_run))
+async def run_once(rt, message, **kwargs):
+    """One real run(); returns (result, the run's saved events)."""
+    result = await run(rt, message, **kwargs)
+    return result, rt.store.run_events(result.run_id)
 
-    def after_result(tool_name, result_text):
-        situation.tool, situation.tool_output = tool_name, result_text
-        return reminders.inject(log, tool_name, reminders.due(reminders.REMINDERS, tool_name, situation))
 
-    guarded = (wrap or guard_function_tools)(tools, gate, log, after_result)
-    log.append(ev.CONTEXT_BUILT, model='scripted', tools_offered=[tool.name for tool in guarded])
-    chat = list(history) + [{'role': 'user', 'content': message}]
-    start_block = reminders.inject(log, reminders.RUN_START, reminders.due(reminders.REMINDERS, reminders.RUN_START,
-                                                                           situation))
-    if start_block:
-        chat.append({'role': 'user', 'content': start_block})
-    agent = Agent(name='test', instructions='You help the owner.' + reminders.PREAMBLE, tools=guarded, model=model)
-    try:
-        result = await run_with_step_limit(agent, chat, callback, log=log, policy=policy or StopPolicy.default())
-        answer = result.final_output
-        log.append(ev.RUN_END, outcome='answered', turns=len(log.of_type(ev.TURN_START)),
-                   stop_reason=next((e.payload['reason'] for e in reversed(log.events) if e.type == ev.STOP), None))
-        return answer, log
-    finally:
-        log.save()
+def of_type(events, *types):
+    return [event for event in events if event.type in types]
 
 
 def recorder():

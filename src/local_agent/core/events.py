@@ -23,6 +23,7 @@ MODEL_OUTPUT = 'model_output'  # what that call returned, with token usage
 TOOL_CALL = 'tool_call'  # the model asked for a tool; payload says what the gate decided
 TOOL_RESULT = 'tool_result'  # what came back: ok / error / denied
 STOP = 'stop'  # a stop condition fired
+MODEL_UPGRADE = 'model_upgrade'  # a skill asked for the strong model; the rest of the run uses it
 REMINDER = 'reminder'  # a system reminder was added (reminders.py)
 RUN_END = 'run_end'
 COMPACTION = 'compaction'  # older chat messages were folded into the summary (between runs)

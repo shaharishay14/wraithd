@@ -10,8 +10,7 @@ from agents import FunctionTool
 
 from local_agent.core import disclosure
 from local_agent.core import events as ev
-from local_agent.core.gate import guard_function_tools
-from tests.scripted import ScriptedModel, call, run_agent, say
+from tests.scripted import ScriptedModel, call, of_type, run_once, say
 
 SEND_SCHEMA = {'type': 'object', 'properties': {
     'recipient_email': {'type': 'string', 'description': 'Who gets the email'},
@@ -21,7 +20,7 @@ SEND_SCHEMA = {'type': 'object', 'properties': {
 }, 'required': ['recipient_email', 'body']}
 FETCH_SCHEMA = {'type': 'object', 'properties': {'query': {'type': 'string', 'description': 'Gmail search'}}}
 
-# 15 actions: more than DIRECT_ACTIONS_LIMIT, so a run would use discovery
+# 15 actions: more than DIRECT_ACTIONS_LIMIT, so the run uses discovery
 ACTIONS = {
     'GMAIL_SEND_EMAIL': ('Send an email to one or more recipients. Supports HTML.', SEND_SCHEMA),
     'GMAIL_FETCH_EMAILS': ('Fetch emails from the inbox, with Gmail search filters.', FETCH_SCHEMA),
@@ -41,17 +40,13 @@ def fake_app_tools(calls):
     return [make(slug, description, schema) for slug, (description, schema) in ACTIONS.items()]
 
 
-async def discovery_run(store, turns, message, app_calls, callback=None):
-    """A run where the app actions stay out of the tool list, as the real run() does past the limit."""
-    def wrap(tools, gate, log, after_result):
-        catalog = disclosure.AppCatalog(guard_function_tools(fake_app_tools(app_calls), gate, log, after_result),
-                                        guides=GUIDES)
-        find_tool, describe_tool, run_tool = disclosure.discovery_tools(catalog, log)
-        return guard_function_tools(tools + [find_tool, describe_tool], gate, log, after_result) + [run_tool]
-
+async def discovery_run(make_runtime, turns, message, app_calls, callback=None, actions=None):
+    """A run with many app actions: run() keeps them out of the tool list past DIRECT_ACTIONS_LIMIT."""
     model = ScriptedModel(turns)
-    _, log = await run_agent(model, [], message, store=store, callback=callback, wrap=wrap)
-    return model, log
+    tools = fake_app_tools(app_calls)
+    _, events = await run_once(make_runtime(model), message, callback=callback, owner=False,
+                               app_tools=tools[:actions] if actions else tools, app_guides=GUIDES)
+    return model, events
 
 
 # --- the catalog -------------------------------------------------------------------------------------------
@@ -91,9 +86,9 @@ def test_the_prompt_note_names_the_apps_and_the_order():
 
 # --- full runs ---------------------------------------------------------------------------------------------
 
-async def test_many_actions_are_discovered_not_listed(store):
+async def test_many_actions_are_discovered_not_listed(make_runtime):
     app_calls = []
-    model, log = await discovery_run(store, [
+    model, events = await discovery_run(make_runtime, [
         [call('1', 'find_app_actions', {'query': 'fetch inbox emails'})],
         [call('2', 'describe_app_action', {'action': 'GMAIL_FETCH_EMAILS'})],
         [call('3', 'run_app_action', {'action': 'GMAIL_FETCH_EMAILS', 'arguments': {'query': 'is:unread'}})],
@@ -116,26 +111,26 @@ async def test_many_actions_are_discovered_not_listed(store):
     assert app_calls == [('GMAIL_FETCH_EMAILS', {'query': 'is:unread'})]
     assert model.tool_outputs(3)['call_3'].startswith('<untrusted_tool_output tool="GMAIL_FETCH_EMAILS">')
     # the log has the real action, not the dispatcher
-    assert [e.payload['tool'] for e in log.of_type(ev.TOOL_CALL)] == [
+    assert [e.payload['tool'] for e in of_type(events, ev.TOOL_CALL)] == [
         'find_app_actions', 'describe_app_action', 'GMAIL_FETCH_EMAILS', 'describe_app_action']
 
 
-async def test_an_action_must_be_described_before_it_runs(store):
+async def test_an_action_must_be_described_before_it_runs(make_runtime):
     app_calls = []
-    model, log = await discovery_run(store, [
+    model, events = await discovery_run(make_runtime, [
         [call('1', 'run_app_action', {'action': 'GMAIL_FETCH_EMAILS', 'arguments': {}})],
         [say('I need to look it up first.')],
     ], 'fetch my mail', app_calls)
 
     assert app_calls == []
     assert 'has not been described' in json.loads(model.tool_outputs(1)['call_1'])['error']
-    result = log.of_type(ev.TOOL_RESULT)[0].payload
+    result = of_type(events, ev.TOOL_RESULT)[0].payload
     assert result['tool'] == 'GMAIL_FETCH_EMAILS' and result['outcome'] == 'error'  # counts toward stop conditions
 
 
-async def test_missing_arguments_are_caught_before_the_app_is_called(store):
+async def test_missing_arguments_are_caught_before_the_app_is_called(make_runtime):
     app_calls = []
-    model, _ = await discovery_run(store, [
+    model, _ = await discovery_run(make_runtime, [
         [call('1', 'describe_app_action', {'action': 'GMAIL_SEND_EMAIL'})],
         [call('2', 'run_app_action', {'action': 'GMAIL_SEND_EMAIL', 'arguments': {'subject': 'Hi', 'cc': 'x'}})],
         [say('Who should I send it to?')],
@@ -146,8 +141,8 @@ async def test_missing_arguments_are_caught_before_the_app_is_called(store):
     assert app_calls == []
 
 
-async def test_an_unknown_action_gets_suggestions(store):
-    model, _ = await discovery_run(store, [
+async def test_an_unknown_action_gets_suggestions(make_runtime):
+    model, _ = await discovery_run(make_runtime, [
         [call('1', 'describe_app_action', {'action': 'gmail_send_emails'})],
         [say('Found it.')],
     ], 'send an email', [])
@@ -155,9 +150,9 @@ async def test_an_unknown_action_gets_suggestions(store):
     assert described['did_you_mean'][0] == 'GMAIL_SEND_EMAIL'
 
 
-async def test_a_write_through_discovery_still_needs_approval(store):
+async def test_a_write_through_discovery_still_needs_approval(make_runtime):
     app_calls = []
-    model, log = await discovery_run(store, [
+    model, events = await discovery_run(make_runtime, [
         [call('1', 'describe_app_action', {'action': 'GMAIL_SEND_EMAIL'})],
         [call('2', 'run_app_action', {'action': 'GMAIL_SEND_EMAIL',
                                       'arguments': {'recipient_email': 'dana@co.com', 'body': 'Hi'}})],
@@ -166,5 +161,18 @@ async def test_a_write_through_discovery_still_needs_approval(store):
 
     assert app_calls == []
     assert 'needs the user\'s approval' in json.loads(model.tool_outputs(2)['call_2'])['error']
-    send = [e.payload for e in log.of_type(ev.TOOL_CALL) if e.payload['tool'] == 'GMAIL_SEND_EMAIL'][0]
+    send = [e.payload for e in of_type(events, ev.TOOL_CALL) if e.payload['tool'] == 'GMAIL_SEND_EMAIL'][0]
     assert send['access'] == 'write' and send['allowed'] is False
+
+
+async def test_the_run_records_the_mode_and_explains_it(make_runtime):
+    model, events = await discovery_run(make_runtime, [[say('Hi')]], 'hi', [])
+    context = of_type(events, ev.CONTEXT_BUILT)[0].payload
+    assert context['disclosure'] == 'discovery' and context['app_actions'] == len(ACTIONS)
+    assert 'CONNECTED APPS: GMAIL, SLACK (15 actions)' in model.instructions[0]
+
+
+async def test_few_actions_are_still_given_directly(make_runtime):
+    model, events = await discovery_run(make_runtime, [[say('Hi')]], 'hi', [], actions=2)
+    assert 'GMAIL_SEND_EMAIL' in model.tool_names[0] and 'find_app_actions' not in model.tool_names[0]
+    assert of_type(events, ev.CONTEXT_BUILT)[0].payload['disclosure'] == 'direct'
