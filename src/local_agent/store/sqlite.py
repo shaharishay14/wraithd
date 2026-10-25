@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from local_agent.core.events import RUN_END, RUN_START, Event
-from local_agent.store.base import APPROVAL_STATUSES, PENDING, Approval, Conversation, Message, RunInfo
+from local_agent.store.base import APPROVAL_STATUSES, PENDING, Approval, Conversation, Message, RunInfo, Schedule
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS run_events (
@@ -46,6 +46,19 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_conversation ON messages (conversation_id, id);
+
+CREATE TABLE IF NOT EXISTS schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message TEXT NOT NULL,
+    cron TEXT,
+    at TEXT,
+    timezone TEXT NOT NULL,
+    next_fire_at TEXT,
+    created_at TEXT NOT NULL,
+    last_fired_at TEXT,
+    active INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS schedules_due ON schedules (active, next_fire_at);
 
 CREATE TABLE IF NOT EXISTS approvals (
     id TEXT PRIMARY KEY,
@@ -170,6 +183,51 @@ class SQLiteStore:
                            (conversation_id, after))
         return [Message(id=row['id'], role=row['role'], content=row['content'], created_at=_parse(row['created_at']))
                 for row in rows]
+
+    # --- schedules ---------------------------------------------------------------------------------
+
+    @staticmethod
+    def _schedule(row) -> Schedule:
+        return Schedule(id=row['id'], message=row['message'], cron=row['cron'], at=row['at'],
+                        timezone=row['timezone'], next_fire_at=_parse(row['next_fire_at']),
+                        created_at=_parse(row['created_at']), last_fired_at=_parse(row['last_fired_at']),
+                        active=bool(row['active']))
+
+    def add_schedule(self, message, cron, at, timezone, next_fire_at) -> Schedule:
+        now = datetime.now(UTC)
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                'INSERT INTO schedules (message, cron, at, timezone, next_fire_at, created_at) '
+                'VALUES (?, ?, ?, ?, ?, ?)',
+                (message, cron, at, timezone, _stamp(next_fire_at), _stamp(now)))
+        return self.get_schedule(cursor.lastrowid)
+
+    def list_schedules(self, active_only=True) -> list[Schedule]:
+        where = 'WHERE active = 1 ' if active_only else ''
+        return [self._schedule(row) for row in self._query(f'SELECT * FROM schedules {where}ORDER BY id')]
+
+    def get_schedule(self, schedule_id) -> Schedule | None:
+        rows = self._query('SELECT * FROM schedules WHERE id = ?', (schedule_id,))
+        return self._schedule(rows[0]) if rows else None
+
+    def cancel_schedule(self, schedule_id) -> bool:
+        with self._lock, self._db:
+            cursor = self._db.execute('UPDATE schedules SET active = 0 WHERE id = ? AND active = 1', (schedule_id,))
+        return cursor.rowcount == 1
+
+    def due_schedules(self, now) -> list[Schedule]:
+        rows = self._query('SELECT * FROM schedules WHERE active = 1 AND next_fire_at IS NOT NULL '
+                           'AND next_fire_at <= ? ORDER BY next_fire_at, id', (_stamp(now),))
+        return [self._schedule(row) for row in rows]
+
+    def claim_schedule(self, schedule_id, expected_next, next_fire_at, fired_at) -> bool:
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                'UPDATE schedules SET next_fire_at = ?, last_fired_at = ?, active = ? '
+                'WHERE id = ? AND active = 1 AND next_fire_at = ?',
+                (next_fire_at and _stamp(next_fire_at), _stamp(fired_at), int(next_fire_at is not None),
+                 schedule_id, _stamp(expected_next)))
+        return cursor.rowcount == 1
 
     # --- approvals ---------------------------------------------------------------------------------
 

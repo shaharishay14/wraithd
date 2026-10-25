@@ -38,10 +38,20 @@ class ToolAccess(StrEnum):
 APPROVAL_TIMEOUT_SECONDS = 60
 APPROVAL_POLL_SECONDS = 1
 
-# The harness's own tools. Names follow agent-studio until the built-in tools land (Phases 2 and 3).
+# The harness's own tools (tools/). The web tools keep agent-studio's names.
 BUILTIN_TOOL_ACCESS = {
     'web_search': ToolAccess.READ,
     'read_website': ToolAccess.READ,
+    # Workspace files: confined to workspace/files/ in code (tools/files.py), so writing there needs no approval
+    'files_list': ToolAccess.READ,
+    'files_read': ToolAccess.READ,
+    'files_write': ToolAccess.READ,
+    # Runs anything the owner's account can: every command is asked about, and never unattended (below)
+    'shell_run': ToolAccess.WRITE,
+    # A schedule is a standing instruction that later runs unattended: the owner decides, like skill_adjust
+    'schedule_create': ToolAccess.WRITE,
+    'schedule_list': ToolAccess.READ,
+    'schedule_cancel': ToolAccess.READ,
     # Progressive disclosure (disclosure.py): they only read the run's catalog of app actions
     'find_app_actions': ToolAccess.READ,
     'describe_app_action': ToolAccess.READ,
@@ -58,6 +68,9 @@ BUILTIN_TOOL_ACCESS = {
     'skill_adjust': ToolAccess.WRITE,
 }
 
+# Never run without someone there to say yes, whatever was pre-approved
+NEVER_UNATTENDED = {'shell_run'}
+
 # What the model is told when the owner declines, where the default ("ask what to change") is wrong
 DECLINE_MESSAGES = {
     'skill_adjust': 'The user chose not to save this as a permanent rule for the skill. Still do it their way in '
@@ -68,14 +81,19 @@ DECLINE_MESSAGES = {
 APPROVAL_REASONS = {
     'skill_adjust': 'Your agent will follow this rule every time it uses this skill. You can change or remove it '
                     'later.',
+    'shell_run': 'This runs on your computer with your permissions, in workspace/files/. Check the command before '
+                 'you allow it.',
+    'schedule_create': 'Your agent will run this on its own at these times, without asking you first. '
+                       'See and remove schedules with `local-agent schedules`.',
 }
 
 # Built-in tools that read the owner's private data, like the connected apps do
-PRIVATE_OUTPUT_BUILTINS = {'memory_search', 'memory_read'}
+PRIVATE_OUTPUT_BUILTINS = {'memory_search', 'memory_read', 'files_list', 'files_read', 'shell_run'}
 
-# Built-in tools whose output is third-party text (web pages, search snippets).
-# Every connected-app tool counts as third-party too: emails, messages and docs are written by other people.
-UNTRUSTED_OUTPUT_BUILTINS = {'web_search', 'read_website'}
+# Built-in tools whose output is third-party text (web pages, search snippets, documents the owner saved,
+# whatever a command prints). Every connected-app tool counts as third-party too: emails, messages and docs are
+# written by other people.
+UNTRUSTED_OUTPUT_BUILTINS = {'web_search', 'read_website', 'files_read', 'shell_run'}
 
 # Read tools whose argument is a URL the model chooses. Opening a URL is a request the site's owner sees.
 # Once the owner's private data is in the context, an attacker could have the agent open links in an order
@@ -360,6 +378,11 @@ class PermissionGate:
             )
 
         if self.callback is None:
+            if tool_name in NEVER_UNATTENDED:
+                return denial(
+                    f'{tool_name} never runs unattended: nobody is here to approve it. Do not retry. Tell the user '
+                    'to ask for it in a conversation.'
+                )
             if tool_name in self.unattended_write_tools:
                 # Pre-approval was given for the owner's intent. After reading third-party content, the request
                 # may be an attacker's: it may only go to recipients the owner wrote.

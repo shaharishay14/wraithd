@@ -28,7 +28,7 @@ PATTERNS = [
 ]
 
 # Keys the owner may have in the environment, matched by exact value whatever their shape
-ENV_SECRETS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'TELEGRAM_BOT_TOKEN']
+ENV_SECRETS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'SERPAPI_KEY', 'TELEGRAM_BOT_TOKEN']
 MIN_SECRET_LENGTH = 12  # shorter values would match ordinary text
 
 # Values registered at runtime: keys read from the keychain, MCP server tokens

@@ -19,6 +19,7 @@ from openai.types.responses import (
     ResponseTextDeltaEvent,
 )
 
+from local_agent.channels.terminal import Terminal
 from local_agent.core.gate import parse_arguments
 from local_agent.run import run
 
@@ -108,6 +109,12 @@ def fake_tool(name, fn=None, schema=None, description='A test tool.'):
                         on_invoke_tool=invoke, strict_json_schema=False)
 
 
+def unwrapped_json(output):
+    """A third-party tool result as the model saw it, without the untrusted wrapper and any reminder."""
+    inner = output.split('\n', 1)[1].rsplit('\n</untrusted_tool_output>', 1)[0]
+    return json.loads(inner)
+
+
 def tool_json(output):
     """A tool result as the model saw it, parsed, without any system reminder the harness added after it."""
     return json.loads(output.split('\n<system-reminder>')[0])
@@ -137,3 +144,21 @@ def recorder():
 def skill(name, description):
     """A skill as the reminders see one: a name and a description."""
     return SimpleNamespace(name=name, description=description)
+
+
+class ScriptedTerminal(Terminal):
+    """Plays the owner: types the given lines, then Ctrl-D. Keeps everything written."""
+
+    def __init__(self, *lines):
+        self.lines, self.prompts, self.output = list(lines), [], []
+
+    async def ask(self, prompt):
+        self.prompts.append(prompt)
+        return self.lines.pop(0) if self.lines else None
+
+    def say(self, text='', end='\n'):
+        self.output.append(text + end)
+
+    @property
+    def text(self):
+        return ''.join(self.output)

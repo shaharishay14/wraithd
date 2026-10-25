@@ -48,6 +48,21 @@ class RunInfo:
 
 
 @dataclass(frozen=True)
+class Schedule:
+    """A standing instruction to run later: on a cron in the owner's timezone, or once at a time."""
+
+    id: int
+    message: str  # what the run is asked, as the owner approved it
+    cron: str | None  # "0 8 * * 1-5"; None for a one-off
+    at: str | None  # ISO local time for a one-off; None for a cron
+    timezone: str  # IANA name the cron and the time are read in
+    next_fire_at: datetime | None  # UTC; None once a one-off has fired
+    created_at: datetime
+    last_fired_at: datetime | None = None
+    active: bool = True
+
+
+@dataclass(frozen=True)
 class Approval:
     """A write action the agent wanted to run, and what the owner decided."""
 
@@ -93,6 +108,28 @@ class Store(Protocol):
 
     def messages(self, conversation_id: str, after: int = 0) -> list[Message]:
         """The conversation's messages with an id above `after`, oldest first."""
+
+    # --- schedules ---------------------------------------------------------------------------------
+
+    def add_schedule(self, message: str, cron: str | None, at: str | None, timezone: str,
+                     next_fire_at: datetime) -> Schedule: ...
+
+    def list_schedules(self, active_only: bool = True) -> list[Schedule]: ...
+
+    def get_schedule(self, schedule_id: int) -> Schedule | None: ...
+
+    def cancel_schedule(self, schedule_id: int) -> bool:
+        """Turns a schedule off. False if there was no active schedule with that id."""
+
+    def due_schedules(self, now: datetime) -> list[Schedule]:
+        """Active schedules whose next fire time is at or before now."""
+
+    def claim_schedule(self, schedule_id: int, expected_next: datetime, next_fire_at: datetime | None,
+                       fired_at: datetime) -> bool:
+        """
+        Moves a due schedule to its next fire time (None: it's done) only if it still holds expected_next, so two
+        callers can't both fire it. True if this caller claimed it.
+        """
 
     # --- approvals ---------------------------------------------------------------------------------
 

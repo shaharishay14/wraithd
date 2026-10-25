@@ -1,0 +1,131 @@
+"""
+Workspace files: list, read and write inside workspace/files/, and nothing outside it, however the path is
+written (`..`, absolute, `~`, or a symlink inside the folder that points out). Through the real run().
+"""
+
+import json
+import os
+
+import pytest
+
+from local_agent.core import events as ev
+from local_agent.tools.files import OutsideWorkspace, file_tools, resolve_inside
+from tests.scripted import ScriptedModel, call, of_type, run_once, say
+
+
+@pytest.fixture
+def files(home):
+    root = home.files_dir
+    (root / 'notes').mkdir()
+    (root / 'notes' / 'todo.md').write_text('- buy milk\n')
+    return root
+
+
+@pytest.fixture
+def outside(home, tmp_path):
+    secret = tmp_path / 'outside' / 'secret.txt'
+    secret.parent.mkdir()
+    secret.write_text('the owner\'s ssh key')
+    return secret
+
+
+def by_name(root):
+    return {tool.name: tool for tool in file_tools(root)}
+
+
+async def call_tool(tool, **arguments):
+    return json.loads(await tool.on_invoke_tool(None, json.dumps(arguments)))
+
+
+# --- confinement -------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize('path', ['../outside/secret.txt', 'notes/../../outside/secret.txt', '/etc/passwd',
+                                  '~/.ssh/id_rsa', '..'])
+def test_paths_that_leave_the_folder_are_refused(files, path):
+    with pytest.raises(OutsideWorkspace):
+        resolve_inside(files, path)
+
+
+def test_a_symlink_pointing_out_is_refused_but_one_inside_works(files, outside):
+    (files / 'escape.txt').symlink_to(outside)
+    (files / 'escape-dir').symlink_to(outside.parent, target_is_directory=True)
+    (files / 'todo-link.md').symlink_to(files / 'notes' / 'todo.md')
+    for path in ['escape.txt', 'escape-dir/secret.txt', 'escape-dir']:
+        with pytest.raises(OutsideWorkspace):
+            resolve_inside(files, path)
+    assert resolve_inside(files, 'todo-link.md') == (files / 'notes' / 'todo.md').resolve()
+
+
+async def test_no_tool_reads_writes_or_lists_outside(files, outside):
+    tools = by_name(files)
+    (files / 'escape.txt').symlink_to(outside)
+    (files / 'escape-dir').symlink_to(outside.parent, target_is_directory=True)
+    for path in ['../outside/secret.txt', 'escape.txt', str(outside)]:
+        result = await call_tool(tools['files_read'], path=path)
+        assert 'error' in result and 'ssh key' not in json.dumps(result)
+    assert 'error' in await call_tool(tools['files_write'], path='escape.txt', content='overwritten')
+    assert 'error' in await call_tool(tools['files_write'], path='escape-dir/new.txt', content='x')
+    assert 'error' in await call_tool(tools['files_list'], path='escape-dir')
+    assert outside.read_text() == 'the owner\'s ssh key' and not (outside.parent / 'new.txt').exists()
+    # and a symlink out isn't even listed
+    listed = await call_tool(tools['files_list'])
+    assert [entry['path'] for entry in listed['entries']] == ['notes']
+
+
+# --- the tools ---------------------------------------------------------------------------------------------
+
+async def test_list_read_and_write_inside(files):
+    tools = by_name(files)
+    assert (await call_tool(tools['files_list'], path='notes'))['entries'] == [
+        {'path': 'notes/todo.md', 'type': 'file', 'bytes': 11}]
+    assert (await call_tool(tools['files_read'], path='notes/todo.md'))['content'] == '- buy milk\n'
+    written = await call_tool(tools['files_write'], path='drafts/letter.md', content='Dear Dana')
+    assert written == {'written': 'drafts/letter.md', 'bytes': 9, 'appended': False}
+    await call_tool(tools['files_write'], path='drafts/letter.md', content=',\nThanks', append=True)
+    assert (files / 'drafts' / 'letter.md').read_text() == 'Dear Dana,\nThanks'
+
+
+async def test_long_files_are_read_in_parts_and_binary_is_refused(files):
+    tools = by_name(files)
+    (files / 'long.txt').write_text('x' * 5000)
+    first = await call_tool(tools['files_read'], path='long.txt')
+    assert first['truncated'] and first['next_offset'] == 3500 and len(first['content']) == 3500
+    second = await call_tool(tools['files_read'], path='long.txt', offset=first['next_offset'])
+    assert len(second['content']) == 1500 and not second['truncated']
+    (files / 'photo.jpg').write_bytes(b'\xff\xd8\x00\x10JFIF')
+    assert 'binary' in (await call_tool(tools['files_read'], path='photo.jpg'))['error']
+
+
+# --- in runs -----------------------------------------------------------------------------------------------
+
+async def test_the_agent_saves_and_reads_a_file_without_asking(make_runtime, files, events):
+    model = ScriptedModel([
+        [call('1', 'files_write', {'path': 'plans/trip.md', 'content': '# Lisbon\n- flights'})],
+        [call('2', 'files_read', {'path': 'plans/trip.md'})],
+        [say('Saved your trip plan.')],
+    ])
+    result, events_ = await run_once(make_runtime(model), 'save a trip plan for Lisbon', callback=events)
+    assert result.answer == 'Saved your trip plan.'
+    assert (files / 'plans' / 'trip.md').read_text() == '# Lisbon\n- flights'
+    assert not any(event == 'approval_required' for event, _ in events.recorded)  # writes inside need no approval
+    # a document's content is third-party data: wrapped, and the run counts as tainted
+    assert model.tool_outputs(2)['call_2'].startswith('<untrusted_tool_output tool="files_read">')
+    assert of_type(events_, ev.TOOL_RESULT)[-1].payload['untrusted'] is True
+
+
+async def test_a_path_escape_in_a_run_reads_nothing(make_runtime, files, outside):
+    (files / 'escape.txt').symlink_to(outside)
+    model = ScriptedModel([[call('1', 'files_read', {'path': '../outside/secret.txt'})],
+                           [call('2', 'files_read', {'path': 'escape.txt'})],
+                           [call('3', 'files_read', {'path': os.fspath(outside)})],
+                           [say('I can only read files in your workspace.')]])
+    _, events = await run_once(make_runtime(model), 'read my secret')
+    outputs = [model.tool_outputs(turn)[f'call_{turn}'] for turn in (1, 2, 3)]
+    assert all('ssh key' not in output for output in outputs)
+    assert [e.payload['outcome'] for e in of_type(events, ev.TOOL_RESULT)] == ['error'] * 3
+
+
+async def test_strangers_get_no_file_tools(make_runtime):
+    model = ScriptedModel([[say('hi')]])
+    await run_once(make_runtime(model), 'hi', owner=False)
+    assert not any(name.startswith('files_') for name in model.tool_names[0])

@@ -19,6 +19,13 @@
     "disclosure": "direct",
     "app_actions": 0,
     "tools_offered": [
+     "read_website",
+     "files_list",
+     "files_read",
+     "files_write",
+     "schedule_create",
+     "schedule_list",
+     "schedule_cancel",
      "calculate",
      "memory_search",
      "memory_read",
@@ -28,7 +35,7 @@
      "skill_propose",
      "skill_adjust"
     ],
-    "tool_schema_chars": 3051,
+    "tool_schema_chars": 6004,
     "memory_notes": 0,
     "skills_offered": [
      "skill-writer",

@@ -28,13 +28,13 @@ async def test_multi_step_task_runs_tools_until_the_model_answers(make_runtime, 
         [say('It is 64.4F in Paris')],
     ])
     result, _ = await run_once(make_runtime(model), 'Paris weather in Fahrenheit?', tools=[WEATHER, CALCULATE],
-                               callback=events, owner=False)
+                               callback=events, owner=False, builtins=False)
     assert result.answer == 'It is 64.4F in Paris' and result.outcome == 'answered'
     # the answer was streamed to the channel in pieces, in order
     deltas = [data for event, data in events.recorded if event == 'content_delta']
     assert len(deltas) > 1 and ''.join(d['content'] for d in deltas) == 'It is 64.4F in Paris'
     assert [d['index'] for d in deltas] == list(range(len(deltas)))
-    assert model.tool_names[0] == ['calculate', 'get_weather']  # a stranger gets no memory or skill tools
+    assert model.tool_names[0] == ['calculate', 'get_weather']  # a stranger, without built-ins: only these
     assert 'Paris' in model.tool_outputs(1)['call_1']  # step 2 saw step 1's result
     assert '18 * 9' in model.tool_outputs(2)['call_2']
 
@@ -52,8 +52,10 @@ async def test_a_run_leaves_a_full_event_timeline(make_runtime):
     ]
     by_type = {e.type: e.payload for e in events}
     assert by_type[ev.RUN_START]['source'] == 'chat' and by_type[ev.RUN_START]['message'] == 'weather in Paris?'
-    # the owner gets memory and skill tools next to the run's own
-    assert by_type[ev.CONTEXT_BUILT]['tools_offered'] == ['get_weather', 'memory_search', 'memory_read',
+    # the owner gets the built-ins (no search key, shell off), the run's own tools, memory and skills
+    assert by_type[ev.CONTEXT_BUILT]['tools_offered'] == ['read_website', 'files_list', 'files_read', 'files_write',
+                                                          'schedule_create', 'schedule_list', 'schedule_cancel',
+                                                          'get_weather', 'memory_search', 'memory_read',
                                                           'memory_append', 'memory_write', 'skill_load',
                                                           'skill_propose', 'skill_adjust']
     assert by_type[ev.CONTEXT_BUILT]['skills_offered'] == ['skill-writer', 'weekly-review']
@@ -146,7 +148,7 @@ async def test_big_tool_result_is_capped_and_marked(make_runtime):
 
 async def test_plain_chat_streams_through_the_same_runner(make_runtime, events):
     model = ScriptedModel([[say('Hello! How can I help?')]])
-    result, _ = await run_once(make_runtime(model), 'hi', callback=events, owner=False)
+    result, _ = await run_once(make_runtime(model), 'hi', callback=events, owner=False, builtins=False)
     assert result.answer == 'Hello! How can I help?'
     assert model.tool_names == [[]]
     assert ''.join(d['content'] for e, d in events.recorded if e == 'content_delta') == 'Hello! How can I help?'

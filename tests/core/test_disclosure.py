@@ -44,7 +44,7 @@ async def discovery_run(make_runtime, turns, message, app_calls, callback=None, 
     """A run with many app actions: run() keeps them out of the tool list past DIRECT_ACTIONS_LIMIT."""
     model = ScriptedModel(turns)
     tools = fake_app_tools(app_calls)
-    _, events = await run_once(make_runtime(model), message, callback=callback, owner=False,
+    _, events = await run_once(make_runtime(model), message, callback=callback, owner=False, builtins=False,
                                app_tools=tools[:actions] if actions else tools, app_guides=GUIDES)
     return model, events
 

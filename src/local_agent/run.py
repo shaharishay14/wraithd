@@ -27,6 +27,7 @@ from local_agent.providers import build_models
 from local_agent.skills import registry
 from local_agent.skills.tools import skill_tools
 from local_agent.store import SQLiteStore, Store
+from local_agent.tools import builtin_tools
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,9 @@ class Runtime:
     config: Config
     store: Store
     models: dict[str, Model]  # 'default', and 'strong' if one is configured
+    # The web tools' HTTP transports: None is the real network; tests pass httpx.MockTransport
+    web_transport: object = None
+    search_transport: object = None
     memory: Vault = field(init=False)
     skills: registry.SkillFolder = field(init=False)
 
@@ -136,14 +140,16 @@ async def _run_loop(agent, chat, callback, log, policy, upgrade):
 
 
 async def run(rt: Runtime, message: str, *, history=(), callback=None, source: str = 'chat', owner: bool = True,
-              tools=(), app_tools=(), app_guides: dict[str, str] | None = None) -> RunResult:
+              tools=(), app_tools=(), app_guides: dict[str, str] | None = None, builtins: bool = True) -> RunResult:
     """
     Runs the agent on one message.
 
     history: earlier messages of the conversation (already compacted), as {"role", "content"} items
     callback: async (event_type, data) for streaming and approvals; None when nobody is watching
     owner: the owner is the one talking. Strangers get no memory, no owner skills and can't change skills.
-    tools: extra built-in tools (Phase 3); app_tools: connected-app tools (Phase 4), discovered past a dozen
+    tools: extra tools (a caller's tool replaces a built-in one with the same name);
+    app_tools: connected-app tools (Phase 4), discovered past a dozen;
+    builtins: the built-in tools (tools/), which depend on owner and on whether anyone can approve
     """
     started = time.monotonic()
     history = list(history)
@@ -165,6 +171,10 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
             end('refused')
             return RunResult(DAILY_BUDGET_MESSAGE, log.run_id, 'refused')
 
+        if builtins:
+            given = {tool.name for tool in tools}
+            tools = [tool for tool in builtin_tools(rt, owner=owner, attended=callback is not None)
+                     if tool.name not in given] + list(tools)
         orders = standing_orders(rt.home)
         gate = PermissionGate(rt.store, callback, history, message, instructions=orders,
                               owner_email=rt.config.owner_email)

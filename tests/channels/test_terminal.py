@@ -11,26 +11,7 @@ from local_agent.core import events as ev
 from local_agent.core import gate as gate_module
 from local_agent.run import run
 from local_agent.store import base as store_base
-from tests.scripted import ScriptedModel, call, say
-
-
-class ScriptedTerminal(terminal.Terminal):
-    """Plays the owner: types the given lines, then Ctrl-D. Keeps everything written."""
-
-    def __init__(self, *lines):
-        self.lines, self.prompts, self.output = list(lines), [], []
-
-    async def ask(self, prompt):
-        self.prompts.append(prompt)
-        return self.lines.pop(0) if self.lines else None
-
-    def say(self, text='', end='\n'):
-        self.output.append(text + end)
-
-    @property
-    def text(self):
-        return ''.join(self.output)
-
+from tests.scripted import ScriptedModel, ScriptedTerminal, call, say
 
 DISTILLED = {'facts': [{'path': 'profile/profile.md', 'title': 'Profile', 'text': '- Prefers short replies',
                         'evidence': 'I prefer short replies'}]}

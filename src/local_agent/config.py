@@ -3,7 +3,7 @@ Where Local Agent keeps its state, and the owner's settings.
 
 Everything lives in one folder, ~/.local-agent/ (or $LOCAL_AGENT_HOME):
 
-    config.toml     model, budgets, owner (no secrets: those are in the OS keychain)
+    config.toml     model, budgets, owner, web search, shell (no secrets: those are in the OS keychain)
     state.db        the event log, conversations, approvals
     workspace/      AGENTS.md (standing orders), memory/, skills/, files/
 
@@ -15,6 +15,7 @@ import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import keyring
 
@@ -24,8 +25,10 @@ APP = 'local-agent'  # the keychain service name
 HOME_ENV = 'LOCAL_AGENT_HOME'
 
 PROVIDERS = ('openai', 'anthropic', 'ollama', 'openai-compatible')
-# Where a provider's key comes from when it isn't in the keychain (and the variable is set)
-KEY_ENV = {'openai': 'OPENAI_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY'}
+SEARCH_PROVIDERS = ('serpapi',)
+# Where a key comes from when it isn't in the keychain (and the variable is set)
+KEY_ENV = {'openai': 'OPENAI_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY', 'serpapi': 'SERPAPI_KEY'}
+KEY_NAMES = tuple(p for p in PROVIDERS if p != 'ollama') + SEARCH_PROVIDERS  # what `local-agent key set` takes
 
 DEFAULT_CONFIG = """\
 # Local Agent settings. API keys are not stored here: set them with `local-agent key set <provider>`.
@@ -43,6 +46,14 @@ run_tool_calls = 40          # per run
 
 [owner]
 # email = "you@example.com"  # recipients matching this count as written by you
+# timezone = "Europe/London" # for schedules; defaults to this computer's timezone
+
+[web]
+search = "serpapi"           # the web_search tool appears once a key is set: `local-agent key set serpapi`
+
+[shell]
+enabled = false              # true: the agent may run shell commands, each one only after you say yes
+timeout_seconds = 30
 """
 
 AGENTS_MD = """\
@@ -68,6 +79,10 @@ class Config:
     run_tool_calls: int | None = 40
     daily_tokens: int | None = None
     owner_email: str = ''
+    timezone: str = ''  # IANA name; empty: the system's (schedules.local_timezone)
+    search: str = 'serpapi'  # '' turns web search off
+    shell_enabled: bool = False
+    shell_timeout: int = 30
 
 
 class ConfigError(Exception):
@@ -107,7 +122,7 @@ def _positive_or_none(value, name: str) -> int | None:
     if value is None:
         return None
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-        raise ConfigError(f'[budget] {name} must be a positive whole number (or left out for no limit).')
+        raise ConfigError(f'{name} must be a positive whole number (or left out for the default).')
     return value
 
 
@@ -118,11 +133,23 @@ def load_config(home: Home) -> Config:
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f'{home.config_path} is not valid TOML: {e}') from None
     model, budget, owner = data.get('model', {}), data.get('budget', {}), data.get('owner', {})
+    web, shell = data.get('web', {}), data.get('shell', {})
     provider = model.get('provider', ModelConfig.provider)
     if provider not in PROVIDERS:
         raise ConfigError(f'[model] provider must be one of {", ".join(PROVIDERS)}, not {provider!r}.')
     if provider == 'openai-compatible' and not model.get('base_url'):
         raise ConfigError('[model] base_url is required for an openai-compatible endpoint.')
+    search = web.get('search', Config.search) or ''
+    if search and search not in SEARCH_PROVIDERS:
+        raise ConfigError(f'[web] search must be one of {", ".join(SEARCH_PROVIDERS)}, or "" for none.')
+    if not isinstance(shell.get('enabled', False), bool):
+        raise ConfigError('[shell] enabled must be true or false.')
+    timezone = owner.get('timezone', '')
+    if timezone:
+        try:
+            ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ConfigError(f'[owner] timezone {timezone!r} is not a timezone name, e.g. "Europe/London".') from None
     return Config(
         model=ModelConfig(provider=provider, default=model.get('default', ModelConfig.default),
                           strong=model.get('strong', ModelConfig.strong), base_url=model.get('base_url', '')),
@@ -130,6 +157,11 @@ def load_config(home: Home) -> Config:
         run_tool_calls=_positive_or_none(budget.get('run_tool_calls', Config.run_tool_calls), 'run_tool_calls'),
         daily_tokens=_positive_or_none(budget.get('daily_tokens'), 'daily_tokens'),
         owner_email=owner.get('email', ''),
+        timezone=timezone,
+        search=search,
+        shell_enabled=shell.get('enabled', False),
+        shell_timeout=_positive_or_none(shell.get('timeout_seconds', Config.shell_timeout), 'timeout_seconds')
+        or Config.shell_timeout,
     )
 
 

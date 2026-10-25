@@ -4,6 +4,8 @@ The `local-agent` command.
     local-agent chat                     talk to the agent in the terminal
     local-agent runs list                the latest runs
     local-agent runs show <id> [--json]  one run's timeline (a unique prefix of the id is enough)
+    local-agent schedules list [--all]   schedules and reminders, with their next times
+    local-agent schedules rm <id>        cancel one
     local-agent key set <provider>       store an API key in the OS keychain
 """
 
@@ -14,7 +16,7 @@ import json
 import sys
 
 from local_agent import __version__
-from local_agent.config import PROVIDERS, ConfigError, Home, set_key
+from local_agent.config import KEY_NAMES, ConfigError, Home, set_key
 from local_agent.core import inspector
 from local_agent.providers import ProviderError
 from local_agent.store import SQLiteStore
@@ -38,10 +40,17 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument('run_id', help='the run id, or a unique prefix of it')
     show.add_argument('--json', action='store_true', help='the summary and every event, as JSON')
 
+    schedules = commands.add_parser('schedules', help='schedules and reminders').add_subparsers(
+        dest='schedules_command', required=True)
+    schedules_list = schedules.add_parser('list', help='active schedules (--all: cancelled and finished too)')
+    schedules_list.add_argument('--all', action='store_true')
+    schedules_rm = schedules.add_parser('rm', help='cancel a schedule')
+    schedules_rm.add_argument('schedule_id', type=int)
+
     key = commands.add_parser('key', help='API keys, kept in the OS keychain').add_subparsers(dest='key_command',
                                                                                            required=True)
     key_set = key.add_parser('set', help='store a key (asked for without echo)')
-    key_set.add_argument('provider', choices=[p for p in PROVIDERS if p != 'ollama'])
+    key_set.add_argument('provider', choices=KEY_NAMES)
     return parser
 
 
@@ -74,6 +83,29 @@ def runs_show(home: Home, prefix: str, as_json: bool) -> int:
                           'events': inspector.timeline(events)}, indent=1, default=str))
     else:
         print(inspector.render_text(matches[0], events))
+    return 0
+
+
+def schedules_list(home: Home, show_all: bool) -> int:
+    from local_agent.schedules import describe
+
+    store = _store(home)
+    listed = store.list_schedules(active_only=not show_all) if store else []
+    if not listed:
+        print('No schedules.')
+        return 0
+    for schedule in listed:
+        state = '' if schedule.active else '  [off]'
+        print(f'{schedule.id:>4}  {describe(schedule)}{state}\n      {schedule.message}')
+    return 0
+
+
+def schedules_rm(home: Home, schedule_id: int) -> int:
+    store = _store(home)
+    if not store or not store.cancel_schedule(schedule_id):
+        print(f'No active schedule {schedule_id}.', file=sys.stderr)
+        return 1
+    print(f'Cancelled schedule {schedule_id}.')
     return 0
 
 
@@ -115,6 +147,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.runs_command == 'list':
             return runs_list(home, args.limit)
         return runs_show(home, args.run_id, args.json)
+    if args.command == 'schedules':
+        if args.schedules_command == 'list':
+            return schedules_list(home, args.all)
+        return schedules_rm(home, args.schedule_id)
     if args.command == 'key':
         return key_set(args.provider)
     parser.print_help()

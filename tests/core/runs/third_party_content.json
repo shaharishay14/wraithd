@@ -19,6 +19,13 @@
     "disclosure": "direct",
     "app_actions": 1,
     "tools_offered": [
+     "read_website",
+     "files_list",
+     "files_read",
+     "files_write",
+     "schedule_create",
+     "schedule_list",
+     "schedule_cancel",
      "GMAIL_FETCH_EMAILS",
      "memory_search",
      "memory_read",
@@ -28,7 +35,7 @@
      "skill_propose",
      "skill_adjust"
     ],
-    "tool_schema_chars": 3053,
+    "tool_schema_chars": 6006,
     "memory_notes": 0,
     "skills_offered": [
      "skill-writer",
