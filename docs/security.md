@@ -69,7 +69,8 @@ model call at all).
   `TELEGRAM_BOT_TOKEN` are read from the environment, and anything else the process loads (keychain keys, MCP
   tokens) is added with `register_secret`.
 - **No Composio.** The verb rules that classify `APP_VERB_OBJECT` names stay as the fallback, but the
-  Composio-specific overrides are gone, and Phase 4 adds MCP tiers (read-only tools run, others ask until the
+  Composio-specific overrides are gone. MCP tools get tiers from their own annotations instead ([MCP](mcp.md):
+  read-only tools run, others ask until the
   owner marks them "always allow"). Every tool that isn't built in still counts as third-party output and
   private data.
 - **The owner is identified by config, not a user row.** `owner_email` and the standing instructions

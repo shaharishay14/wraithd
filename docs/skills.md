@@ -13,8 +13,9 @@
 - **Format:** `SKILL.md` with frontmatter (`name`, `description`, `requires`, optionally `model`) and
   instructions. Built-in skills live in the package (`skills/library/`); the owner's are folders in
   `workspace/skills/` and replace a built-in one of the same name.
-- **Filtering:** `requires: [GMAIL|OUTLOOK]` means either will do. A run is only offered skills it can actually
-  do, so without email nobody sees inbox-triage.
+- **Filtering:** `requires: [email]` names a capability: a connected MCP server that provides it (`mcp add
+  --provides email`), a tool (`web_search`), `memory` or `owner`; `a|b` means either will do. A run is only
+  offered skills it can actually do, so without email nobody sees inbox-triage.
 - **Disclosure:** the prompt holds names and descriptions; `skill_load(name)` returns the instructions;
   `skill_load(name, file=...)` returns a file the skill points to (a third level).
 - **Starter set:** morning-brief, inbox-triage, meeting-prep, research-report, weekly-review, skill-writer. Short
@@ -57,8 +58,9 @@ instructions.
   loudly.
 - **Removing a rule deletes it.** agent-studio kept removed rules for the history; here the file is the history,
   and putting it in git keeps one.
-- **Requirements still name apps** (`GMAIL|OUTLOOK`). Until MCP servers are connected (Phase 4), only the skills
-  that need memory, the owner or a built-in tool are offered.
+- **Requirements name capabilities, not apps.** agent-studio wrote `GMAIL|OUTLOOK`; here a skill says `email`,
+  and whichever server the owner connected for mail provides it ([MCP](mcp.md)). The morning brief needs only
+  email now; it uses a calendar when one is connected.
 
 ## Skills vs memory
 

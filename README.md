@@ -12,7 +12,8 @@ budgets) live in code, not in the prompt. State stays on your machine in `~/.loc
 Early. You can chat with it in the terminal: it remembers what you tell it (as markdown files you can edit),
 follows a starter pack of skills, reads web pages and (with a search key) searches, works with files in its own
 folder, can run shell commands if you turn that on and say yes to each one, and keeps schedules and reminders.
-It asks before it changes anything outside its folder, and logs every step. Apps over MCP, the background daemon
+Your apps connect as MCP servers (`local-agent mcp add`): reading runs freely, anything else asks until you
+always-allow it. It asks before it changes anything outside its folder, and logs every step. The background daemon
 (which is what will fire schedules) and Telegram come next. The design notes are in [docs/](docs/README.md).
 
 ## Try it
@@ -27,6 +28,7 @@ uv run local-agent runs list          # what each run did
 uv run local-agent runs show <id>
 uv run local-agent schedules list
 uv run local-agent key set serpapi    # optional: web search
+uv run local-agent mcp add gmail --provides email --env GMAIL_TOKEN -- <command that starts the server>
 ```
 
 Settings are in `~/.local-agent/config.toml`: the provider (`openai`, `anthropic`, `ollama` or any

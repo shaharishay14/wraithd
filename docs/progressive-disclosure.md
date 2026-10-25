@@ -32,12 +32,12 @@ dispatcher.
 
 ## On a laptop
 
-- **Apps are MCP servers, not Composio.** The catalog takes any guarded tools, and each app's guide is passed
-  in (from the MCP server's own instructions in Phase 4) instead of coming from agent-studio's hand-written
-  Composio guide library.
+- **Apps are MCP servers, not Composio.** The catalog takes any guarded tools, and each app's guide is the MCP
+  server's own instructions instead of agent-studio's hand-written Composio guide library. Find and describe
+  show each action's tier as the run's gate sees it: read, needs approval, always allowed.
 - **It matters more here.** With a few MCP servers connected, the tool list grows with every server; on a
   small local model the context and the tool choice both suffer sooner than on gpt-4o.
-- **Names still assume `APP_VERB_OBJECT`.** The app is the part before the first underscore. Phase 4 decides
-  how MCP tools are named (prefixed with their server) so this keeps working.
+- **MCP tools are named `SERVER_TOOL`** (`GMAIL_SEND_EMAIL`), so the app is still the part before the first
+  underscore, and the threshold counts every connected server's tools together.
 
 Source: [Tool Design is All About the Flow](https://michaellivs.com/blog/tool-design-is-all-about-the-flow/), [Skills aren't the innovation](https://michaellivs.com/blog/skills-arent-the-innovation/), [Ergonomic coding surfaces](https://michaellivs.com/blog/ergonomic-coding-surfaces-for-agents/).

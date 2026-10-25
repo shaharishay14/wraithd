@@ -44,6 +44,7 @@ says what changed for running on one person's laptop.
 | [The shell](shell.md) | Off by default; every command asks y/N; never unattended. |
 | [The web](web.md) | Pages through the egress guard, search behind a provider key, all third-party content. |
 | [Schedules](schedules.md) | Cron or one time in the owner's timezone, approved, fired at most once per slot. |
+| [MCP](mcp.md) | Your apps as MCP servers: secrets per server, discovery, read-only runs, the rest asks. |
 | [One loop, not a team](one-loop.md) | Why there's one agent, and when a sub-agent would be worth it. |
 | [Proof](proof.md) | Unit tests, scripted runs through the real SDK, and replay of recorded runs. |
 

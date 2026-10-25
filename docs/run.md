@@ -17,8 +17,8 @@
    was over 17,000 characters before the user said anything; this one starts under 2,000.
 4. **Wires the tools:** the built-ins (`read_website` for everyone, `web_search` with a key; files and schedules
    for the owner; the shell for the owner in a conversation, if enabled), memory and skill tools for the owner,
-   plus whatever the caller brings (MCP tools in Phase 4, discovered past a dozen), all behind one permission
-   gate.
+   the owner's MCP servers (connected once per terminal session, or for the run; discovered past a dozen tools,
+   see [MCP](mcp.md)), plus whatever the caller brings, all behind one permission gate.
 5. **Runs the loop** with a 180-second limit. A failure before anything streamed or ran is retried twice; after
    that it never is.
 6. **Logs `run_end`:** answered, refused or failed, with turns, tokens and the stop reason. A failed run answers
