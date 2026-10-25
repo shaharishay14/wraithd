@@ -107,7 +107,7 @@ export function NoteView({ path, notes, onChanged }: { path: string; notes: Note
       )}
 
       {editing === null ? (
-        <Body text={n.body} notes={notes} />
+        n.body ? <Body text={n.body} notes={notes} /> : <p className="m-0 text-sm text-white/50">Empty note. Edit it to add what your agent should know.</p>
       ) : (
         <div className="flex flex-col gap-2">
           <label htmlFor="note-body" className="text-sm text-white/70">Note text (markdown). Saving makes it your own note, fully trusted.</label>

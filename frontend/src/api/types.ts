@@ -1,4 +1,4 @@
-// The local API, contract v1 (docs/api.md on main). Field names are the contract's; don't rename them here.
+// The local API, contract v1.1 (docs/api.md on main). Field names are the contract's; don't rename them here.
 
 export interface ApiErrorBody {
   error: { code: ErrorCode; message: string }
@@ -35,6 +35,7 @@ export interface Message {
   role: 'user' | 'assistant'
   content: string
   created_at: string
+  run_id: string | null // the run that wrote an assistant message; null for the owner's and older messages
 }
 
 export type ChatEvent =

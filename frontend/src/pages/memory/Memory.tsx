@@ -10,6 +10,7 @@ import { useResource } from '../../lib/useResource'
 import { Badge } from '../../ui/Badge'
 import { PageBody, PageHeader } from '../../ui/PageHeader'
 import { EmptyState, ErrorState, Loading, panelClass } from '../../ui/Panel'
+import { NewNote } from './NewNote'
 import { NoteView } from './NoteView'
 
 export default function Memory({ path }: { path: string | null }) {
@@ -49,6 +50,7 @@ export default function Memory({ path }: { path: string | null }) {
         {index.data && (
           <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
             <nav aria-label="Notes" className={cn('flex flex-col gap-3', path && 'hidden lg:flex')}>
+              <NewNote folders={Object.keys(index.data.folders)} existing={notes.map((n) => n.path)} onCreated={index.reload} />
               <div className="relative">
                 <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-white/45" strokeWidth={1.7} aria-hidden="true" />
                 <label htmlFor="note-search" className="sr-only">Find a note</label>

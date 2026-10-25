@@ -17,9 +17,7 @@ import { Segmented } from '../../ui/Segmented'
 const DECIDED: ApprovalStatus[] = ['approved', 'denied', 'expired', 'preapproved']
 type Filter = 'all' | ApprovalStatus
 
-// The contract lists one status per call, so the history is the four decided statuses merged
-const loadHistory = async () =>
-  (await Promise.all(DECIDED.map((status) => api.approvals(status)))).flat().sort((a, b) => b.created_at.localeCompare(a.created_at))
+const loadHistory = () => api.approvals(DECIDED)
 
 function HistoryRow({ approval }: { approval: Approval }) {
   const [open, setOpen] = useState(false)

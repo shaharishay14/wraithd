@@ -9,6 +9,7 @@ import {
 import { summarize } from './inspector'
 
 const APPROVAL_TIMEOUT_MS = 60_000
+const APPROVAL_STATUSES: ApprovalStatus[] = ['pending', 'approved', 'denied', 'expired', 'preapproved']
 const SCHEDULE_REASON = 'Your agent will run this on its own at these times, without asking you first. See and remove schedules with `local-agent schedules`.'
 
 const now = Date.now()
@@ -116,7 +117,7 @@ function chat(body: { message?: unknown; conversation_id?: unknown }): Response 
   }
   const conv: Conversation = conversation
   busy.add(conv.id)
-  messages[conv.id].push({ id: nextMessageId++, role: 'user', content: message, created_at: stamp() })
+  messages[conv.id].push({ id: nextMessageId++, role: 'user', content: message, created_at: stamp(), run_id: null })
   conv.last_message_at = stamp()
 
   const runId = fakeId(`run-${Date.now()}-${Math.random()}`)
@@ -175,7 +176,7 @@ function chat(body: { message?: unknown; conversation_id?: unknown }): Response 
           await sleep(28)
         }
         log('run_end', { outcome: 'answered', duration_ms: Date.now() - started, turns: turn, tokens: run.summary.tokens, stop_reason: null })
-        messages[conv.id].push({ id: nextMessageId++, role: 'assistant', content: answer, created_at: stamp() })
+        messages[conv.id].push({ id: nextMessageId++, role: 'assistant', content: answer, created_at: stamp(), run_id: runId })
         conv.last_message_at = stamp()
         emit('done', { run_id: runId, outcome: 'answered', answer })
       } catch {
@@ -227,8 +228,12 @@ function route(method: string, path: string, query: URLSearchParams, body: Recor
   }
 
   if (is('GET', /^\/approvals$/)) {
-    const wanted = query.get('status') ?? 'pending'
-    return ok(approvals.filter((a) => a.status === wanted).sort((a, b) => b.created_at.localeCompare(a.created_at)))
+    const raw = query.get('status') ?? 'pending'
+    const wanted = raw === 'all' ? [...APPROVAL_STATUSES] : raw.split(',')
+    if (!raw || wanted.some((s) => !APPROVAL_STATUSES.includes(s as ApprovalStatus))) {
+      return fail(400, 'bad_request', `status must be all, or one or more of ${APPROVAL_STATUSES.join(', ')}.`)
+    }
+    return ok(approvals.filter((a) => wanted.includes(a.status)).sort((a, b) => b.created_at.localeCompare(a.created_at)))
   }
   if (is('POST', /^\/approvals\/([^/]+)$/)) {
     const approval = approvals.find((a) => a.approval_id === p(1))
@@ -266,7 +271,8 @@ function route(method: string, path: string, query: URLSearchParams, body: Recor
       const links = [...body.body.matchAll(/\[\[([^\]]+)\]\]/g)].map((x) => x[1])
       const fields = { body: body.body, trust: 'high' as const, source: 'user' as const, source_detail: '', updated_at: stamp(), links }
       if (index === -1) {
-        const title = typeof body.title === 'string' && body.title ? body.title : p(2).replace('.md', '').replace(/-/g, ' ')
+        const stem = p(2).replace(/\.md$/, '').replace(/-/g, ' ')
+        const title = typeof body.title === 'string' && body.title ? body.title : stem.charAt(0).toUpperCase() + stem.slice(1)
         notes.push({ path: notePath, title, linked_from: [], ...fields })
         return ok(notes[notes.length - 1])
       }
@@ -320,7 +326,7 @@ function route(method: string, path: string, query: URLSearchParams, body: Recor
   if (is('GET', /^\/mcp\/servers\/([^/]+)\/tools$/)) {
     const server = serverFor(p(1))
     if (!server) return fail(404, 'not_found', `There is no server ${p(1)}.`)
-    if (!server.connected) return fail(500, 'internal', `${server.name} is not connected: ${server.error}`)
+    if (!server.connected) return fail(409, 'conflict', `${server.name} is not connected: ${server.error}`)
     return ok(tools[server.name] ?? [])
   }
   if ((m = path.match(/^\/mcp\/servers\/([^/]+)\/always-allow\/([^/]+)$/)) && (method === 'PUT' || method === 'DELETE')) {

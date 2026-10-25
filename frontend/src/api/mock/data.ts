@@ -71,12 +71,12 @@ export function seedConversations(now: number): { conversations: Conversation[];
   const term = 'c-terminal-1'
   const messages: Record<string, Message[]> = {
     [tg]: [
-      { id: 11, role: 'user', content: 'What time is my dentist on Friday?', created_at: iso(now - 300 * MINUTE) },
-      { id: 12, role: 'assistant', content: 'Friday at 10:30, at Dr. Levi\'s on Rothschild.', created_at: iso(now - 299 * MINUTE) },
+      { id: 11, role: 'user', content: 'What time is my dentist on Friday?', created_at: iso(now - 300 * MINUTE), run_id: null },
+      { id: 12, role: 'assistant', content: 'Friday at 10:30, at Dr. Levi\'s on Rothschild.', created_at: iso(now - 299 * MINUTE), run_id: fakeId('clean_run') },
     ],
     [term]: [
-      { id: 3, role: 'user', content: 'I prefer short replies.', created_at: iso(now - 2 * 24 * 60 * MINUTE) },
-      { id: 4, role: 'assistant', content: 'Got it. Short replies from now on.', created_at: iso(now - 2 * 24 * 60 * MINUTE + 4000) },
+      { id: 3, role: 'user', content: 'I prefer short replies.', created_at: iso(now - 2 * 24 * 60 * MINUTE), run_id: null },
+      { id: 4, role: 'assistant', content: 'Got it. Short replies from now on.', created_at: iso(now - 2 * 24 * 60 * MINUTE + 4000), run_id: null },
     ],
   }
   return {

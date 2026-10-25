@@ -24,8 +24,22 @@ function Bubble({ role, children }: { role: 'user' | 'assistant'; children: Reac
   )
 }
 
+function RunLink({ runId, label = 'See what it did' }: { runId: string; label?: string }) {
+  return (
+    <a href={href('runs', runId)} className="me-auto inline-flex items-center gap-1 ps-1 text-xs text-white/50 no-underline hover:text-white">
+      {label}
+      <ArrowUpRight className="size-3" strokeWidth={1.7} aria-hidden="true" />
+    </a>
+  )
+}
+
 function HistoryMessage({ message }: { message: Message }) {
-  return <Bubble role={message.role}>{message.content}</Bubble>
+  return (
+    <>
+      <Bubble role={message.role}>{message.content}</Bubble>
+      {message.role === 'assistant' && message.run_id && <RunLink runId={message.run_id} />}
+    </>
+  )
 }
 
 function LiveTurn({ turn }: { turn: Turn }) {
@@ -67,10 +81,7 @@ function LiveTurn({ turn }: { turn: Turn }) {
         </p>
       )}
       {!turn.running && turn.runId && (
-        <a href={href('runs', turn.runId)} className="me-auto inline-flex items-center gap-1 ps-1 text-xs text-white/50 no-underline hover:text-white">
-          {turn.outcome && turn.outcome !== 'answered' ? `${turn.outcome} · ` : ''}See what it did
-          <ArrowUpRight className="size-3" strokeWidth={1.7} aria-hidden="true" />
-        </a>
+        <RunLink runId={turn.runId} label={`${turn.outcome && turn.outcome !== 'answered' ? `${turn.outcome} · ` : ''}See what it did`} />
       )}
     </>
   )

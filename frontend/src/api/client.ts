@@ -106,7 +106,9 @@ export const api = {
   conversations: () => json<Conversation[]>('GET', '/conversations'),
   messages: (conversationId: string) => json<Message[]>('GET', `/conversations/${seg(conversationId)}/messages`),
 
-  approvals: (status: ApprovalStatus = 'pending') => json<Approval[]>('GET', `/approvals?status=${status}`),
+  // One status, several, or 'all'
+  approvals: (status: ApprovalStatus | ApprovalStatus[] | 'all' = 'pending') =>
+    json<Approval[]>('GET', `/approvals?status=${[status].flat().join(',')}`),
   decide: (approvalId: string, decision: Decision) => json<Approval>('POST', `/approvals/${seg(approvalId)}`, { decision }),
 
   runs: (limit = 50) => json<RunListItem[]>('GET', `/runs?limit=${limit}`),

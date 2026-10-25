@@ -2,7 +2,7 @@
 
 The page `local-agent daemon` serves on 127.0.0.1: chat, approvals, runs (the run inspector), memory, skills,
 schedules and connected apps. Vite + React 19 + TypeScript + Tailwind 4. It talks to the local API described in
-`docs/api.md` (contract v1).
+`docs/api.md` (contract v1.1).
 
 ```sh
 npm install
