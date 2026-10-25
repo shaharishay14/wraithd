@@ -9,5 +9,8 @@ dist/
 .ruff_cache/
 .coverage
 
+# The built web UI, copied in by scripts/release.sh
+src/local_agent/ui/
+
 # Claude Code worktrees (sessions working in isolation)
 .claude/worktrees/

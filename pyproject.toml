@@ -24,6 +24,10 @@ local-agent = "local_agent.cli:main"
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+# scripts/release.sh builds the web UI into this gitignored folder; without it the daemon shows a placeholder page
+artifacts = ["src/local_agent/ui/"]
+
 [dependency-groups]
 dev = [
     "pytest>=8",
