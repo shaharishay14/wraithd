@@ -26,7 +26,7 @@ says what changed for running on one person's laptop.
             └────────────────────────────────────────────────────────────────────────────────┘
                        │
                        ▼
-               Store (src/local_agent/store/): events, conversations, approvals in one SQLite file
+               Store (src/local_agent/store/): events, conversations, schedules, approvals in one SQLite file
 ```
 
 ## The notes
@@ -40,6 +40,10 @@ says what changed for running on one person's laptop.
 | [Progressive disclosure](progressive-disclosure.md) | Search → View → Use, so the prompt doesn't grow with every tool. |
 | [Memory](memory.md) | Markdown files, a keyword map instead of vectors, BM25, distill, trust labels. |
 | [Skills](skills.md) | One line in the prompt, instructions on demand, the owner's rules on top, `model: strong`. |
+| [Workspace files](files.md) | List, read, write in one folder; real-path checks keep everything else out. |
+| [The shell](shell.md) | Off by default; every command asks y/N; never unattended. |
+| [The web](web.md) | Pages through the egress guard, search behind a provider key, all third-party content. |
+| [Schedules](schedules.md) | Cron or one time in the owner's timezone, approved, fired at most once per slot. |
 | [One loop, not a team](one-loop.md) | Why there's one agent, and when a sub-agent would be worth it. |
 | [Proof](proof.md) | Unit tests, scripted runs through the real SDK, and replay of recorded runs. |
 

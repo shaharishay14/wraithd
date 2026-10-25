@@ -31,7 +31,7 @@ a tool that can't be wrapped is dropped, never passed through):
 
 ## Egress: no way back into the machine
 
-The web tool opens URLs the model chose, and the model's URL can come from an email. Every hop of every fetch
+`read_website` ([the web](web.md)) opens URLs the model chose, and the model's URL can come from an email. Every hop of every fetch
 is checked: http(s) on default ports, no `user:pass@`, every resolved address public, redirects followed by
 hand and re-checked, the connected peer checked again before the body is read, 2 MB cap.
 
@@ -40,6 +40,14 @@ hand and re-checked, the connected peer checked again before the body is read, 2
 Key and token shapes, and the owner's own keys by exact value, are replaced with `[REDACTED:kind]` in tool
 results before the model sees them, in every string the event log stores, and (Phase 2) in memory writes.
 It's a pattern scan, so it's best effort.
+
+## The built-in tools
+
+- **Files** are confined to `workspace/files/` by a real-path check ([files](files.md)).
+- **The shell** is off by default; on, every command needs a "y", and it never runs unattended ([shell](shell.md)).
+- **Schedules** are approved one by one, since each is a standing instruction ([schedules](schedules.md)).
+- File contents, command output, pages and search snippets are all third-party content: wrapped, and they taint
+  the run.
 
 ## Budgets
 

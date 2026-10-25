@@ -10,9 +10,10 @@ budgets) live in code, not in the prompt. State stays on your machine in `~/.loc
 ## Status
 
 Early. You can chat with it in the terminal: it remembers what you tell it (as markdown files you can edit),
-follows a starter pack of skills, asks before it changes anything, and logs every step. Built-in tools (files,
-web, schedules), apps over MCP, the background daemon and Telegram come next. The design notes are in
-[docs/](docs/README.md).
+follows a starter pack of skills, reads web pages and (with a search key) searches, works with files in its own
+folder, can run shell commands if you turn that on and say yes to each one, and keeps schedules and reminders.
+It asks before it changes anything outside its folder, and logs every step. Apps over MCP, the background daemon
+(which is what will fire schedules) and Telegram come next. The design notes are in [docs/](docs/README.md).
 
 ## Try it
 
@@ -24,11 +25,14 @@ uv run local-agent key set openai     # stored in the OS keychain
 uv run local-agent chat
 uv run local-agent runs list          # what each run did
 uv run local-agent runs show <id>
+uv run local-agent schedules list
+uv run local-agent key set serpapi    # optional: web search
 ```
 
 Settings are in `~/.local-agent/config.toml`: the provider (`openai`, `anthropic`, `ollama` or any
-OpenAI-compatible endpoint), the model, a stronger model for subtle skills, and budgets. Your standing orders go
-in `~/.local-agent/workspace/AGENTS.md`.
+OpenAI-compatible endpoint), the model, a stronger model for subtle skills, budgets, your timezone, and the
+shell switch (off by default). Your standing orders go in `~/.local-agent/workspace/AGENTS.md`; the agent's
+files are in `~/.local-agent/workspace/files/`.
 
 ## Development
 
