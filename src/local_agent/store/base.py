@@ -20,6 +20,34 @@ APPROVAL_STATUSES = (PENDING, APPROVED, DENIED, EXPIRED, PREAPPROVED)
 
 
 @dataclass(frozen=True)
+class Message:
+    id: int  # increases with every message, so it doubles as a cursor ("everything after message 41")
+    role: str  # user | assistant
+    content: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class Conversation:
+    """One conversation (a terminal session, later a Telegram chat), and how far compaction and distill got."""
+
+    id: str
+    source: str
+    started_at: datetime
+    summary: str = ''  # older messages, folded into a rolling summary (compaction.py)
+    summarized_until: int = 0  # id of the newest message in the summary
+    distilled_until: int = 0  # id of the newest message distill has read (memory/distill.py)
+
+
+@dataclass(frozen=True)
+class RunInfo:
+    run_id: str
+    started_at: datetime
+    source: str
+    message: str
+
+
+@dataclass(frozen=True)
 class Approval:
     """A write action the agent wanted to run, and what the owner decided."""
 
@@ -45,6 +73,26 @@ class Store(Protocol):
 
     def tokens_since(self, since: datetime) -> int:
         """Tokens used by runs that ended after `since` (from their run_end events)."""
+
+    def recent_runs(self, limit: int = 20) -> list[RunInfo]:
+        """The newest runs first, from their run_start events."""
+
+    def find_runs(self, prefix: str) -> list[str]:
+        """Run ids that start with `prefix` (so the CLI can take a short id)."""
+
+    # --- conversations -----------------------------------------------------------------------------
+
+    def start_conversation(self, source: str) -> Conversation: ...
+
+    def get_conversation(self, conversation_id: str) -> Conversation | None: ...
+
+    def update_conversation(self, conversation_id: str, **fields) -> None:
+        """Sets summary, summarized_until or distilled_until."""
+
+    def add_message(self, conversation_id: str, role: str, content: str) -> Message: ...
+
+    def messages(self, conversation_id: str, after: int = 0) -> list[Message]:
+        """The conversation's messages with an id above `after`, oldest first."""
 
     # --- approvals ---------------------------------------------------------------------------------
 

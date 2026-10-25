@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from local_agent.core.events import RUN_END, RUN_START, Event
-from local_agent.store.base import APPROVAL_STATUSES, PENDING, Approval
+from local_agent.store.base import APPROVAL_STATUSES, PENDING, Approval, Conversation, Message, RunInfo
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS run_events (
@@ -28,6 +28,24 @@ CREATE TABLE IF NOT EXISTS run_events (
 );
 CREATE INDEX IF NOT EXISTS run_events_run ON run_events (run_id, seq);
 CREATE INDEX IF NOT EXISTS run_events_type ON run_events (type, created_at);
+
+CREATE TABLE IF NOT EXISTS conversations (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    summarized_until INTEGER NOT NULL DEFAULT 0,
+    distilled_until INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL REFERENCES conversations (id),
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS messages_conversation ON messages (conversation_id, id);
 
 CREATE TABLE IF NOT EXISTS approvals (
     id TEXT PRIMARY KEY,
@@ -96,6 +114,62 @@ class SQLiteStore:
             "SELECT COALESCE(SUM(json_extract(payload, '$.tokens')), 0) AS tokens FROM run_events "
             'WHERE type = ? AND created_at >= ?', (RUN_END, _stamp(since)))
         return int(rows[0]['tokens'])
+
+    def recent_runs(self, limit=20) -> list[RunInfo]:
+        rows = self._query(
+            "SELECT run_id, created_at, json_extract(payload, '$.source') AS source, "
+            "json_extract(payload, '$.message') AS message FROM run_events "
+            'WHERE type = ? AND run_id IS NOT NULL ORDER BY created_at DESC LIMIT ?', (RUN_START, limit))
+        return [RunInfo(run_id=row['run_id'], started_at=_parse(row['created_at']), source=row['source'] or '',
+                        message=row['message'] or '') for row in rows]
+
+    def find_runs(self, prefix) -> list[str]:
+        # LIKE treats % and _ as wildcards, so escape them: a prefix is matched as written
+        pattern = prefix.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+        rows = self._query("SELECT DISTINCT run_id FROM run_events WHERE run_id LIKE ? ESCAPE '\\' "
+                           'AND type = ?', (pattern, RUN_START))
+        return sorted(row['run_id'] for row in rows)
+
+    # --- conversations -----------------------------------------------------------------------------
+
+    def start_conversation(self, source) -> Conversation:
+        conversation = Conversation(id=str(uuid.uuid4()), source=source, started_at=datetime.now(UTC))
+        with self._lock, self._db:
+            self._db.execute('INSERT INTO conversations (id, source, started_at) VALUES (?, ?, ?)',
+                             (conversation.id, source, _stamp(conversation.started_at)))
+        return conversation
+
+    def get_conversation(self, conversation_id) -> Conversation | None:
+        rows = self._query('SELECT * FROM conversations WHERE id = ?', (conversation_id,))
+        if not rows:
+            return None
+        row = rows[0]
+        return Conversation(id=row['id'], source=row['source'], started_at=_parse(row['started_at']),
+                            summary=row['summary'], summarized_until=row['summarized_until'],
+                            distilled_until=row['distilled_until'])
+
+    def update_conversation(self, conversation_id, **fields) -> None:
+        allowed = {'summary', 'summarized_until', 'distilled_until'}
+        if not fields or set(fields) - allowed:
+            raise ValueError(f'Only {", ".join(sorted(allowed))} can be updated.')
+        assignments = ', '.join(f'{name} = ?' for name in fields)  # names checked above, never from input
+        with self._lock, self._db:
+            self._db.execute(f'UPDATE conversations SET {assignments} WHERE id = ?',
+                             (*fields.values(), conversation_id))
+
+    def add_message(self, conversation_id, role, content) -> Message:
+        now = datetime.now(UTC)
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                'INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)',
+                (conversation_id, role, content, _stamp(now)))
+        return Message(id=cursor.lastrowid, role=role, content=content, created_at=now)
+
+    def messages(self, conversation_id, after=0) -> list[Message]:
+        rows = self._query('SELECT * FROM messages WHERE conversation_id = ? AND id > ? ORDER BY id',
+                           (conversation_id, after))
+        return [Message(id=row['id'], role=row['role'], content=row['content'], created_at=_parse(row['created_at']))
+                for row in rows]
 
     # --- approvals ---------------------------------------------------------------------------------
 

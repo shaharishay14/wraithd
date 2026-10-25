@@ -101,3 +101,30 @@ def test_a_failed_save_never_breaks_the_run(store, caplog):
     log.append(ev.RUN_START, source='chat')
     log.save()
     assert 'Could not save 1 run events' in caplog.text
+
+
+def test_conversations_keep_their_messages_and_cursors(store):
+    conversation = store.start_conversation('terminal')
+    first = store.add_message(conversation.id, 'user', 'hi')
+    second = store.add_message(conversation.id, 'assistant', 'hello')
+    store.add_message(store.start_conversation('terminal').id, 'user', 'other conversation')
+    assert [m.content for m in store.messages(conversation.id)] == ['hi', 'hello']
+    assert [m.content for m in store.messages(conversation.id, after=first.id)] == ['hello']
+
+    store.update_conversation(conversation.id, summary='S', summarized_until=first.id, distilled_until=second.id)
+    stored = store.get_conversation(conversation.id)
+    assert (stored.summary, stored.summarized_until, stored.distilled_until) == ('S', first.id, second.id)
+    with pytest.raises(ValueError):
+        store.update_conversation(conversation.id, source='hacked')
+    assert store.get_conversation('missing') is None
+
+
+def test_recent_runs_and_short_ids(store):
+    store.save_events('abc-1', [event(0, ev.RUN_START, T0, source='chat', message='first')])
+    store.save_events('abd-2', [event(0, ev.RUN_START, T0 + timedelta(seconds=1), source='schedule', message='x')])
+    store.save_events('a_c-3', [event(0, ev.RUN_START, T0 - timedelta(seconds=1), source='chat', message='y')])
+    assert [(r.run_id, r.source, r.message) for r in store.recent_runs(limit=2)] == [('abd-2', 'schedule', 'x'),
+                                                                                    ('abc-1', 'chat', 'first')]
+    assert store.find_runs('ab') == ['abc-1', 'abd-2'] and store.find_runs('abc') == ['abc-1']
+    assert store.find_runs('a_') == ['a_c-3']  # "_" is matched as written, not as a wildcard
+    assert store.find_runs('%') == []
