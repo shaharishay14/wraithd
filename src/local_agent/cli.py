@@ -6,6 +6,7 @@ The `local-agent` command.
     local-agent runs show <id> [--json]  one run's timeline (a unique prefix of the id is enough)
     local-agent schedules list [--all]   schedules and reminders, with their next times
     local-agent schedules rm <id>        cancel one
+    local-agent mcp add|list|tools|allow|disallow|remove   your apps, as MCP servers (see mcp/commands.py)
     local-agent key set <provider>       store an API key in the OS keychain
 """
 
@@ -18,6 +19,7 @@ import sys
 from local_agent import __version__
 from local_agent.config import KEY_NAMES, ConfigError, Home, set_key
 from local_agent.core import inspector
+from local_agent.mcp import commands as mcp_commands
 from local_agent.providers import ProviderError
 from local_agent.store import SQLiteStore
 
@@ -46,6 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     schedules_list.add_argument('--all', action='store_true')
     schedules_rm = schedules.add_parser('rm', help='cancel a schedule')
     schedules_rm.add_argument('schedule_id', type=int)
+
+    mcp_commands.add_arguments(commands)
 
     key = commands.add_parser('key', help='API keys, kept in the OS keychain').add_subparsers(dest='key_command',
                                                                                            required=True)
@@ -151,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.schedules_command == 'list':
             return schedules_list(home, args.all)
         return schedules_rm(home, args.schedule_id)
+    if args.command == 'mcp':
+        return mcp_commands.main(home, args)
     if args.command == 'key':
         return key_set(args.provider)
     parser.print_help()

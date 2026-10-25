@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import keyring
 
 from local_agent.core import secrets
+from local_agent.mcp.config import McpConfigError, parse_servers
 
 APP = 'local-agent'  # the keychain service name
 HOME_ENV = 'LOCAL_AGENT_HOME'
@@ -83,6 +84,7 @@ class Config:
     search: str = 'serpapi'  # '' turns web search off
     shell_enabled: bool = False
     shell_timeout: int = 30
+    mcp_servers: tuple = ()  # mcp.config.McpServer, from the [mcp.servers.*] blocks
 
 
 class ConfigError(Exception):
@@ -150,7 +152,12 @@ def load_config(home: Home) -> Config:
             ZoneInfo(timezone)
         except (ZoneInfoNotFoundError, ValueError):
             raise ConfigError(f'[owner] timezone {timezone!r} is not a timezone name, e.g. "Europe/London".') from None
+    try:
+        mcp_servers = parse_servers(data)
+    except McpConfigError as e:
+        raise ConfigError(str(e)) from None
     return Config(
+        mcp_servers=mcp_servers,
         model=ModelConfig(provider=provider, default=model.get('default', ModelConfig.default),
                           strong=model.get('strong', ModelConfig.strong), base_url=model.get('base_url', '')),
         run_tokens=_positive_or_none(budget.get('run_tokens', Config.run_tokens), 'run_tokens'),

@@ -9,6 +9,7 @@ reminders; the loop with its stop rules; and an event log that is saved even whe
 import asyncio
 import logging
 import time
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -20,6 +21,7 @@ from local_agent.core import events as ev
 from local_agent.core.gate import PermissionGate, guard_function_tools
 from local_agent.core.loop import RunAlreadyStartedError, run_with_step_limit
 from local_agent.core.stop import DAILY_BUDGET_MESSAGE, StopPolicy, tokens_used_today
+from local_agent.mcp.client import Connected, McpConnections
 from local_agent.memory import tools as memory_tools
 from local_agent.memory import vault
 from local_agent.memory.notes import Vault
@@ -140,7 +142,8 @@ async def _run_loop(agent, chat, callback, log, policy, upgrade):
 
 
 async def run(rt: Runtime, message: str, *, history=(), callback=None, source: str = 'chat', owner: bool = True,
-              tools=(), app_tools=(), app_guides: dict[str, str] | None = None, builtins: bool = True) -> RunResult:
+              tools=(), app_tools=(), app_guides: dict[str, str] | None = None, builtins: bool = True,
+              mcp: Connected | None = None) -> RunResult:
     """
     Runs the agent on one message.
 
@@ -150,7 +153,18 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
     tools: extra tools (a caller's tool replaces a built-in one with the same name);
     app_tools: connected-app tools (Phase 4), discovered past a dozen;
     builtins: the built-in tools (tools/), which depend on owner and on whether anyone can approve
+    mcp: the owner's MCP servers, already connected (a terminal session connects once); without it, run() connects
+    them for this run. Only for the owner: they're the owner's accounts.
     """
+    async with AsyncExitStack() as stack:
+        if owner and mcp is None and rt.config.mcp_servers:
+            mcp = await stack.enter_async_context(McpConnections(rt.config.mcp_servers))
+        return await _run(rt, message, history=history, callback=callback, source=source, owner=owner, tools=tools,
+                          app_tools=app_tools, app_guides=app_guides, builtins=builtins,
+                          mcp=mcp if owner else None)
+
+
+async def _run(rt, message, *, history, callback, source, owner, tools, app_tools, app_guides, builtins, mcp):
     started = time.monotonic()
     history = list(history)
     log = ev.EventLog(rt.store)
@@ -175,16 +189,20 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
             given = {tool.name for tool in tools}
             tools = [tool for tool in builtin_tools(rt, owner=owner, attended=callback is not None)
                      if tool.name not in given] + list(tools)
+        if mcp is not None:
+            app_tools = [*app_tools, *mcp.tools]
+            app_guides = {**mcp.guides, **(app_guides or {})}
         orders = standing_orders(rt.home)
         gate = PermissionGate(rt.store, callback, history, message, instructions=orders,
-                              owner_email=rt.config.owner_email)
+                              owner_email=rt.config.owner_email, tool_access=mcp.access if mcp else None,
+                              preapproved=mcp.always_allowed if mcp else ())
         notes = rt.memory.load() if owner else []
 
         # Skills: one line each in the prompt, instructions on skill_load. The owner's own skills and rules only
         # for the owner, and only the owner can change them.
         offered_names = [tool.name for tool in [*tools, *app_tools]]
         skills = registry.available_skills(rt.skills.user_skills() if owner else [],
-                                           registry.capabilities(offered_names, owner),
+                                           registry.capabilities(offered_names, owner, mcp.provides if mcp else ()),
                                            rt.skills.adjustments() if owner else {})
         situation = reminders.Situation(
             message=message, events=log.events, owner=owner, skills=skills,
@@ -206,7 +224,7 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
             # App actions stay out of the model's tool list: run_app_action calls their guarded versions
             catalog = disclosure.AppCatalog(guard_function_tools(list(app_tools), gate, log, after_result),
                                             guides=app_guides)
-            find_tool, describe_tool, run_tool = disclosure.discovery_tools(catalog, log)
+            find_tool, describe_tool, run_tool = disclosure.discovery_tools(catalog, log, label=gate.label)
             guarded = guard_function_tools([*tools, *own, find_tool, describe_tool], gate, log, after_result,
                                            prechecks) + [run_tool]
         else:
@@ -230,7 +248,9 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
                    disclosure='discovery' if use_discovery else 'direct', app_actions=len(app_tools),
                    tools_offered=[tool.name for tool in guarded], tool_schema_chars=disclosure.schema_chars(guarded),
                    memory_notes=len(notes) if owner else None, skills_offered=[skill.name for skill in skills],
-                   instructions_chars=len(instructions))
+                   instructions_chars=len(instructions),
+                   **({'mcp_servers': sorted({server for server, _ in mcp.origin.values()}),
+                       'mcp_errors': mcp.errors} if mcp else {}))
 
         chat = history + [{'role': 'user', 'content': message}]
         # Reminders for this moment go right after the owner's message

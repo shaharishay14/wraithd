@@ -10,6 +10,7 @@ import json
 import sys
 
 from local_agent.core import compaction
+from local_agent.mcp.client import McpConnections
 from local_agent.memory import distill
 from local_agent.run import Runtime, run
 from local_agent.store import base as store_base
@@ -67,6 +68,13 @@ def make_callback(rt: Runtime, terminal: Terminal, state: dict):
 async def chat(rt: Runtime, terminal: Terminal | None = None) -> str:
     """One session. Returns the conversation id."""
     terminal = terminal or Terminal()
+    async with McpConnections(rt.config.mcp_servers) as mcp:  # once per session, not once per message
+        for name, problem in mcp.errors.items():
+            terminal.say(f'(MCP server {name} is not available this session: {problem})')
+        return await _session(rt, terminal, mcp)
+
+
+async def _session(rt: Runtime, terminal: Terminal, mcp) -> str:
     conversation = rt.store.start_conversation('terminal')
     terminal.say('Local Agent. Type /quit to end; what you share is remembered for next time.')
     try:
@@ -80,7 +88,7 @@ async def chat(rt: Runtime, terminal: Terminal | None = None) -> str:
             history = await compaction.history_for(rt.store, conversation.id, rt.complete)
             state = {'streamed': False}
             result = await run(rt, message, history=history, callback=make_callback(rt, terminal, state),
-                               source='chat')
+                               source='chat', mcp=mcp)
             # A streamed answer is already on screen; a refusal or failure message never streamed
             terminal.say('' if state['streamed'] else result.answer)
             rt.store.add_message(conversation.id, 'assistant', result.answer)
