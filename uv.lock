@@ -1037,18 +1037,12 @@ source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "keyring" },
-    { name = "openai-agents" },
-    { name = "pyyaml" },
-]
-
-[package.optional-dependencies]
-anthropic = [
     { name = "openai-agents", extra = ["litellm"] },
+    { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "openai-agents", extra = ["litellm"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -1058,15 +1052,12 @@ dev = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "keyring", specifier = ">=25" },
-    { name = "openai-agents", specifier = ">=0.24.0" },
-    { name = "openai-agents", extras = ["litellm"], marker = "extra == 'anthropic'", specifier = ">=0.24.0" },
+    { name = "openai-agents", extras = ["litellm"], specifier = ">=0.24.0" },
     { name = "pyyaml", specifier = ">=6" },
 ]
-provides-extras = ["anthropic"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "openai-agents", extras = ["litellm"], specifier = ">=0.24.0" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "ruff", specifier = ">=0.6" },

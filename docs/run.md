@@ -34,12 +34,13 @@ the model or the log even if a tool echoes it.
 | `provider` | How | Key |
 |---|---|---|
 | `openai` | the Responses API | keychain or `OPENAI_API_KEY` |
-| `anthropic` | LiteLLM (`local-agent[anthropic]`) | keychain or `ANTHROPIC_API_KEY` |
+| `anthropic` | LiteLLM | keychain or `ANTHROPIC_API_KEY` |
 | `ollama` | Chat Completions on `http://localhost:11434/v1` | none |
 | `openai-compatible` | Chat Completions on `base_url` | optional |
 
-LiteLLM is an optional extra: it's large and takes seconds to import, so OpenAI and Ollama users don't pay for
-it. When it's used, it reads its bundled price list instead of downloading one, and its telemetry is off.
+LiteLLM ships with the package, so any provider works after one install. It's large and takes seconds to import,
+so it's imported only when Anthropic is the configured provider: OpenAI and Ollama users don't wait for it. When
+it's used, it reads its bundled price list instead of downloading one, and its telemetry is off.
 
 `default` is the model for every run; `strong` is the one a `model: strong` skill switches to (see
 [skills](skills.md)).

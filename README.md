@@ -27,8 +27,8 @@ uv run local-agent runs show <id>
 ```
 
 Settings are in `~/.local-agent/config.toml`: the provider (`openai`, `anthropic`, `ollama` or any
-OpenAI-compatible endpoint), the model, a stronger model for subtle skills, and budgets. For Anthropic models,
-install the extra: `uv sync --extra anthropic`. Your standing orders go in `~/.local-agent/workspace/AGENTS.md`.
+OpenAI-compatible endpoint), the model, a stronger model for subtle skills, and budgets. Your standing orders go
+in `~/.local-agent/workspace/AGENTS.md`.
 
 ## Development
 

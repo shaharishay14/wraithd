@@ -3,8 +3,8 @@ Model providers: turn the config into Agents SDK models. The SDK runs the loop t
 
 - openai: the Responses API.
 - ollama and openai-compatible: Chat Completions against a local or self-hosted endpoint.
-- anthropic: through LiteLLM (the `anthropic` extra), imported only when it's the configured provider, since
-  it's large and slow to import.
+- anthropic: through LiteLLM, imported only when it's the configured provider, since it's large and slow to
+  import.
 """
 
 import os
@@ -32,12 +32,9 @@ def _litellm_model(name: str, key: str) -> Model:
     # LiteLLM downloads a price list on import unless told to use its bundled copy, and has telemetry on by
     # default. Neither belongs in a local agent.
     os.environ.setdefault('LITELLM_LOCAL_MODEL_COST_MAP', 'True')
-    try:
-        import litellm
-        from agents.extensions.models.litellm_model import LitellmModel
-    except ImportError:
-        raise ProviderError('Anthropic models need the anthropic extra: uv tool install "local-agent[anthropic]"') \
-            from None
+    import litellm
+    from agents.extensions.models.litellm_model import LitellmModel
+
     litellm.telemetry = False
     return LitellmModel(model=f'anthropic/{name}', api_key=key)
 
