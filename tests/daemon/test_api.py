@@ -87,7 +87,9 @@ async def test_an_approval_in_the_web_chat_is_decided_through_the_api(make_daemo
     decided = await client.post(f'/api/approvals/{approval.id}', json={'decision': 'approve'})
     assert decided.json()['status'] == 'approved'
     events = events_of((await stream).text)
-    assert [event for event, _ in events if event != 'delta'] == ['start', 'approval_required', 'tool', 'done']
+    assert [event for event, _ in events if event != 'delta'] == ['start', 'approval_required', 'approval_resolved',
+                                                                   'tool', 'done']
+    assert ('approval_resolved', {'approval_id': approval.id, 'status': 'approved'}) in events
     assert next(data for event, data in events if event == 'approval_required')['approval_id'] == approval.id
     assert registry.SkillFolder(home.skills_dir).adjustments() == {'weekly-review': ['Five lines at most']}
     # deciding again is a conflict, with the current status in the message
@@ -245,3 +247,69 @@ async def test_the_built_ui_is_served_with_an_index_fallback(make_daemon, tmp_pa
     assert (await client.get('/assets/app.js')).text == 'console.log(1)'
     assert (await client.get('/runs/r1')).text == '<div id="app"></div>'  # the app's own route
     assert (await client.get('/assets/..%2F..%2Fsecret.txt')).text == '<div id="app"></div>'  # never outside
+
+
+# --- contract v1.1 -----------------------------------------------------------------------------------------
+
+async def test_a_decision_from_another_channel_reaches_the_open_stream(make_daemon):
+    """Decided outside this request (a Telegram button writes to the same store), or denied: the stream hears it."""
+    model = ScriptedModel([[call('1', 'skill_adjust', {'skill': 'weekly-review', 'rule': 'Short'})],
+                           [say('Not saved.')]])
+    daemon, client = await make_daemon(model)
+    stream = asyncio.create_task(client.post('/api/chat', json={'message': 'keep weekly reviews short, always'}))
+    approval = await wait_for_pending(daemon.rt)
+    daemon.rt.store.decide_approval(approval.id, 'denied')  # what TelegramChannel does on a Deny tap
+    events = events_of((await stream).text)
+    assert ('approval_resolved', {'approval_id': approval.id, 'status': 'denied'}) in events
+    assert events[-1][0] == 'done'
+
+
+async def test_an_expired_card_is_resolved_on_the_stream(make_daemon, monkeypatch):
+    monkeypatch.setattr(gate_module, 'APPROVAL_TIMEOUT_SECONDS', 0.1)
+    model = ScriptedModel([[call('1', 'skill_adjust', {'skill': 'weekly-review', 'rule': 'Short'})], [say('Ok.')]])
+    _, client = await make_daemon(model)
+    events = events_of((await client.post('/api/chat', json={'message': 'keep it short, always'})).text)
+    assert next(data for event, data in events if event == 'approval_resolved')['status'] == 'expired'
+
+
+async def test_approval_history_in_one_call(make_daemon):
+    daemon, client = await make_daemon(ScriptedModel([]))
+    store = daemon.rt.store
+    pending = store.create_approval('skill_adjust', {'rule': 'a'})
+    approved = store.create_approval('skill_adjust', {'rule': 'b'})
+    store.decide_approval(approved.id, 'approved')
+    store.create_approval('GMAIL_SEND_EMAIL', {'to': 'x'}, status='preapproved')
+
+    def ids(response):
+        return [card['approval_id'] for card in response.json()]
+    assert ids(await client.get('/api/approvals')) == [pending.id]
+    assert len((await client.get('/api/approvals?status=all')).json()) == 3
+    assert ids(await client.get('/api/approvals?status=pending,approved')) == [approved.id, pending.id]
+    for bad in ('nope', 'pending,nope', ','):
+        assert (await client.get(f'/api/approvals?status={bad}')).status_code == 400
+
+
+async def test_assistant_messages_link_to_their_run(make_daemon):
+    _, client = await make_daemon(ScriptedModel([[say('Hi.')]]))
+    events = events_of((await client.post('/api/chat', json={'message': 'hi'})).text)
+    conversation_id, run_id = events[0][1]['conversation_id'], events[0][1]['run_id']
+    messages = (await client.get(f'/api/conversations/{conversation_id}/messages')).json()
+    assert [(m['role'], m['run_id']) for m in messages] == [('user', None), ('assistant', run_id)]
+
+
+async def test_tools_of_a_server_that_is_not_connected_is_a_409(make_daemon, capsys):
+    cli.main(['mcp', 'add', 'broken', '--', sys.executable, '-c', 'raise SystemExit(1)'])
+    _, client = await make_daemon(ScriptedModel([]))
+    response = await client.get('/api/mcp/servers/broken/tools')
+    assert response.status_code == 409 and response.json()['error']['code'] == 'conflict'
+    assert response.json()['error']['message'].startswith('broken is not connected')
+    [server] = (await client.get('/api/mcp/servers')).json()
+    assert server['connected'] is False and server['error']
+
+
+async def test_put_on_a_new_memory_path_creates_the_note(make_daemon, home):
+    _, client = await make_daemon(ScriptedModel([]))
+    assert (await client.get('/api/memory/projects/garden.md')).status_code == 404
+    created = await client.put('/api/memory/projects/garden.md', json={'body': 'Plant tomatoes in April.'})
+    assert created.status_code == 200 and created.json()['title'] == 'Garden' and created.json()['trust'] == 'high'
+    assert (home.memory_dir / 'projects' / 'garden.md').exists()

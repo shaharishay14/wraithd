@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS settings (
 MIGRATIONS = [
     ('approvals', 'card', "TEXT NOT NULL DEFAULT '{}'"),
     ('conversations', 'external', 'TEXT'),
+    ('messages', 'run_id', 'TEXT'),
 ]
 
 
@@ -218,19 +219,19 @@ class SQLiteStore:
             self._db.execute(f'UPDATE conversations SET {assignments} WHERE id = ?',
                              (*fields.values(), conversation_id))
 
-    def add_message(self, conversation_id, role, content) -> Message:
+    def add_message(self, conversation_id, role, content, run_id=None) -> Message:
         now = datetime.now(UTC)
         with self._lock, self._db:
             cursor = self._db.execute(
-                'INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)',
-                (conversation_id, role, content, _stamp(now)))
-        return Message(id=cursor.lastrowid, role=role, content=content, created_at=now)
+                'INSERT INTO messages (conversation_id, role, content, created_at, run_id) VALUES (?, ?, ?, ?, ?)',
+                (conversation_id, role, content, _stamp(now), run_id))
+        return Message(id=cursor.lastrowid, role=role, content=content, created_at=now, run_id=run_id)
 
     def messages(self, conversation_id, after=0) -> list[Message]:
         rows = self._query('SELECT * FROM messages WHERE conversation_id = ? AND id > ? ORDER BY id',
                            (conversation_id, after))
-        return [Message(id=row['id'], role=row['role'], content=row['content'], created_at=_parse(row['created_at']))
-                for row in rows]
+        return [Message(id=row['id'], role=row['role'], content=row['content'], created_at=_parse(row['created_at']),
+                        run_id=row['run_id']) for row in rows]
 
     # --- schedules ---------------------------------------------------------------------------------
 
@@ -304,8 +305,9 @@ class SQLiteStore:
         return self._approval(rows[0]) if rows else None
 
     def list_approvals(self, status=PENDING, limit=100) -> list[Approval]:
-        where, parameters = ('WHERE status = ? ', (status, limit)) if status else ('', (limit,))
-        rows = self._query(f'SELECT * FROM approvals {where}ORDER BY created_at DESC LIMIT ?', parameters)
+        statuses = [status] if isinstance(status, str) else list(status or [])
+        where = f'WHERE status IN ({", ".join("?" * len(statuses))}) ' if statuses else ''  # placeholders only
+        rows = self._query(f'SELECT * FROM approvals {where}ORDER BY created_at DESC LIMIT ?', (*statuses, limit))
         return [self._approval(row) for row in rows]
 
     def decide_approval(self, approval_id, status) -> bool:

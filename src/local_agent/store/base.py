@@ -25,6 +25,7 @@ class Message:
     role: str  # user | assistant
     content: str
     created_at: datetime
+    run_id: str | None = None  # the run that wrote an assistant message
 
 
 @dataclass(frozen=True)
@@ -124,7 +125,7 @@ class Store(Protocol):
     def update_conversation(self, conversation_id: str, **fields) -> None:
         """Sets summary, summarized_until or distilled_until."""
 
-    def add_message(self, conversation_id: str, role: str, content: str) -> Message: ...
+    def add_message(self, conversation_id: str, role: str, content: str, run_id: str | None = None) -> Message: ...
 
     def messages(self, conversation_id: str, after: int = 0) -> list[Message]:
         """The conversation's messages with an id above `after`, oldest first."""
@@ -157,8 +158,8 @@ class Store(Protocol):
                         card: dict[str, Any] | None = None) -> Approval:
         """Records an approval request (or, with PREAPPROVED, an unattended write that ran)."""
 
-    def list_approvals(self, status: str | None = PENDING, limit: int = 100) -> list[Approval]:
-        """Newest first; status None lists every one."""
+    def list_approvals(self, status=PENDING, limit: int = 100) -> list[Approval]:
+        """Newest first. status is one status, several (a list), or None for every one."""
 
     def get_approval(self, approval_id: str) -> Approval | None: ...
 

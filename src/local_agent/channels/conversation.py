@@ -22,5 +22,5 @@ async def reply(rt: Runtime, conversation_id: str, message: str, **run_options) 
         rt.store.add_message(conversation_id, 'user', message)
         history = await compaction.history_for(rt.store, conversation_id, rt.complete)
         result = await run(rt, message, history=history, **run_options)
-        rt.store.add_message(conversation_id, 'assistant', result.answer)
+        rt.store.add_message(conversation_id, 'assistant', result.answer, run_id=result.run_id)
         return result

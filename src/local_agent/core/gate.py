@@ -520,6 +520,8 @@ class PermissionGate:
 
         if status == store_base.APPROVED:
             logger.info(f'Owner approved {tool_name}')
+            # Whoever decided (the web UI, a Telegram button, the terminal), every channel showing the card hears it
+            await self.callback('approval_resolved', {'approval_id': approval.id, 'status': status})
             return None
 
         # Mark expired only if the owner didn't decide at the last moment
@@ -529,7 +531,9 @@ class PermissionGate:
                 f'The user did not approve {tool_name} within {APPROVAL_TIMEOUT_SECONDS} seconds, so it was not '
                 'run. Do not retry. Tell the user the action is waiting for their approval and they can ask again.'
             )
-        if self.store.get_approval(approval.id).status == store_base.APPROVED:
+        status = self.store.get_approval(approval.id).status
+        await self.callback('approval_resolved', {'approval_id': approval.id, 'status': status})
+        if status == store_base.APPROVED:
             return None  # approved in the instant between the last poll and the expiry
 
         logger.info(f'Owner denied {tool_name}')

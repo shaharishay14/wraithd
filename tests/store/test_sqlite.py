@@ -128,3 +128,20 @@ def test_recent_runs_and_short_ids(store):
     assert store.find_runs('ab') == ['abc-1', 'abd-2'] and store.find_runs('abc') == ['abc-1']
     assert store.find_runs('a_') == ['a_c-3']  # "_" is matched as written, not as a wildcard
     assert store.find_runs('%') == []
+
+
+def test_an_older_database_gets_the_new_columns(tmp_path):
+    import sqlite3
+    path = tmp_path / 'old.db'
+    old = sqlite3.connect(path)
+    old.executescript('CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL, '
+                      'role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL);'
+                      "INSERT INTO messages (conversation_id, role, content, created_at) "
+                      "VALUES ('c1', 'user', 'from before', '2026-01-01T00:00:00.000000+00:00');")
+    old.commit()
+    old.close()
+    store = SQLiteStore(path)
+    [message] = store.messages('c1')
+    assert (message.content, message.run_id) == ('from before', None)
+    assert store.add_message('c1', 'assistant', 'now', run_id='r1').run_id == 'r1'
+    store.close()

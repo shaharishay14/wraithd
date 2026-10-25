@@ -91,7 +91,7 @@ async def _session(rt: Runtime, terminal: Terminal, mcp) -> str:
                                source='chat', mcp=mcp)
             # A streamed answer is already on screen; a refusal or failure message never streamed
             terminal.say('' if state['streamed'] else result.answer)
-            rt.store.add_message(conversation.id, 'assistant', result.answer)
+            rt.store.add_message(conversation.id, 'assistant', result.answer, run_id=result.run_id)
     finally:
         try:
             outcome = await distill.distill_conversation(rt.store, rt.memory, rt.complete, conversation.id,

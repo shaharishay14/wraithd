@@ -165,16 +165,18 @@ def build_api(daemon, ui_dir: Path | None) -> Starlette:
         conversation_id = request.path_params['id']
         if rt.store.get_conversation(conversation_id) is None:
             raise ApiError(404, 'not_found', f'There is no conversation {conversation_id}.')
-        return JSONResponse([{'id': m.id, 'role': m.role, 'content': m.content, 'created_at': stamp(m.created_at)}
-                             for m in rt.store.messages(conversation_id)])
+        return JSONResponse([{'id': m.id, 'role': m.role, 'content': m.content, 'created_at': stamp(m.created_at),
+                              'run_id': m.run_id} for m in rt.store.messages(conversation_id)])
 
     # --- approvals ---------------------------------------------------------------------------------------
 
     async def approvals(request):
         wanted = request.query_params.get('status', store_base.PENDING)
-        if wanted not in store_base.APPROVAL_STATUSES:
-            raise ApiError(400, 'bad_request', f'status must be one of {", ".join(store_base.APPROVAL_STATUSES)}.')
-        return JSONResponse([approval_card(a) for a in rt.store.list_approvals(wanted)])
+        statuses = None if wanted == 'all' else [s.strip() for s in wanted.split(',') if s.strip()]
+        if statuses is not None and (not statuses or set(statuses) - set(store_base.APPROVAL_STATUSES)):
+            raise ApiError(400, 'bad_request', 'status must be "all", or one or more (comma-separated) of '
+                                               f'{", ".join(store_base.APPROVAL_STATUSES)}.')
+        return JSONResponse([approval_card(a) for a in rt.store.list_approvals(statuses)])
 
     async def decide(request):
         decision = (await body_of(request)).get('decision')
