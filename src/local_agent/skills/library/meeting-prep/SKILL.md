@@ -2,7 +2,7 @@
 name: meeting-prep
 description: >-
   A one-page brief before a meeting: who's coming, what it's about, open threads, what to decide. Use for "prep me for my next meeting", "brief me on the 3pm".
-requires: [GOOGLECALENDAR|OUTLOOK]
+requires: [calendar]
 ---
 1. Find the meeting (next one if not named): title, time, attendees, description, attached docs.
 2. For each attendee: search memory first. If the agent has email, find the last thread with them (subject and one line). Search the web only for external people the user doesn't know, and only their role and company.

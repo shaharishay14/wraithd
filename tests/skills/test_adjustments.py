@@ -59,7 +59,7 @@ def test_the_owner_edits_rules_in_a_plain_file(home):
     file.write_text(file.read_text().replace('- No weather\n', ''))  # the owner deletes a line
     assert folder.adjustments() == {'morning-brief': ['Slack first']}
     # a folder with only your-way.md is not a skill of its own: the built-in stays, with the rule on top
-    brief = next(s for s in registry.available_skills(folder.user_skills(), {'GMAIL', 'GOOGLECALENDAR'},
+    brief = next(s for s in registry.available_skills(folder.user_skills(), {'email'},
                                                       folder.adjustments()) if s.name == 'morning-brief')
     assert brief.source == 'builtin' and brief.adjustments == ('Slack first',)
 

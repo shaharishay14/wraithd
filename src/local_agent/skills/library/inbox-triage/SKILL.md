@@ -2,7 +2,7 @@
 name: inbox-triage
 description: >-
   Sort unread email into reply now / later / no action, and draft the replies. Use for "triage my inbox", "what should I answer", "clean up my email".
-requires: [GMAIL|OUTLOOK]
+requires: [email]
 model: strong  # the reply-slot rule in step 3 is subtle: smaller models answer for the user
 ---
 1. Fetch unread email (last 3 days, at most 40). Group a thread as one item.

@@ -47,7 +47,8 @@ def test_a_run_is_only_offered_skills_it_can_do():
     assert names(set()) == []
     assert names({'memory', 'web_search'}) == ['research-report', 'weekly-review']
     assert names(registry.capabilities([], owner=True)) == ['skill-writer', 'weekly-review']
-    assert 'morning-brief' in names({'GMAIL', 'GOOGLECALENDAR'})
+    assert names({'email'}) == ['inbox-triage', 'morning-brief']  # what a connected server provides
+    assert names(registry.capabilities([], owner=False, provides=['calendar'])) == ['meeting-prep']
 
 
 def test_an_owner_skill_replaces_the_builtin_with_its_name(home):

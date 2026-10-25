@@ -1,6 +1,6 @@
 """
 The skill registry: built-in skills from library/, plus the owner's own from workspace/skills/, filtered to what
-this run can actually do (a skill that needs email isn't offered when nothing can read email).
+this run can actually do (a skill that needs email isn't offered until a connected server provides "email").
 
 On disk, in workspace/skills/:
 
@@ -104,12 +104,13 @@ def requirements_met(requires, available: set[str]) -> bool:
     return all(any(option.strip() in available for option in requirement.split('|')) for requirement in requires)
 
 
-def capabilities(tool_names, owner: bool) -> set[str]:
+def capabilities(tool_names, owner: bool, provides=()) -> set[str]:
     """
-    What this run can use: its tools by name, plus memory and 'owner' when the owner is the one talking (for
-    skills that change the owner's setup, like skill-writer). Phase 4 adds connected apps.
+    What this run can use: its tools by name, what the connected MCP servers provide ("email", "calendar"), plus
+    memory and 'owner' when the owner is the one talking (for skills that change the owner's setup, like
+    skill-writer).
     """
-    found = set(tool_names)
+    found = set(tool_names) | set(provides)
     if owner:
         found |= {'memory', 'owner'}
     return found
