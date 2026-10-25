@@ -114,6 +114,13 @@ class Vault:
         return parse(vault.normalize_path(path), file.read_text(errors='replace'),
                      datetime.fromtimestamp(file.stat().st_mtime, UTC))
 
+    def delete(self, path: str) -> bool:
+        file = self._file(path)
+        if not file.exists():
+            return False
+        file.unlink()
+        return True
+
     def save(self, note: Note) -> None:
         """Writes the note atomically, so an editor or a crash never sees half a file."""
         file = self._file(note.path)

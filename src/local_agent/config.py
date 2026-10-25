@@ -28,8 +28,10 @@ HOME_ENV = 'LOCAL_AGENT_HOME'
 PROVIDERS = ('openai', 'anthropic', 'ollama', 'openai-compatible')
 SEARCH_PROVIDERS = ('serpapi',)
 # Where a key comes from when it isn't in the keychain (and the variable is set)
-KEY_ENV = {'openai': 'OPENAI_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY', 'serpapi': 'SERPAPI_KEY'}
-KEY_NAMES = tuple(p for p in PROVIDERS if p != 'ollama') + SEARCH_PROVIDERS  # what `local-agent key set` takes
+KEY_ENV = {'openai': 'OPENAI_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY', 'serpapi': 'SERPAPI_KEY',
+           'telegram': 'TELEGRAM_BOT_TOKEN'}
+# what `local-agent key set` takes
+KEY_NAMES = tuple(p for p in PROVIDERS if p != 'ollama') + SEARCH_PROVIDERS + ('telegram',)
 
 DEFAULT_CONFIG = """\
 # Local Agent settings. API keys are not stored here: set them with `local-agent key set <provider>`.
@@ -55,6 +57,10 @@ search = "serpapi"           # the web_search tool appears once a key is set: `l
 [shell]
 enabled = false              # true: the agent may run shell commands, each one only after you say yes
 timeout_seconds = 30
+
+[daemon]
+port = 7878                  # the API and web UI, on 127.0.0.1 only
+# dev_origin = "http://localhost:5173"   # a frontend dev server, while developing the UI
 """
 
 AGENTS_MD = """\
@@ -85,6 +91,8 @@ class Config:
     shell_enabled: bool = False
     shell_timeout: int = 30
     mcp_servers: tuple = ()  # mcp.config.McpServer, from the [mcp.servers.*] blocks
+    daemon_port: int = 7878
+    dev_origin: str = ''
 
 
 class ConfigError(Exception):
@@ -135,7 +143,14 @@ def load_config(home: Home) -> Config:
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f'{home.config_path} is not valid TOML: {e}') from None
     model, budget, owner = data.get('model', {}), data.get('budget', {}), data.get('owner', {})
-    web, shell = data.get('web', {}), data.get('shell', {})
+    web, shell, daemon = data.get('web', {}), data.get('shell', {}), data.get('daemon', {})
+    port = daemon.get('port', Config.daemon_port)
+    if not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535:
+        raise ConfigError('[daemon] port must be a number from 1024 to 65535.')
+    dev_origin = daemon.get('dev_origin', '')
+    if dev_origin and not (isinstance(dev_origin, str) and dev_origin.startswith(('http://localhost:',
+                                                                                   'http://127.0.0.1:'))):
+        raise ConfigError('[daemon] dev_origin must be a local dev server, e.g. "http://localhost:5173".')
     provider = model.get('provider', ModelConfig.provider)
     if provider not in PROVIDERS:
         raise ConfigError(f'[model] provider must be one of {", ".join(PROVIDERS)}, not {provider!r}.')
@@ -158,6 +173,8 @@ def load_config(home: Home) -> Config:
         raise ConfigError(str(e)) from None
     return Config(
         mcp_servers=mcp_servers,
+        daemon_port=port,
+        dev_origin=dev_origin,
         model=ModelConfig(provider=provider, default=model.get('default', ModelConfig.default),
                           strong=model.get('strong', ModelConfig.strong), base_url=model.get('base_url', '')),
         run_tokens=_positive_or_none(budget.get('run_tokens', Config.run_tokens), 'run_tokens'),

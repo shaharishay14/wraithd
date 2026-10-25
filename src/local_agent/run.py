@@ -30,6 +30,7 @@ from local_agent.skills import registry
 from local_agent.skills.tools import skill_tools
 from local_agent.store import SQLiteStore, Store
 from local_agent.tools import builtin_tools
+from local_agent.tools.notify import StoreNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +56,12 @@ class Runtime:
     # The web tools' HTTP transports: None is the real network; tests pass httpx.MockTransport
     web_transport: object = None
     search_transport: object = None
+    notifier: object = None  # where notify_owner delivers; the daemon sets Telegram, else the store's inbox
     memory: Vault = field(init=False)
     skills: registry.SkillFolder = field(init=False)
 
     def __post_init__(self):
+        self.notifier = self.notifier or StoreNotifier(self.store)
         self.memory = Vault(self.home.memory_dir)
         self.skills = registry.SkillFolder(self.home.skills_dir)
 
@@ -143,7 +146,7 @@ async def _run_loop(agent, chat, callback, log, policy, upgrade):
 
 async def run(rt: Runtime, message: str, *, history=(), callback=None, source: str = 'chat', owner: bool = True,
               tools=(), app_tools=(), app_guides: dict[str, str] | None = None, builtins: bool = True,
-              mcp: Connected | None = None) -> RunResult:
+              mcp: Connected | None = None, untrusted_source: str = '') -> RunResult:
     """
     Runs the agent on one message.
 
@@ -155,21 +158,26 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
     builtins: the built-in tools (tools/), which depend on owner and on whether anyone can approve
     mcp: the owner's MCP servers, already connected (a terminal session connects once); without it, run() connects
     them for this run. Only for the owner: they're the owner's accounts.
+    untrusted_source: the message itself is third-party content (a stranger on Telegram): the run is tainted from
+    its first step, and addresses in it don't count as the owner's.
     """
     async with AsyncExitStack() as stack:
         if owner and mcp is None and rt.config.mcp_servers:
             mcp = await stack.enter_async_context(McpConnections(rt.config.mcp_servers))
         return await _run(rt, message, history=history, callback=callback, source=source, owner=owner, tools=tools,
                           app_tools=app_tools, app_guides=app_guides, builtins=builtins,
-                          mcp=mcp if owner else None)
+                          mcp=mcp if owner else None, untrusted_source=untrusted_source)
 
 
-async def _run(rt, message, *, history, callback, source, owner, tools, app_tools, app_guides, builtins, mcp):
+async def _run(rt, message, *, history, callback, source, owner, tools, app_tools, app_guides, builtins, mcp,
+               untrusted_source):
     started = time.monotonic()
     history = list(history)
     log = ev.EventLog(rt.store)
     log.append(ev.RUN_START, source=source, message=message, history_messages=len(history), owner=owner,
-               untrusted_inputs=[])
+               untrusted_inputs=[untrusted_source] if untrusted_source else [])
+    if callback:
+        await callback('run_started', {'run_id': log.run_id})  # so a channel can link to the run while it goes
     gate = None
 
     def end(outcome: str, **extra):
@@ -193,9 +201,11 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
             app_tools = [*app_tools, *mcp.tools]
             app_guides = {**mcp.guides, **(app_guides or {})}
         orders = standing_orders(rt.home)
-        gate = PermissionGate(rt.store, callback, history, message, instructions=orders,
+        gate = PermissionGate(rt.store, callback, history, '' if untrusted_source else message, instructions=orders,
                               owner_email=rt.config.owner_email, tool_access=mcp.access if mcp else None,
-                              preapproved=mcp.always_allowed if mcp else ())
+                              preapproved=mcp.always_allowed if mcp else (), channel=source, run_id=log.run_id)
+        if untrusted_source:
+            gate.add_untrusted_input(untrusted_source, message)
         notes = rt.memory.load() if owner else []
 
         # Skills: one line each in the prompt, instructions on skill_load. The owner's own skills and rules only

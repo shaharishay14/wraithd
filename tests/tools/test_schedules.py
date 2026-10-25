@@ -138,8 +138,8 @@ async def test_every_weekday_at_8_through_a_conversation(make_runtime, london):
     assert (schedule.message, schedule.cron, schedule.timezone) == ('Send me my morning brief', '0 8 * * 1-5', LONDON)
     created = json.loads(model.tool_outputs(1)['call_1'])['created']
     assert created['when'].startswith('every: 0 8 * * 1-5 (next ') and created['when'].endswith(f'08:00 {LONDON})')
-    # nothing fires schedules before the daemon (Phase 5): the agent is told not to promise it
-    assert 'will not fire on its own for now' in json.loads(model.tool_outputs(1)['call_1'])['hint']
+    # the daemon fires it: the agent tells the owner so
+    assert 'while Local Agent\'s daemon is running' in json.loads(model.tool_outputs(1)['call_1'])['hint']
 
 
 async def test_no_means_no_schedule(make_runtime, london):

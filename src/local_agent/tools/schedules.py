@@ -11,9 +11,8 @@ from local_agent.tools.base import function_tool, tool_error
 
 CREATE, LIST, CANCEL = 'schedule_create', 'schedule_list', 'schedule_cancel'
 NAMES = (CREATE, LIST, CANCEL)
-# Until the background daemon exists (Phase 5), nothing fires a schedule: the agent must not promise otherwise
-NOT_FIRING_YET = ('Be honest that schedules only run while Local Agent runs in the background, which this version '
-                  'does not do yet, so it will not fire on its own for now.')
+# The daemon fires schedules: the agent says so, so the owner knows to keep it running
+WHEN_IT_RUNS = 'It runs while Local Agent\'s daemon is running (`local-agent daemon`), and the answer is sent to them.'
 
 
 def _shown(schedule) -> dict:
@@ -27,7 +26,7 @@ def schedule_tools(store, timezone: str, clock=lambda: datetime.now(UTC)) -> lis
         except schedules.ScheduleError as e:
             return tool_error(str(e), 'Fix the schedule and try again, or ask the user what they meant.')
         return {'created': _shown(schedule),
-                'hint': f'Tell the user it is saved and when it is due. {NOT_FIRING_YET} They can see and remove '
+                'hint': f'Tell the user it is saved and when it is due. {WHEN_IT_RUNS} They can see and remove '
                         'schedules with `local-agent schedules list` and `local-agent schedules rm`.'}
 
     async def list_all() -> dict:

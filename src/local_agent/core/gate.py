@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import time
+from datetime import timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -52,6 +53,8 @@ BUILTIN_TOOL_ACCESS = {
     'schedule_create': ToolAccess.WRITE,
     'schedule_list': ToolAccess.READ,
     'schedule_cancel': ToolAccess.READ,
+    # Only ever reaches the owner, so it needs no approval and works unattended
+    'notify_owner': ToolAccess.READ,
     # Progressive disclosure (disclosure.py): they only read the run's catalog of app actions
     'find_app_actions': ToolAccess.READ,
     'describe_app_action': ToolAccess.READ,
@@ -267,8 +270,10 @@ class PermissionGate:
     """
 
     def __init__(self, store, callback=None, chat_history=None, user_message=None, instructions: str = '',
-                 owner_email: str = '', unattended_write_tools=(), tool_access=None, preapproved=()):
+                 owner_email: str = '', unattended_write_tools=(), tool_access=None, preapproved=(),
+                 channel: str = '', run_id: str = ''):
         self.store = store
+        self.channel, self.run_id = channel, run_id  # shown on the approval card: where it was asked, for which run
         self.callback = callback
         self.owner_email = owner_email.lower()
         self.preapproved = set(unattended_write_tools) | set(preapproved)
@@ -488,19 +493,19 @@ class PermissionGate:
                         untrusted_sources: list[str] | None = None,
                         suspicious_recipients: list[dict[str, str]] | None = None) -> str | None:
         """Saves a pending approval, shows it to the owner, and waits for their decision."""
-        approval = self.store.create_approval(tool_name, arguments)
-
-        await self.callback('approval_required', {
-            'approval_id': approval.id,
-            'tool': tool_name,
-            'arguments': arguments,
-            'timeout_seconds': APPROVAL_TIMEOUT_SECONDS,
+        card = {
+            'reason': reason,
             # Warnings on the card: recipients the owner didn't write, or (when there's no recipient to check)
             # the third-party sources read before this request
             'suspicious_recipients': suspicious_recipients or [],
             'untrusted_sources': untrusted_sources or [],
-            'reason': reason,
-        })
+            'channel': self.channel,
+            'run_id': self.run_id,
+            'timeout_seconds': APPROVAL_TIMEOUT_SECONDS,
+        }
+        # Stored with the approval, so a list of pending approvals (the web UI) shows the same card
+        approval = self.store.create_approval(tool_name, arguments, card=card)
+        await self.callback('approval_required', approval_card(approval))
 
         # Poll the store, not memory: the decision can come from another process (the CLI while the daemon
         # runs) as well as from another task in this one.
@@ -533,6 +538,26 @@ class PermissionGate:
             f'The user declined {tool_name}, so it was not run. Do not retry it. Ask the user what they would like '
             'to change.'
         ))
+
+
+def approval_card(approval) -> dict[str, Any]:
+    """The card the owner sees, for any channel: the request, what approving means, the warnings, the state."""
+    card = approval.card or {}
+    timeout = card.get('timeout_seconds', APPROVAL_TIMEOUT_SECONDS)
+    return {
+        'approval_id': approval.id,
+        'tool': approval.tool,
+        'arguments': approval.arguments,
+        'reason': card.get('reason', ''),
+        'suspicious_recipients': card.get('suspicious_recipients', []),
+        'untrusted_sources': card.get('untrusted_sources', []),
+        'status': approval.status,
+        'created_at': approval.created_at.isoformat(timespec='microseconds'),
+        'expires_at': (approval.created_at + timedelta(seconds=timeout)).isoformat(timespec='microseconds'),
+        'timeout_seconds': timeout,
+        'channel': card.get('channel', ''),
+        'run_id': card.get('run_id', ''),
+    }
 
 
 def parse_arguments(input_json: str) -> dict[str, Any]:

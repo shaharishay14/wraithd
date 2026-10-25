@@ -153,6 +153,18 @@ class SkillFolder:
             'Edit or delete lines freely.\n\n')
         path.write_text(existing.rstrip('\n') + f'\n- {rule}\n')
 
+    def set_adjustments(self, skill: str, rules: list[str]) -> None:
+        """Replaces the owner's rules for a skill (the web UI's editor). An empty list removes the file."""
+        if not NAME.match(skill):
+            raise ValueError(f'Not a skill name: {skill!r}')
+        path = self.root / skill / YOUR_WAY
+        if not rules:
+            path.unlink(missing_ok=True)
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f'# Your way: {skill}\n\nYour rules for this skill, shown to the agent after its steps. '
+                        'Edit or delete lines freely.\n\n' + ''.join(f'- {rule}\n' for rule in rules))
+
     def is_active(self, name: str) -> bool:
         return (self.root / name / 'SKILL.md').exists()
 

@@ -15,7 +15,16 @@ from pathlib import Path
 from typing import Any
 
 from local_agent.core.events import RUN_END, RUN_START, Event
-from local_agent.store.base import APPROVAL_STATUSES, PENDING, Approval, Conversation, Message, RunInfo, Schedule
+from local_agent.store.base import (
+    APPROVAL_STATUSES,
+    PENDING,
+    Approval,
+    Conversation,
+    ConversationListing,
+    Message,
+    RunInfo,
+    Schedule,
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS run_events (
@@ -68,7 +77,19 @@ CREATE TABLE IF NOT EXISTS approvals (
     created_at TEXT NOT NULL,
     decided_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
+
+# Columns added after a table first shipped: (table, column, definition). Added on open when missing, so an older
+# state.db keeps working.
+MIGRATIONS = [
+    ('approvals', 'card', "TEXT NOT NULL DEFAULT '{}'"),
+    ('conversations', 'external', 'TEXT'),
+]
 
 
 def _stamp(moment: datetime) -> str:
@@ -92,6 +113,11 @@ class SQLiteStore:
             if str(path) != ':memory:':
                 self._db.execute('PRAGMA journal_mode=WAL')
             self._db.executescript(SCHEMA)
+            for table, column, definition in MIGRATIONS:
+                columns = {row['name'] for row in self._db.execute(f'PRAGMA table_info({table})')}
+                if column not in columns:
+                    self._db.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
+            self._db.commit()
 
     def close(self) -> None:
         self._db.close()
@@ -145,21 +171,43 @@ class SQLiteStore:
 
     # --- conversations -----------------------------------------------------------------------------
 
-    def start_conversation(self, source) -> Conversation:
-        conversation = Conversation(id=str(uuid.uuid4()), source=source, started_at=datetime.now(UTC))
+    def start_conversation(self, source, external=None) -> Conversation:
+        conversation = Conversation(id=str(uuid.uuid4()), source=source, started_at=datetime.now(UTC),
+                                    external=external)
         with self._lock, self._db:
-            self._db.execute('INSERT INTO conversations (id, source, started_at) VALUES (?, ?, ?)',
-                             (conversation.id, source, _stamp(conversation.started_at)))
+            self._db.execute('INSERT INTO conversations (id, source, started_at, external) VALUES (?, ?, ?, ?)',
+                             (conversation.id, source, _stamp(conversation.started_at), external))
         return conversation
+
+    @staticmethod
+    def _conversation(row) -> Conversation:
+        return Conversation(id=row['id'], source=row['source'], started_at=_parse(row['started_at']),
+                            summary=row['summary'], summarized_until=row['summarized_until'],
+                            distilled_until=row['distilled_until'], external=row['external'])
 
     def get_conversation(self, conversation_id) -> Conversation | None:
         rows = self._query('SELECT * FROM conversations WHERE id = ?', (conversation_id,))
-        if not rows:
-            return None
-        row = rows[0]
-        return Conversation(id=row['id'], source=row['source'], started_at=_parse(row['started_at']),
-                            summary=row['summary'], summarized_until=row['summarized_until'],
-                            distilled_until=row['distilled_until'])
+        return self._conversation(rows[0]) if rows else None
+
+    def find_conversation(self, source, external) -> Conversation | None:
+        rows = self._query('SELECT * FROM conversations WHERE source = ? AND external = ? '
+                           'ORDER BY started_at DESC LIMIT 1', (source, external))
+        return self._conversation(rows[0]) if rows else None
+
+    def list_conversations(self, limit=50) -> list[ConversationListing]:
+        rows = self._query(
+            'SELECT c.id, c.source, c.started_at, MAX(m.created_at) AS last_message_at, '
+            '(SELECT content FROM messages WHERE conversation_id = c.id ORDER BY id LIMIT 1) AS preview '
+            'FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.id '
+            'GROUP BY c.id ORDER BY COALESCE(MAX(m.created_at), c.started_at) DESC LIMIT ?', (limit,))
+        return [ConversationListing(id=row['id'], source=row['source'], started_at=_parse(row['started_at']),
+                                    last_message_at=_parse(row['last_message_at']),
+                                    preview=(row['preview'] or '')[:120]) for row in rows]
+
+    def undistilled_conversations(self) -> list[str]:
+        rows = self._query('SELECT DISTINCT c.id FROM conversations c JOIN messages m ON m.conversation_id = c.id '
+                           'WHERE m.id > c.distilled_until ORDER BY c.id')
+        return [row['id'] for row in rows]
 
     def update_conversation(self, conversation_id, **fields) -> None:
         allowed = {'summary', 'summarized_until', 'distilled_until'}
@@ -231,26 +279,34 @@ class SQLiteStore:
 
     # --- approvals ---------------------------------------------------------------------------------
 
-    def create_approval(self, tool, arguments, status=PENDING) -> Approval:
+    def create_approval(self, tool, arguments, status=PENDING, card=None) -> Approval:
         if status not in APPROVAL_STATUSES:
             raise ValueError(f'Unknown approval status {status!r}')
         now = datetime.now(UTC)
         approval = Approval(id=str(uuid.uuid4()), tool=tool, arguments=arguments, status=status, created_at=now,
-                            decided_at=None if status == PENDING else now)
+                            decided_at=None if status == PENDING else now, card=dict(card or {}))
         with self._lock, self._db:
             self._db.execute(
-                'INSERT INTO approvals (id, tool, arguments, status, created_at, decided_at) VALUES (?, ?, ?, ?, ?, ?)',
+                'INSERT INTO approvals (id, tool, arguments, status, created_at, decided_at, card) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?)',
                 (approval.id, tool, json.dumps(arguments), status, _stamp(now),
-                 approval.decided_at and _stamp(approval.decided_at)))
+                 approval.decided_at and _stamp(approval.decided_at), json.dumps(approval.card)))
         return approval
+
+    @staticmethod
+    def _approval(row) -> Approval:
+        return Approval(id=row['id'], tool=row['tool'], arguments=json.loads(row['arguments']), status=row['status'],
+                        created_at=_parse(row['created_at']), decided_at=_parse(row['decided_at']),
+                        card=json.loads(row['card'] or '{}'))
 
     def get_approval(self, approval_id) -> Approval | None:
         rows = self._query('SELECT * FROM approvals WHERE id = ?', (approval_id,))
-        if not rows:
-            return None
-        row = rows[0]
-        return Approval(id=row['id'], tool=row['tool'], arguments=json.loads(row['arguments']), status=row['status'],
-                        created_at=_parse(row['created_at']), decided_at=_parse(row['decided_at']))
+        return self._approval(rows[0]) if rows else None
+
+    def list_approvals(self, status=PENDING, limit=100) -> list[Approval]:
+        where, parameters = ('WHERE status = ? ', (status, limit)) if status else ('', (limit,))
+        rows = self._query(f'SELECT * FROM approvals {where}ORDER BY created_at DESC LIMIT ?', parameters)
+        return [self._approval(row) for row in rows]
 
     def decide_approval(self, approval_id, status) -> bool:
         if status not in APPROVAL_STATUSES or status == PENDING:
@@ -260,3 +316,17 @@ class SQLiteStore:
             cursor = self._db.execute('UPDATE approvals SET status = ?, decided_at = ? WHERE id = ? AND status = ?',
                                       (status, _stamp(datetime.now(UTC)), approval_id, PENDING))
         return cursor.rowcount == 1
+
+    # --- settings ----------------------------------------------------------------------------------
+
+    def get_setting(self, key) -> str | None:
+        rows = self._query('SELECT value FROM settings WHERE key = ?', (key,))
+        return rows[0]['value'] if rows else None
+
+    def set_setting(self, key, value) -> None:
+        with self._lock, self._db:
+            if value is None:
+                self._db.execute('DELETE FROM settings WHERE key = ?', (key,))
+            else:
+                self._db.execute('INSERT INTO settings (key, value) VALUES (?, ?) '
+                                 'ON CONFLICT (key) DO UPDATE SET value = excluded.value', (key, value))

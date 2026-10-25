@@ -7,7 +7,7 @@ directly rather than paying for a thread hop.
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
@@ -37,6 +37,16 @@ class Conversation:
     summary: str = ''  # older messages, folded into a rolling summary (compaction.py)
     summarized_until: int = 0  # id of the newest message in the summary
     distilled_until: int = 0  # id of the newest message distill has read (memory/distill.py)
+    external: str | None = None  # the channel's own id for it, e.g. a Telegram chat id
+
+
+@dataclass(frozen=True)
+class ConversationListing:
+    id: str
+    source: str
+    started_at: datetime
+    last_message_at: datetime | None
+    preview: str  # the first message, cut short
 
 
 @dataclass(frozen=True)
@@ -72,6 +82,7 @@ class Approval:
     status: str
     created_at: datetime
     decided_at: datetime | None
+    card: dict[str, Any] = field(default_factory=dict)  # what the owner was shown: reason, warnings, channel, run
 
 
 class Store(Protocol):
@@ -97,7 +108,16 @@ class Store(Protocol):
 
     # --- conversations -----------------------------------------------------------------------------
 
-    def start_conversation(self, source: str) -> Conversation: ...
+    def start_conversation(self, source: str, external: str | None = None) -> Conversation: ...
+
+    def find_conversation(self, source: str, external: str) -> Conversation | None:
+        """The newest conversation of a channel's own chat (e.g. one Telegram chat)."""
+
+    def list_conversations(self, limit: int = 50) -> list[ConversationListing]:
+        """Newest activity first."""
+
+    def undistilled_conversations(self) -> list[str]:
+        """Conversations with messages distill hasn't read yet."""
 
     def get_conversation(self, conversation_id: str) -> Conversation | None: ...
 
@@ -133,10 +153,22 @@ class Store(Protocol):
 
     # --- approvals ---------------------------------------------------------------------------------
 
-    def create_approval(self, tool: str, arguments: dict[str, Any], status: str = PENDING) -> Approval:
+    def create_approval(self, tool: str, arguments: dict[str, Any], status: str = PENDING,
+                        card: dict[str, Any] | None = None) -> Approval:
         """Records an approval request (or, with PREAPPROVED, an unattended write that ran)."""
+
+    def list_approvals(self, status: str | None = PENDING, limit: int = 100) -> list[Approval]:
+        """Newest first; status None lists every one."""
 
     def get_approval(self, approval_id: str) -> Approval | None: ...
 
     def decide_approval(self, approval_id: str, status: str) -> bool:
         """Sets the decision if the approval is still pending. False if it was decided already."""
+
+    # --- settings ----------------------------------------------------------------------------------
+
+    def get_setting(self, key: str) -> str | None:
+        """Small state the daemon keeps (the paired Telegram chat, a pending pairing code)."""
+
+    def set_setting(self, key: str, value: str | None) -> None:
+        """None removes it."""
