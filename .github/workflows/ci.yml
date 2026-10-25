@@ -22,3 +22,40 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check
       - run: uv run pytest
+
+  wheel:
+    # The release build: the web UI from frontend/ into the wheel, the wheel installed as a uv tool, and a wheel
+    # built without the UI (it must still build; the daemon then serves its placeholder)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: scripts/release.sh
+      - name: The wheel has the UI
+        run: unzip -l dist/*.whl | grep -q ' local_agent/ui/index.html$'
+      - name: It installs as a tool and runs
+        env:
+          UV_TOOL_DIR: ${{ runner.temp }}/uv-tools
+          UV_TOOL_BIN_DIR: ${{ runner.temp }}/uv-bin
+          LOCAL_AGENT_HOME: ${{ runner.temp }}/home
+        run: |
+          uv tool install --python 3.12 dist/*.whl
+          "$UV_TOOL_BIN_DIR/local-agent" --version
+          "$UV_TOOL_BIN_DIR/local-agent" --help
+          test -f "$UV_TOOL_DIR"/local-agent/lib/python3.12/site-packages/local_agent/ui/index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Without the UI, the wheel still builds
+        run: |
+          rm -rf src/local_agent/ui dist
+          uv build
+          ! unzip -l dist/*.whl | grep -q 'local_agent/ui/'

@@ -25,5 +25,5 @@
 ## On a laptop
 
 agent-studio's dispatcher was Celery Beat on a server. Here the scheduler only runs while the daemon does: a
-schedule due while the laptop is off or asleep fires when the daemon next ticks, once. Phase 6 installs the daemon
-as a service so it starts with the computer.
+schedule due while the laptop is off or asleep fires when the daemon next ticks, once. The background service
+([installing and running](install.md)) starts the daemon at login.

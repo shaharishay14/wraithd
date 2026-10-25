@@ -13,13 +13,23 @@ Early. You can chat with it in the terminal: it remembers what you tell it (as m
 follows a starter pack of skills, reads web pages and (with a search key) searches, works with files in its own
 folder, can run shell commands if you turn that on and say yes to each one, and keeps schedules and reminders.
 Your apps connect as MCP servers (`local-agent mcp add`): reading runs freely, anything else asks until you
-always-allow it. It asks before it changes anything outside its folder, and logs every step. `local-agent daemon`
-runs it in the background of a terminal: a local API and web UI, schedules firing on time, and your own Telegram
-bot. Installing it as a service comes next. The design notes are in [docs/](docs/README.md).
+always-allow it. It asks before it changes anything outside its folder, and logs every step. The daemon runs in
+the background as a service that starts at login: a local API and web UI, schedules firing on time, and your own
+Telegram bot. The design notes are in [docs/](docs/README.md).
 
-## Try it
+## Install
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+Requires macOS or Linux, Python 3.12+ and [uv](https://docs.astral.sh/uv/) (or pipx).
+
+```sh
+uv tool install local-agent           # or: pipx install local-agent
+local-agent onboard                   # model and key, search, Telegram, the background service
+local-agent doctor                    # checks everything, with a fix for anything wrong
+local-agent daemon status             # also: start, stop, restart, logs, uninstall
+local-agent update                    # upgrade and restart the service
+```
+
+## From a checkout
 
 ```sh
 uv sync
@@ -43,8 +53,9 @@ files are in `~/.local-agent/workspace/files/`.
 ## Development
 
 ```sh
-uv run pytest        # no test calls a model, needs a key or touches ~/.local-agent
+uv run pytest        # no test calls a model, needs a key or touches ~/.local-agent, the keychain or services
 uv run ruff check
+scripts/release.sh   # the web UI (built on a copy of frontend/) into the wheel, in dist/
 ```
 
 ## License

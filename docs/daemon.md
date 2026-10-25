@@ -30,8 +30,8 @@ One message at a time per conversation: a second one waits for the first answer 
 ## Running it
 
 `local-agent daemon` runs in the foreground and prints the UI's address with its token:
-`http://127.0.0.1:7878/#token=...`. Ctrl-C stops everything. Installing it as a background service (launchd,
-systemd) and `daemon start/stop/logs` are Phase 6.
+`http://127.0.0.1:7878/#token=...`. Ctrl-C stops everything. `local-agent daemon install` runs it as a background
+service instead (launchd or systemd), with `daemon start/stop/status/logs`: see [installing and running](install.md).
 
 ## On a laptop
 
