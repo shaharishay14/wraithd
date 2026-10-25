@@ -7,6 +7,8 @@ The `local-agent` command.
     local-agent schedules list [--all]   schedules and reminders, with their next times
     local-agent schedules rm <id>        cancel one
     local-agent mcp add|list|tools|allow|disallow|remove   your apps, as MCP servers (see mcp/commands.py)
+    local-agent daemon                   the API, web UI, scheduler and Telegram, in the foreground
+    local-agent telegram pair            a code that makes your Telegram chat the owner's
     local-agent key set <provider>       store an API key in the OS keychain
 """
 
@@ -50,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     schedules_rm.add_argument('schedule_id', type=int)
 
     mcp_commands.add_arguments(commands)
+    commands.add_parser('daemon', help='run the API, web UI, scheduler and Telegram (in the foreground)')
+    telegram = commands.add_parser('telegram', help='the Telegram channel').add_subparsers(
+        dest='telegram_command', required=True)
+    telegram.add_parser('pair', help='a code to send to your bot as /pair <code> (valid for 10 minutes)')
 
     key = commands.add_parser('key', help='API keys, kept in the OS keychain').add_subparsers(dest='key_command',
                                                                                            required=True)
@@ -113,6 +119,37 @@ def schedules_rm(home: Home, schedule_id: int) -> int:
     return 0
 
 
+def daemon(home: Home) -> int:
+    from local_agent.daemon.app import Daemon
+    from local_agent.run import Runtime
+
+    try:
+        rt = Runtime.open(home)
+    except (ConfigError, ProviderError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    try:
+        asyncio.run(Daemon(rt).serve())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        rt.close()
+    return 0
+
+
+def telegram_pair(home: Home) -> int:
+    from local_agent.channels.telegram import new_pairing
+
+    home.ensure()
+    store = SQLiteStore(home.db_path)
+    try:
+        pairing = new_pairing(store)
+    finally:
+        store.close()
+    print(f'Send this to your bot within 10 minutes:  /pair {pairing["code"]}')
+    return 0
+
+
 def key_set(provider: str) -> int:
     value = getpass.getpass(f'{provider} API key (not shown): ').strip()
     if not value:
@@ -155,6 +192,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.schedules_command == 'list':
             return schedules_list(home, args.all)
         return schedules_rm(home, args.schedule_id)
+    if args.command == 'daemon':
+        return daemon(home)
+    if args.command == 'telegram':
+        return telegram_pair(home)
     if args.command == 'mcp':
         return mcp_commands.main(home, args)
     if args.command == 'key':
