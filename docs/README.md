@@ -26,21 +26,24 @@ says what changed for running on one person's laptop.
             └────────────────────────────────────────────────────────────────────────────────┘
                        │
                        ▼
-               Store (src/local_agent/store/): events and approvals in one SQLite file
+               Store (src/local_agent/store/): events, conversations, approvals in one SQLite file
 ```
 
 ## The notes
 
 | Note | In one line |
 |---|---|
+| [One run](run.md) | `run()`, config and keys, providers, the terminal chat. |
 | [Event log](event-log.md) | Every step is an event; the run's state is a query over them. |
 | [Security](security.md) | Hard rules in code: the gate, taint tracking, egress, redaction, budgets. |
 | [System reminders](reminders.md) | Short hints at the moment they're relevant; nudges, not rules. |
 | [Progressive disclosure](progressive-disclosure.md) | Search → View → Use, so the prompt doesn't grow with every tool. |
+| [Memory](memory.md) | Markdown files, a keyword map instead of vectors, BM25, distill, trust labels. |
+| [Skills](skills.md) | One line in the prompt, instructions on demand, the owner's rules on top, `model: strong`. |
 | [One loop, not a team](one-loop.md) | Why there's one agent, and when a sub-agent would be worth it. |
 | [Proof](proof.md) | Unit tests, scripted runs through the real SDK, and replay of recorded runs. |
 
-Memory, skills and background runs get their notes when they're ported (Phases 2 to 5).
+Background runs get their note with the daemon (Phase 5).
 
 ## Where the ideas come from
 

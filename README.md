@@ -9,19 +9,31 @@ budgets) live in code, not in the prompt. State stays on your machine in `~/.loc
 
 ## Status
 
-Early. The harness core is ported (the loop, stop rules, event log, permission gate, reminders, disclosure,
-egress and redaction, on a SQLite store) and tested through the real Agents SDK loop with a scripted model.
-There's no `run()`, configuration or chat command yet, so nothing here talks to a model. The design notes
-are in [docs/](docs/README.md).
+Early. You can chat with it in the terminal: it remembers what you tell it (as markdown files you can edit),
+follows a starter pack of skills, asks before it changes anything, and logs every step. Built-in tools (files,
+web, schedules), apps over MCP, the background daemon and Telegram come next. The design notes are in
+[docs/](docs/README.md).
 
-## Development
+## Try it
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```sh
 uv sync
-uv run local-agent --version
-uv run pytest
+uv run local-agent key set openai     # stored in the OS keychain
+uv run local-agent chat
+uv run local-agent runs list          # what each run did
+uv run local-agent runs show <id>
+```
+
+Settings are in `~/.local-agent/config.toml`: the provider (`openai`, `anthropic`, `ollama` or any
+OpenAI-compatible endpoint), the model, a stronger model for subtle skills, and budgets. For Anthropic models,
+install the extra: `uv sync --extra anthropic`. Your standing orders go in `~/.local-agent/workspace/AGENTS.md`.
+
+## Development
+
+```sh
+uv run pytest        # no test calls a model, needs a key or touches ~/.local-agent
 uv run ruff check
 ```
 

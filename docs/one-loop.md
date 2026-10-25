@@ -38,7 +38,8 @@ stay only if the evals score better with it than without. None of the current ta
 Nothing changed in the decision; one thing made it stronger. A local model has a smaller context window and
 less patience for long prompts, so one agent with progressive disclosure fits better than several agents each
 carrying their own instructions. The one model choice that does vary is per skill: a skill can ask for the
-stronger configured model (`model: strong`, Phase 2), because agent-studio's evals found gpt-4o-mini followed
-subtle skill rules less reliably than gpt-4o. That's still one loop, with a different model for that run.
+stronger configured model (`model: strong`), because agent-studio's evals found gpt-4o-mini followed subtle
+skill rules less reliably than gpt-4o. That's still one loop: the run goes on with the stronger model and keeps
+everything it did so far.
 
 Sources: Anthropic, [Building agents: when to fold sub-agents into your main agent loop](https://claude.com/resources/articles/building-agents-when-to-fold-subagents-into-your-main-agent-loop); [The hard problem in multi-agent is context transfer](https://michaellivs.com/blog/multi-agent-context-transfer/).

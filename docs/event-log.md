@@ -12,7 +12,7 @@
 
 - **Events**: `run_start`, `context_built`, `turn_start`, `model_output` (with token usage), `tool_call`
   (with access level and allowed/blocked), `tool_result` (ok/error/denied, untrusted, redacted), `reminder`,
-  `stop`, `run_end`. Kept in memory during the run and saved in one batch at the end, so logging never slows
+  `stop`, `model_upgrade`, `run_end`; between runs, `compaction` and `distill`. Kept in memory during the run and saved in one batch at the end, so logging never slows
   the loop. Long strings are cut and secrets redacted before anything is stored.
 - **Views** are plain functions over the list: `consecutive_tool_errors`, `most_repeated_call`,
   `tokens_used`, `untrusted_content_seen`, `skills_loaded`... They run live before each model call or later
@@ -37,8 +37,9 @@
 
 - **The store replaces the ORM.** agent-studio wrote `RunEvent` rows through Django. Here the harness talks
   to a `Store` protocol with only the queries it makes (save a run's events, read one back, find the previous
-  conversation run, add up today's tokens, the approval trail), and `SQLiteStore` implements it on one file
-  with the standard library's `sqlite3`. Payloads are JSON text, queried with `json_extract`.
+  conversation run, list recent runs, add up today's tokens, conversations and their messages, the approval
+  trail), and `SQLiteStore` implements it on one file with the standard library's `sqlite3`. Payloads are JSON
+  text, queried with `json_extract`.
 - **No users, no agents.** One process serves one owner, so events have no user or agent columns, and the
   "per-user daily budget" became one daily budget for the machine. It's off by default; the per-run limits
   stay on, because a runaway run costs the owner's own API key.
