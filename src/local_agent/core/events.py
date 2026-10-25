@@ -28,6 +28,7 @@ REMINDER = 'reminder'  # a system reminder was added (reminders.py)
 RUN_END = 'run_end'
 COMPACTION = 'compaction'  # older chat messages were folded into the summary (between runs)
 DISTILL = 'distill'  # new chat messages were turned into memory notes (between runs)
+TELEGRAM_IGNORED = 'telegram_ignored'  # a chat that isn't the owner's wrote to the bot (at most hourly per chat)
 
 # Payload strings longer than this are cut before they're stored (the model got its own rendering)
 MAX_PAYLOAD_TEXT = 2000

@@ -5,7 +5,7 @@
 ## One-liner
 
 > The owner talks to their agent from their phone through their own Telegram bot. One chat is paired as the
-> owner's; everyone else who finds the bot is a stranger whose words are third-party content.
+> owner's. The bot is personal: anyone else who finds it gets silence, unless the owner turns on answering them.
 
 ## How it works
 
@@ -19,9 +19,17 @@
   the arguments, what approving means and the third-party warnings, and **Allow** / **Deny** buttons. A tap decides
   it in the same approval store the terminal and the web UI use; the buttons are replaced by the outcome. Only the
   owner's taps count.
-- **Anyone else's messages** run with `owner=False` (no memory, files, schedules, apps or skill changes) and as
-  third-party input: the run is tainted from its first step and addresses in the message don't count as the
-  owner's. Their conversations are kept per chat, like the owner's.
+- **Anyone else's messages are ignored** by default: no run, no model call, no reply, nothing stored but a log
+  line. The one exception is `/pair <code>`, since the owner's first contact comes from a chat that isn't paired
+  yet (before pairing, every chat is a stranger; `/start` gets no reply either). Silence costs no tokens and tells
+  a stranger nothing, not even that the bot is a Local Agent.
+- **Ignored chats are logged** as a `telegram_ignored` event (between runs) with the chat id and username, never the
+  text: the words are a stranger's and the log is the owner's. At most one event per chat per hour, so someone
+  writing all day can't flood the log. The hour is counted in memory: a daemon restart logs each chat once more.
+- **`[telegram] answer_strangers = true`** answers them instead: their messages run with `owner=False` (no memory,
+  files, schedules, apps or skill changes) and as third-party input: the run is tainted from its first step and
+  addresses in the message don't count as the owner's. Their conversations are kept per chat, like the owner's.
+- **Button taps** from any chat but the owner's are refused ("Only the owner can decide."), switch or not.
 - **Errors** never include the API URL, since the bot token is in it.
 
 ## On a laptop
@@ -33,5 +41,7 @@ what to ask it there.
 
 ## Limits
 
-Anyone who finds the bot's name can message it and spend the owner's tokens (the daily budget caps that). Whether
-strangers should be answered at all, and rate limits for them, are Phase 7 decisions.
+By default a stranger costs one `getUpdates` result and, at most hourly, one log row. With `answer_strangers` on,
+anyone who finds the bot's name can message it and spend the owner's tokens (the daily budget caps that); rate
+limits for them are a Phase 7 decision. The ignored-chat events are in the store only: no API endpoint or command
+shows events between runs yet.

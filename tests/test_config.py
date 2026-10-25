@@ -28,6 +28,7 @@ def test_the_default_config_loads(home):
     loaded = load_config(home)
     assert (loaded.model.provider, loaded.model.default, loaded.model.strong) == ('openai', 'gpt-4o-mini', 'gpt-4o')
     assert loaded.run_tokens == 200_000 and loaded.run_tool_calls == 40 and loaded.daily_tokens is None
+    assert 'answer_strangers = false' in home.config_path.read_text() and loaded.answer_strangers is False
 
 
 @pytest.mark.parametrize('text, problem', [
@@ -35,6 +36,7 @@ def test_the_default_config_loads(home):
     ('[model]\nprovider = "openai-compatible"\n', 'base_url is required'),
     ('[budget]\nrun_tokens = -5\n', 'positive whole number'),
     ('[budget\n', 'not valid TOML'),
+    ('[telegram]\nanswer_strangers = "yes"\n', 'answer_strangers must be true or false'),
 ])
 def test_a_bad_config_says_what_to_fix(home, text, problem):
     home.config_path.write_text(text)

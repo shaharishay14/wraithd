@@ -5,8 +5,11 @@ Telegram, by long polling over httpx: no public URL, no webhook, no extra librar
   bot within 10 minutes, and that chat becomes the owner's. Five wrong tries and the code is gone.
 - The owner's messages are runs like the terminal's (memory, files, apps), and writes ask with inline buttons,
   decided through the same approval store as everywhere else.
-- Anyone else's message is third-party content: it runs with owner=False (no memory, files, schedules or apps)
-  and taints the run, so even what it asks for can't steer a write.
+- The bot is personal: anyone else's message gets no run, no model call and no reply, except `/pair <code>` (the
+  owner's first contact comes from a chat that isn't paired yet). Each such chat is logged as a telegram_ignored
+  event, at most once an hour, so the owner can see someone tried without strangers filling the log.
+- With `[telegram] answer_strangers = true`, other chats are answered as third-party content: owner=False (no
+  memory, files, schedules or apps) and a tainted run, so even what they ask for can't steer a write.
 - The bot token is in the keychain (`local-agent key set telegram`) and registered for redaction; errors never
   include the API URL, since the token is in it.
 """
@@ -20,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 
 from local_agent.channels.conversation import reply
+from local_agent.core import events as ev
 from local_agent.core.gate import approval_card
 from local_agent.store import base as store_base
 from local_agent.tools.notify import StoreNotifier
@@ -31,6 +35,7 @@ POLL_SECONDS = 30
 MESSAGE_CHARS = 4000  # Telegram's limit is 4096
 PAIRING_MINUTES = 10
 PAIRING_TRIES = 5
+IGNORED_LOG_EVERY = timedelta(hours=1)  # per stranger chat
 OWNER_CHAT, OWNER_NAME, PAIRING, OFFSET = 'telegram.owner_chat', 'telegram.owner_name', 'telegram.pairing', \
     'telegram.offset'
 
@@ -89,6 +94,8 @@ class TelegramChannel:
         self.rt, self.bot, self.mcp, self.clock = rt, bot, mcp, clock
         self.tasks: set[asyncio.Task] = set()
         self.cards: dict[str, tuple[int, int]] = {}  # approval id -> (chat, message) of its buttons
+        # stranger chat -> when it was last logged. In memory: a daemon restart logs each one again, which is fine
+        self.ignored_logged: dict[int, datetime] = {}
 
     @property
     def owner_chat(self) -> int | None:
@@ -131,17 +138,30 @@ class TelegramChannel:
             return await self._decide(update['callback_query'])
         message = update.get('message') or {}
         text, chat = (message.get('text') or '').strip(), message.get('chat') or {}
-        if not text or 'id' not in chat:
+        if 'id' not in chat:
             return
         chat_id = chat['id']
         if text.startswith('/pair'):
             return await self._pair(chat_id, chat, text.removeprefix('/pair').strip())
+        if chat_id != self.owner_chat and not self.rt.config.answer_strangers:
+            return self._ignore(chat_id, chat)
+        if not text:
+            return
         if text == '/start':
             return await self.bot.send(chat_id, 'Hi. This is a personal assistant. Its owner pairs it with '
                                                 '`local-agent telegram pair`.')
         task = asyncio.create_task(self._answer(chat_id, chat, text))  # so button presses keep being handled
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
+
+    def _ignore(self, chat_id: int, chat: dict) -> None:
+        """A stranger's message: nothing is sent back and no model sees it, so it costs nothing and leaks nothing.
+        Logged by chat id and username only: the text is a stranger's, and the log is the owner's."""
+        now, last = self.clock(), self.ignored_logged.get(chat_id)
+        if last is not None and now - last < IGNORED_LOG_EVERY:
+            return
+        self.ignored_logged[chat_id] = now
+        ev.record_event(self.rt.store, ev.TELEGRAM_IGNORED, chat=chat_id, username=chat.get('username') or '')
 
     async def _pair(self, chat_id: int, chat: dict, code: str) -> None:
         pairing = json.loads(self.rt.store.get_setting(PAIRING) or 'null')

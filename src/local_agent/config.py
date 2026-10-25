@@ -61,6 +61,9 @@ timeout_seconds = 30
 [daemon]
 port = 7878                  # the API and web UI, on 127.0.0.1 only
 # dev_origin = "http://localhost:5173"   # a frontend dev server, while developing the UI
+
+[telegram]
+answer_strangers = false     # true: chats other than yours get answers too, as third-party runs with no owner tools
 """
 
 AGENTS_MD = """\
@@ -93,6 +96,7 @@ class Config:
     mcp_servers: tuple = ()  # mcp.config.McpServer, from the [mcp.servers.*] blocks
     daemon_port: int = 7878
     dev_origin: str = ''
+    answer_strangers: bool = False  # Telegram: answer chats other than the paired owner's
 
 
 class ConfigError(Exception):
@@ -144,6 +148,7 @@ def load_config(home: Home) -> Config:
         raise ConfigError(f'{home.config_path} is not valid TOML: {e}') from None
     model, budget, owner = data.get('model', {}), data.get('budget', {}), data.get('owner', {})
     web, shell, daemon = data.get('web', {}), data.get('shell', {}), data.get('daemon', {})
+    telegram = data.get('telegram', {})
     port = daemon.get('port', Config.daemon_port)
     if not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535:
         raise ConfigError('[daemon] port must be a number from 1024 to 65535.')
@@ -161,6 +166,8 @@ def load_config(home: Home) -> Config:
         raise ConfigError(f'[web] search must be one of {", ".join(SEARCH_PROVIDERS)}, or "" for none.')
     if not isinstance(shell.get('enabled', False), bool):
         raise ConfigError('[shell] enabled must be true or false.')
+    if not isinstance(telegram.get('answer_strangers', False), bool):
+        raise ConfigError('[telegram] answer_strangers must be true or false.')
     timezone = owner.get('timezone', '')
     if timezone:
         try:
@@ -175,6 +182,7 @@ def load_config(home: Home) -> Config:
         mcp_servers=mcp_servers,
         daemon_port=port,
         dev_origin=dev_origin,
+        answer_strangers=telegram.get('answer_strangers', False),
         model=ModelConfig(provider=provider, default=model.get('default', ModelConfig.default),
                           strong=model.get('strong', ModelConfig.strong), base_url=model.get('base_url', '')),
         run_tokens=_positive_or_none(budget.get('run_tokens', Config.run_tokens), 'run_tokens'),
