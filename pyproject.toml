@@ -1,0 +1,30 @@
+[project]
+name = "local-agent"
+version = "0.0.1"
+description = "A personal agent that runs on your own machine."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Shahar Ishay" }]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+local-agent = "local_agent.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
