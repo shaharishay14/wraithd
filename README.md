@@ -9,7 +9,10 @@ budgets) live in code, not in the prompt. State stays on your machine in `~/.loc
 
 ## Status
 
-Early. This is the project skeleton; the harness is being ported next. Nothing here talks to a model yet.
+Early. The harness core is ported (the loop, stop rules, event log, permission gate, reminders, disclosure,
+egress and redaction, on a SQLite store) and tested through the real Agents SDK loop with a scripted model.
+There's no `run()`, configuration or chat command yet, so nothing here talks to a model. The design notes
+are in [docs/](docs/README.md).
 
 ## Development
 
