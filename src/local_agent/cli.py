@@ -7,10 +7,10 @@ from local_agent import __version__
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="local-agent",
-        description="A personal agent that runs on your own machine.",
+        prog='local-agent',
+        description='A personal agent that runs on your own machine.',
     )
-    parser.add_argument("--version", action="version", version=f"local-agent {__version__}")
+    parser.add_argument('--version', action='version', version=f'local-agent {__version__}')
     return parser
 
 
@@ -22,5 +22,5 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     raise SystemExit(main())

@@ -1,0 +1,220 @@
+{
+ "events": [
+  {
+   "seq": 0,
+   "type": "run_start",
+   "payload": {
+    "source": "unattended",
+    "message": "1+1?",
+    "history_messages": 0,
+    "files": 0,
+    "connected_apps": false,
+    "untrusted_inputs": []
+   }
+  },
+  {
+   "seq": 1,
+   "type": "context_built",
+   "payload": {
+    "model": "scripted",
+    "disclosure": "direct",
+    "app_actions": 0,
+    "tools_offered": [
+     "get_weather",
+     "calculate",
+     "memory_search",
+     "memory_read",
+     "memory_append",
+     "memory_write",
+     "skill_load",
+     "skill_propose",
+     "skill_adjust"
+    ],
+    "tool_schema_chars": 4222,
+    "memory_notes": 0,
+    "skills_offered": [
+     "skill-writer",
+     "weekly-review"
+    ],
+    "instructions_chars": 17192
+   }
+  },
+  {
+   "seq": 2,
+   "type": "turn_start",
+   "payload": {
+    "turn": 1,
+    "input_items": 1
+   }
+  },
+  {
+   "seq": 3,
+   "type": "model_output",
+   "payload": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "tool_calls": [
+     "calculate"
+    ],
+    "text_chars": 0
+   }
+  },
+  {
+   "seq": 4,
+   "type": "tool_call",
+   "payload": {
+    "tool": "calculate",
+    "arguments": {
+     "expression": "1+1"
+    },
+    "access": "read",
+    "allowed": true
+   }
+  },
+  {
+   "seq": 5,
+   "type": "tool_result",
+   "payload": {
+    "tool": "calculate",
+    "outcome": "ok",
+    "chars": 1,
+    "truncated": false,
+    "untrusted": false,
+    "preview": "2"
+   }
+  },
+  {
+   "seq": 6,
+   "type": "turn_start",
+   "payload": {
+    "turn": 2,
+    "input_items": 3
+   }
+  },
+  {
+   "seq": 7,
+   "type": "model_output",
+   "payload": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "tool_calls": [
+     "calculate"
+    ],
+    "text_chars": 0
+   }
+  },
+  {
+   "seq": 8,
+   "type": "tool_call",
+   "payload": {
+    "tool": "calculate",
+    "arguments": {
+     "expression": "1+1"
+    },
+    "access": "read",
+    "allowed": true
+   }
+  },
+  {
+   "seq": 9,
+   "type": "tool_result",
+   "payload": {
+    "tool": "calculate",
+    "outcome": "ok",
+    "chars": 1,
+    "truncated": false,
+    "untrusted": false,
+    "preview": "2"
+   }
+  },
+  {
+   "seq": 10,
+   "type": "reminder",
+   "payload": {
+    "name": "repeated_call",
+    "at": "calculate"
+   }
+  },
+  {
+   "seq": 11,
+   "type": "turn_start",
+   "payload": {
+    "turn": 3,
+    "input_items": 5
+   }
+  },
+  {
+   "seq": 12,
+   "type": "model_output",
+   "payload": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "tool_calls": [
+     "calculate"
+    ],
+    "text_chars": 0
+   }
+  },
+  {
+   "seq": 13,
+   "type": "tool_call",
+   "payload": {
+    "tool": "calculate",
+    "arguments": {
+     "expression": "1+1"
+    },
+    "access": "read",
+    "allowed": true
+   }
+  },
+  {
+   "seq": 14,
+   "type": "tool_result",
+   "payload": {
+    "tool": "calculate",
+    "outcome": "ok",
+    "chars": 1,
+    "truncated": false,
+    "untrusted": false,
+    "preview": "2"
+   }
+  },
+  {
+   "seq": 15,
+   "type": "stop",
+   "payload": {
+    "reason": "repeated_call",
+    "message": "calculate was called 3 times with the same arguments, so the run was stopped."
+   }
+  },
+  {
+   "seq": 16,
+   "type": "turn_start",
+   "payload": {
+    "turn": 4,
+    "input_items": 8
+   }
+  },
+  {
+   "seq": 17,
+   "type": "model_output",
+   "payload": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "tool_calls": [],
+    "text_chars": 1
+   }
+  },
+  {
+   "seq": 18,
+   "type": "run_end",
+   "payload": {
+    "outcome": "answered",
+    "duration_ms": 5,
+    "turns": 4,
+    "tokens": 0,
+    "stop_reason": "repeated_call"
+   }
+  }
+ ]
+}

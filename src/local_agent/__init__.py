@@ -2,4 +2,4 @@
 
 from importlib.metadata import version
 
-__version__ = version("local-agent")
+__version__ = version('local-agent')

@@ -1,0 +1,116 @@
+{
+ "events": [
+  {
+   "seq": 0,
+   "type": "run_start",
+   "payload": {
+    "source": "unattended",
+    "message": "Paris weather?",
+    "history_messages": 0,
+    "files": 0,
+    "connected_apps": false,
+    "untrusted_inputs": []
+   }
+  },
+  {
+   "seq": 1,
+   "type": "context_built",
+   "payload": {
+    "model": "scripted",
+    "disclosure": "direct",
+    "app_actions": 0,
+    "tools_offered": [
+     "get_weather",
+     "calculate",
+     "memory_search",
+     "memory_read",
+     "memory_append",
+     "memory_write",
+     "skill_load",
+     "skill_propose",
+     "skill_adjust"
+    ],
+    "tool_schema_chars": 4222,
+    "memory_notes": 0,
+    "skills_offered": [
+     "skill-writer",
+     "weekly-review"
+    ],
+    "instructions_chars": 17578
+   }
+  },
+  {
+   "seq": 2,
+   "type": "turn_start",
+   "payload": {
+    "turn": 1,
+    "input_items": 1
+   }
+  },
+  {
+   "seq": 3,
+   "type": "model_output",
+   "payload": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "tool_calls": [
+     "get_weather"
+    ],
+    "text_chars": 0
+   }
+  },
+  {
+   "seq": 4,
+   "type": "tool_call",
+   "payload": {
+    "tool": "get_weather",
+    "arguments": {
+     "location": "Paris"
+    },
+    "access": "read",
+    "allowed": true
+   }
+  },
+  {
+   "seq": 5,
+   "type": "tool_result",
+   "payload": {
+    "tool": "get_weather",
+    "outcome": "ok",
+    "chars": 12,
+    "truncated": false,
+    "untrusted": false,
+    "preview": "{\"temp\": 21}"
+   }
+  },
+  {
+   "seq": 6,
+   "type": "turn_start",
+   "payload": {
+    "turn": 2,
+    "input_items": 3
+   }
+  },
+  {
+   "seq": 7,
+   "type": "model_output",
+   "payload": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "tool_calls": [],
+    "text_chars": 6
+   }
+  },
+  {
+   "seq": 8,
+   "type": "run_end",
+   "payload": {
+    "outcome": "answered",
+    "duration_ms": 16,
+    "turns": 2,
+    "tokens": 0,
+    "stop_reason": null
+   }
+  }
+ ]
+}
