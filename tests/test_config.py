@@ -44,6 +44,28 @@ def test_a_bad_config_says_what_to_fix(home, text, problem):
         load_config(home)
 
 
+def test_set_values_keeps_comments_uncomments_examples_and_adds_sections(home):
+    config.set_values(home, 'model', {'provider': 'openai-compatible', 'base_url': 'http://localhost:8000/v1'})
+    config.set_values(home, 'owner', {'timezone': 'Europe/London'})
+    config.set_values(home, 'telegram', {'answer_strangers': True})
+    config.set_values(home, 'budget', {'daily_tokens': 500000, 'run_tokens': 1000})
+    text = home.config_path.read_text()
+    assert 'provider = "openai-compatible" # openai | anthropic | ollama | openai-compatible' in text
+    assert 'base_url = "http://localhost:8000/v1"\n' in text and '# base_url' not in text
+    assert 'timezone = "Europe/London"\n' in text and '# email = "you@example.com"' in text
+    assert 'run_tokens = 1000            # per run, input + output' in text  # the comment stays in its column
+    loaded = load_config(home)
+    assert (loaded.model.base_url, loaded.timezone, loaded.answer_strangers, loaded.daily_tokens, loaded.run_tokens) \
+        == ('http://localhost:8000/v1', 'Europe/London', True, 500000, 1000)
+
+
+def test_set_values_that_break_the_config_leave_it_as_it_was(home):
+    before = home.config_path.read_text()
+    with pytest.raises(ConfigError, match='provider must be one of'):
+        config.set_values(home, 'model', {'provider': 'gemini'})
+    assert home.config_path.read_text() == before
+
+
 def test_keys_live_in_the_keychain_not_the_config(home, isolated):
     config.set_key('openai', 'sk-test-key-in-keychain')
     assert isolated.passwords == {('local-agent', 'openai'): 'sk-test-key-in-keychain'}

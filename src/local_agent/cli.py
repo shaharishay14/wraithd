@@ -1,6 +1,7 @@
 """
 The `local-agent` command.
 
+    local-agent onboard                  set everything up, one question at a time (safe to run again)
     local-agent chat                     talk to the agent in the terminal
     local-agent runs list                the latest runs
     local-agent runs show <id> [--json]  one run's timeline (a unique prefix of the id is enough)
@@ -8,6 +9,9 @@ The `local-agent` command.
     local-agent schedules rm <id>        cancel one
     local-agent mcp add|list|tools|allow|disallow|remove   your apps, as MCP servers (see mcp/commands.py)
     local-agent daemon                   the API, web UI, scheduler and Telegram, in the foreground
+    local-agent daemon install|start|stop|restart|status|logs|uninstall   the same, as a background service
+    local-agent doctor                   check the setup; a fix for anything wrong
+    local-agent update                   upgrade (with uv or pipx) and restart the service
     local-agent telegram pair            a code that makes your Telegram chat the owner's
     local-agent key set <provider>       store an API key in the OS keychain
 """
@@ -16,11 +20,13 @@ import argparse
 import asyncio
 import getpass
 import json
+import logging
 import sys
 
 from local_agent import __version__
 from local_agent.config import KEY_NAMES, ConfigError, Home, set_key
 from local_agent.core import inspector
+from local_agent.daemon import commands as daemon_commands
 from local_agent.mcp import commands as mcp_commands
 from local_agent.providers import ProviderError
 from local_agent.store import SQLiteStore
@@ -34,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--version', action='version', version=f'local-agent {__version__}')
     commands = parser.add_subparsers(dest='command')
 
+    commands.add_parser('onboard', help='set up the model, keys, Telegram and the background service')
     commands.add_parser('chat', help='talk to the agent in the terminal')
 
     runs = commands.add_parser('runs', help='look at what runs did').add_subparsers(dest='runs_command',
@@ -52,7 +59,9 @@ def build_parser() -> argparse.ArgumentParser:
     schedules_rm.add_argument('schedule_id', type=int)
 
     mcp_commands.add_arguments(commands)
-    commands.add_parser('daemon', help='run the API, web UI, scheduler and Telegram (in the foreground)')
+    daemon_commands.add_arguments(commands)
+    commands.add_parser('doctor', help='check the setup: settings, keys, permissions, the service, the daemon')
+    commands.add_parser('update', help='upgrade Local Agent (uv or pipx) and restart the background service')
     telegram = commands.add_parser('telegram', help='the Telegram channel').add_subparsers(
         dest='telegram_command', required=True)
     telegram.add_parser('pair', help='a code to send to your bot as /pair <code> (valid for 10 minutes)')
@@ -123,6 +132,9 @@ def daemon(home: Home) -> int:
     from local_agent.daemon.app import Daemon
     from local_agent.run import Runtime
 
+    # Timestamps for the service's log file. WARNING and up only: httpx logs every request URL at INFO, and the
+    # Telegram ones have the bot token in them
+    logging.basicConfig(level=logging.WARNING, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
     try:
         rt = Runtime.open(home)
     except (ConfigError, ProviderError) as e:
@@ -182,6 +194,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     home = Home.locate()
+    if args.command == 'onboard':
+        from local_agent import onboard
+        return onboard.main(home)
+    if args.command == 'doctor':
+        from local_agent import doctor
+        return doctor.main(home)
+    if args.command == 'update':
+        from local_agent import update
+        return update.update(home)
     if args.command == 'chat':
         return chat(home)
     if args.command == 'runs':
@@ -193,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
             return schedules_list(home, args.all)
         return schedules_rm(home, args.schedule_id)
     if args.command == 'daemon':
-        return daemon(home)
+        return daemon(home) if args.daemon_command is None else daemon_commands.main(home, args)
     if args.command == 'telegram':
         return telegram_pair(home)
     if args.command == 'mcp':

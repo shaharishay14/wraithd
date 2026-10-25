@@ -118,6 +118,24 @@ class TelegramChannel:
                 logger.exception('Telegram update failed')
         return len(updates)
 
+    async def poll_for_pairing(self, timeout: int = 5) -> bool:
+        """
+        For `local-agent onboard` when no daemon is polling: one getUpdates call that handles only `/pair` and stops
+        at the first pairing that works. Updates after it are left for the daemon, so the owner's first message
+        isn't lost; other messages before it (from chats that aren't the owner's yet) are passed over.
+        """
+        offset = int(self.rt.store.get_setting(OFFSET) or 0)
+        updates = await self.bot.call('getUpdates', offset=offset, timeout=timeout, allowed_updates=['message'])
+        for update in updates:
+            self.rt.store.set_setting(OFFSET, str(update['update_id'] + 1))
+            message = update.get('message') or {}
+            text, chat = (message.get('text') or '').strip(), message.get('chat') or {}
+            if 'id' in chat and text.startswith('/pair'):
+                await self._pair(chat['id'], chat, text.removeprefix('/pair').strip())
+                if self.owner_chat is not None:
+                    return True
+        return self.owner_chat is not None
+
     async def run_forever(self) -> None:
         while True:
             try:

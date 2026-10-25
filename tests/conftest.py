@@ -5,6 +5,7 @@ from keyring.backend import KeyringBackend
 from local_agent import run as run_module
 from local_agent.config import HOME_ENV, Home
 from local_agent.core import gate, secrets
+from local_agent.daemon import app as app_module
 from local_agent.run import Runtime
 from local_agent.store import SQLiteStore
 from tests.scripted import recorder
@@ -31,8 +32,15 @@ class MemoryKeyring(KeyringBackend):
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
-    """No test touches the real ~/.local-agent or the real keychain."""
+    """
+    No test touches the real ~/.local-agent, the real keychain, or anything else in the real home folder
+    (~/Library/LaunchAgents, ~/.config/systemd): HOME is a temp folder too.
+    """
     monkeypatch.setenv(HOME_ENV, str(tmp_path / 'home'))
+    monkeypatch.setenv('HOME', str(tmp_path / 'user'))
+    monkeypatch.delenv(app_module.UI_ENV, raising=False)
+    # a release build in this checkout (scripts/release.sh) must not change what the tests see
+    monkeypatch.setattr(app_module, 'PACKAGE_UI', tmp_path / 'no-ui')
     previous = keyring.get_keyring()
     backend = MemoryKeyring()
     keyring.set_keyring(backend)

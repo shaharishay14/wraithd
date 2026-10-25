@@ -11,7 +11,10 @@ API keys go in the keychain through `keyring`, never in the config file, so the 
 shared without leaking them.
 """
 
+import json
 import os
+import re
+import tempfile
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -195,6 +198,58 @@ def load_config(home: Home) -> Config:
         shell_timeout=_positive_or_none(shell.get('timeout_seconds', Config.shell_timeout), 'timeout_seconds')
         or Config.shell_timeout,
     )
+
+
+def _toml_value(value) -> str:
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    return str(value) if isinstance(value, int) else json.dumps(value)  # a JSON string is a TOML basic string
+
+
+def set_values(home: Home, section: str, values: dict) -> None:
+    """
+    Sets keys in one [section] of config.toml (onboard's answers), keeping the owner's other lines and comments.
+    A key set in the section is replaced in place, keeping its trailing comment; a commented-out example
+    (`# base_url = ...`) is replaced by the real line; anything else is added at the end of the section. The
+    result must load, or the file is left as it was.
+    """
+    home.ensure()
+    before = home.config_path.read_text()
+    lines = before.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.strip() == f'[{section}]'), None)
+    if start is None:
+        lines += ['', f'[{section}]']
+        start = len(lines) - 1
+    for key, value in values.items():
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].lstrip().startswith('[')), len(lines))
+        rendered = f'{key} = {_toml_value(value)}'
+        live = re.compile(rf'^\s*{re.escape(key)}\s*=\s*("(?:[^"\\]|\\.)*"|[^#\s]*)(\s*#.*)?$')
+        example = re.compile(rf'^\s*#\s*{re.escape(key)}\s*=')
+        found = next((i for i in range(start + 1, end) if live.match(lines[i])), None)
+        if found is not None:
+            comment = live.match(lines[found]).group(2) or ''
+            if comment:  # keep the comment where it was, when the new value fits before it
+                width = len(lines[found]) - len(comment.lstrip()) - 1
+                rendered = rendered.ljust(width) + ' ' + comment.lstrip()
+            lines[found] = rendered
+            continue
+        found = next((i for i in range(start + 1, end) if example.match(lines[i])), None)
+        if found is not None:
+            lines[found] = rendered
+            continue
+        last = end
+        while last - 1 > start and not lines[last - 1].strip():
+            last -= 1
+        lines.insert(last, rendered)
+    handle, temporary = tempfile.mkstemp(dir=home.root, prefix='.config.', suffix='.tmp')
+    with os.fdopen(handle, 'w') as out:
+        out.write('\n'.join(lines) + '\n')
+    os.replace(temporary, home.config_path)
+    try:
+        load_config(home)
+    except ConfigError:
+        home.config_path.write_text(before)
+        raise
 
 
 # --- keys --------------------------------------------------------------------------------------------------

@@ -156,6 +156,9 @@ class ScriptedTerminal(Terminal):
         self.prompts.append(prompt)
         return self.lines.pop(0) if self.lines else None
 
+    async def secret(self, prompt):
+        return await self.ask(prompt)  # recorded like any prompt; never echoed into output
+
     def say(self, text='', end='\n'):
         self.output.append(text + end)
 

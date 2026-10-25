@@ -1,7 +1,7 @@
 """
 The daemon: one async process with the local API (and the web UI), the scheduler, Telegram long polling, open MCP
-connections and background distill. `local-agent daemon` runs it in the foreground; installing it as a service is
-Phase 6.
+connections and background distill. `local-agent daemon` runs it in the foreground; daemon/service.py runs that
+as a background service.
 
 Everything is opened once in start() and shared: MCP sessions, the Telegram bot, the notifier. Runs from every
 channel use the same Runtime, so they share the store, memory and skills.
@@ -28,12 +28,13 @@ logger = logging.getLogger(__name__)
 
 HOST = '127.0.0.1'  # never 0.0.0.0: nothing else on the network may reach the agent
 UI_ENV = 'LOCAL_AGENT_UI_DIR'
+PACKAGE_UI = Path(__file__).resolve().parent.parent / 'ui'  # where scripts/release.sh puts the build
 DISTILL_EVERY_SECONDS = 3600
 
 
 def ui_dir() -> Path | None:
     """The built web UI: $LOCAL_AGENT_UI_DIR, else the ui/ folder in the package, if it has an index.html."""
-    for candidate in (os.environ.get(UI_ENV), Path(__file__).resolve().parent.parent / 'ui'):
+    for candidate in (os.environ.get(UI_ENV), PACKAGE_UI):
         if candidate and (Path(candidate) / 'index.html').is_file():
             return Path(candidate).resolve()
     return None

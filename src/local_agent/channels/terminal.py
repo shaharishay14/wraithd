@@ -6,6 +6,7 @@ ends, distill turns it into memory: that's how "I prefer short replies" holds th
 """
 
 import asyncio
+import getpass
 import json
 import sys
 
@@ -26,6 +27,13 @@ class Terminal:
         """A line from the owner, or None when input ends (Ctrl-D)."""
         try:
             return await asyncio.to_thread(input, prompt)
+        except EOFError:
+            return None
+
+    async def secret(self, prompt: str) -> str | None:
+        """A line typed without echo (keys, tokens), or None when input ends."""
+        try:
+            return await asyncio.to_thread(getpass.getpass, prompt)
         except EOFError:
             return None
 
