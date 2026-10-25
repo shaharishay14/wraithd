@@ -16,16 +16,16 @@
   `/etc/localtime` link), else UTC. A cron is evaluated in that zone, so 8:00 stays 8:00 across daylight saving.
 - **Approval:** creating a schedule is a write, shown on the approval card with "your agent will run this on its
   own". Listing and cancelling aren't. Unattended runs can't create schedules (nobody to approve).
-- **`due(now)`:** what the daemon (Phase 5) will call every minute. It returns the schedules due now and, before
-  returning each, moves it to its next time (a one-off is turned off) with a compare-and-set, so a slot fires at
+- **`due(now)`:** what the daemon's [scheduler](scheduler.md) calls every minute. It returns the schedules due now
+  and, before returning each, moves it to its next time (a one-off is turned off) with a compare-and-set, so a slot fires at
   most once even if two processes ask, and a laptop that slept through three slots fires once when it wakes.
 - **CLI:** `local-agent schedules list [--all]` and `local-agent schedules rm <id>`.
 
-## What's not here yet
+## Firing
 
-Nothing fires a schedule until the daemon exists (Phase 5). The tool tells the model to say so, so it doesn't
-promise a reminder that won't come. `due()` is tested on a fake clock, including a daylight-saving change and a
-week of missed slots.
+The daemon fires schedules ([scheduler](scheduler.md)), so they run while `local-agent daemon` does; the tool tells
+the model to say so. `due()` is tested on a fake clock, including a daylight-saving change and a week of missed
+slots.
 
 ## On a laptop
 

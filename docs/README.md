@@ -45,10 +45,12 @@ says what changed for running on one person's laptop.
 | [The web](web.md) | Pages through the egress guard, search behind a provider key, all third-party content. |
 | [Schedules](schedules.md) | Cron or one time in the owner's timezone, approved, fired at most once per slot. |
 | [MCP](mcp.md) | Your apps as MCP servers: secrets per server, discovery, read-only runs, the rest asks. |
+| [The daemon](daemon.md) | One process: the API and UI, the scheduler, Telegram, MCP, background distill. |
+| [The local API](api.md) | The contract the web UI is built on: token, Origin and Host checks, endpoints. |
+| [Telegram](telegram.md) | A paired owner chat; anyone else is third-party; approvals as buttons. |
+| [The scheduler](scheduler.md) | Due schedules run unattended every minute; the answer goes to the owner. |
 | [One loop, not a team](one-loop.md) | Why there's one agent, and when a sub-agent would be worth it. |
 | [Proof](proof.md) | Unit tests, scripted runs through the real SDK, and replay of recorded runs. |
-
-Background runs get their note with the daemon (Phase 5).
 
 ## Where the ideas come from
 

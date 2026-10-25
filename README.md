@@ -13,8 +13,9 @@ Early. You can chat with it in the terminal: it remembers what you tell it (as m
 follows a starter pack of skills, reads web pages and (with a search key) searches, works with files in its own
 folder, can run shell commands if you turn that on and say yes to each one, and keeps schedules and reminders.
 Your apps connect as MCP servers (`local-agent mcp add`): reading runs freely, anything else asks until you
-always-allow it. It asks before it changes anything outside its folder, and logs every step. The background daemon
-(which is what will fire schedules) and Telegram come next. The design notes are in [docs/](docs/README.md).
+always-allow it. It asks before it changes anything outside its folder, and logs every step. `local-agent daemon`
+runs it in the background of a terminal: a local API and web UI, schedules firing on time, and your own Telegram
+bot. Installing it as a service comes next. The design notes are in [docs/](docs/README.md).
 
 ## Try it
 
@@ -29,6 +30,9 @@ uv run local-agent runs show <id>
 uv run local-agent schedules list
 uv run local-agent key set serpapi    # optional: web search
 uv run local-agent mcp add gmail --provides email --env GMAIL_TOKEN -- <command that starts the server>
+uv run local-agent key set telegram   # optional: your bot's token
+uv run local-agent daemon             # prints http://127.0.0.1:7878/#token=...
+uv run local-agent telegram pair      # then send /pair <code> to your bot
 ```
 
 Settings are in `~/.local-agent/config.toml`: the provider (`openai`, `anthropic`, `ollama` or any

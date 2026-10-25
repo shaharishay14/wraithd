@@ -49,6 +49,12 @@ It's a pattern scan, so it's best effort.
 - File contents, command output, pages and search snippets are all third-party content: wrapped, and they taint
   the run.
 
+## The local API
+
+Every website the owner visits can make their browser call `127.0.0.1`. The daemon's API needs a token (handed to
+the UI in a URL fragment), checks Host (no DNS rebinding) and Origin, sends no CORS headers, and binds to 127.0.0.1
+only ([api](api.md)).
+
 ## Budgets
 
 40 tool calls and 200,000 tokens per run, checked before every model call. An optional daily token budget,
