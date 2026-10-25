@@ -1,0 +1,190 @@
+@import 'tailwindcss';
+
+/* "Sky" design tokens, from agent-studio docs/design/tokens.css. A tool, not a landing page: solid night
+   panels, white pills, color only in status dots and warnings. */
+:root {
+  --sky-night: #0a0e14;
+  --sky-night-2: #0d1219;
+  --sky-night-3: #151d28;
+  --sky-side: #0c1119;
+  --sky-dusk: #243e56;
+  --sky-haze: #7fa6c4;
+  --sky-glow: #e6b06d;
+  --sky-text: #ffffff;
+  --sky-text-muted: rgba(255, 255, 255, 0.72);
+  --sky-text-faint: rgba(255, 255, 255, 0.6);
+  --sky-text-on-white: #0a0e14;
+  --sky-line: rgba(255, 255, 255, 0.1);
+  --sky-line-2: rgba(255, 255, 255, 0.14);
+  --sky-outline: rgba(255, 255, 255, 0.3);
+  --sky-outline-strong: rgba(255, 255, 255, 0.55);
+  --sky-live: #7ee2a8;
+  --sky-busy: #ffc46b;
+  --sky-off: #ff8a7a;
+  --sky-font-display: 'Inter Tight Variable', 'Inter Variable', system-ui, sans-serif;
+  --sky-font-body: 'Inter Variable', system-ui, sans-serif;
+  --sky-font-accent: 'Instrument Serif', Georgia, serif;
+  --sky-font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sky-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@theme inline {
+  --color-night: var(--sky-night);
+  --color-night-2: var(--sky-night-2);
+  --color-night-3: var(--sky-night-3);
+  --color-side: var(--sky-side);
+  --color-dusk: var(--sky-dusk);
+  --color-haze: var(--sky-haze);
+  --color-glow: var(--sky-glow);
+  --color-on-white: var(--sky-text-on-white);
+  --color-line: var(--sky-line);
+  --color-line-2: var(--sky-line-2);
+  --color-edge: var(--sky-outline);
+  --color-edge-strong: var(--sky-outline-strong);
+  --color-live: var(--sky-live);
+  --color-busy: var(--sky-busy);
+  --color-off: var(--sky-off);
+  --radius-pill: 999px;
+  --radius-card: 22px;
+  --radius-tile: 16px;
+  --font-sans: var(--sky-font-body);
+  --font-display: var(--sky-font-display);
+  --font-accent: var(--sky-font-accent);
+  --font-mono: var(--sky-font-mono);
+  --ease-sky: var(--sky-ease);
+}
+
+@theme {
+  --animate-sky-spin: sky-spin 0.8s linear infinite;
+  --animate-sky-in: sky-in 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  @keyframes sky-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes sky-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@layer base {
+  html {
+    background: var(--sky-night);
+    color-scheme: dark;
+  }
+  body {
+    margin: 0;
+    background: var(--sky-night);
+    color: var(--sky-text);
+    font-family: var(--sky-font-body);
+    font-size: 15px;
+    line-height: 23px;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: rgba(127, 166, 196, 0.45);
+  }
+}
+
+.sky-serif {
+  font-family: var(--sky-font-accent);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.skip-link {
+  position: absolute;
+  left: 16px;
+  top: -60px;
+  z-index: 50;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--sky-text-on-white);
+  font-weight: 600;
+  text-decoration: none;
+}
+.skip-link:focus {
+  top: 12px;
+}
+
+/* Status dot: live and busy pulse */
+.sky-dot {
+  position: relative;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: rgba(255, 255, 255, 0.45);
+}
+.sky-dot[data-status='live'] {
+  background: var(--sky-live);
+}
+.sky-dot[data-status='busy'] {
+  background: var(--sky-busy);
+}
+.sky-dot[data-status='off'] {
+  background: var(--sky-off);
+}
+.sky-dot[data-pulse='true']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: inherit;
+  animation: sky-ping 1.8s ease-out infinite;
+}
+@keyframes sky-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  80%,
+  100% {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+
+/* The page header: a dusk glow at the top fading into night, instead of the photo */
+.sky-band {
+  background:
+    radial-gradient(120% 140% at 85% -40%, rgba(230, 176, 109, 0.16), transparent 55%),
+    radial-gradient(110% 160% at 10% -60%, rgba(127, 166, 196, 0.22), transparent 60%),
+    linear-gradient(180deg, #111b27, var(--sky-night));
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .sky-dot::after {
+    display: none;
+  }
+}
