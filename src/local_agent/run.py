@@ -57,6 +57,7 @@ class Runtime:
     # The web tools' HTTP transports: None is the real network; tests pass httpx.MockTransport
     web_transport: object = None
     search_transport: object = None
+    voice_transport: object = None  # the transcription provider's (voice.py)
     notifier: object = None  # where notify_owner delivers; the daemon sets Telegram, else the store's inbox
     memory: Vault = field(init=False)
     skills: registry.SkillFolder = field(init=False)
@@ -150,7 +151,7 @@ async def _run_loop(agent, chat, callback, log, policy, upgrade):
 
 async def run(rt: Runtime, message: str, *, history=(), callback=None, source: str = 'chat', owner: bool = True,
               tools=(), app_tools=(), app_guides: dict[str, str] | None = None, builtins: bool = True,
-              mcp: Connected | None = None, untrusted_source: str = '') -> RunResult:
+              mcp: Connected | None = None, untrusted_source: str = '', images=()) -> RunResult:
     """
     Runs the agent on one message.
 
@@ -165,21 +166,33 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
     them for this run. Only for the owner: they're the owner's accounts.
     untrusted_source: the message itself is third-party content (say, an email that starts the run): tainted from
     its first step, and addresses in it don't count as the owner's.
+    images: pictures the owner sent with the message (a Telegram photo), as data: URLs. They go to the model with
+    the message as image input; the event log and the conversation keep only the text.
     """
     async with AsyncExitStack() as stack:
         if owner and mcp is None and rt.config.mcp_servers:
             mcp = await stack.enter_async_context(McpConnections(rt.config.mcp_servers))
         return await _run(rt, message, history=history, callback=callback, source=source, owner=owner, tools=tools,
                           app_tools=app_tools, app_guides=app_guides, builtins=builtins,
-                          mcp=mcp if owner else None, untrusted_source=untrusted_source)
+                          mcp=mcp if owner else None, untrusted_source=untrusted_source, images=images)
+
+
+def user_content(message: str, images=()):
+    """The owner's message as model input: plain text, or text and images (the SDK turns input_image into each
+    provider's own image part, through LiteLLM too)."""
+    if not images:
+        return message
+    return [{'type': 'input_text', 'text': message},
+            *({'type': 'input_image', 'image_url': image, 'detail': 'auto'} for image in images)]
 
 
 async def _run(rt, message, *, history, callback, source, owner, tools, app_tools, app_guides, builtins, mcp,
-               untrusted_source):
+               untrusted_source, images):
     started = time.monotonic()
     history = list(history)
     log = ev.EventLog(rt.store)
     log.append(ev.RUN_START, source=source, message=message, history_messages=len(history), owner=owner,
+               **({'images': len(images)} if images else {}),
                untrusted_inputs=[untrusted_source] if untrusted_source else [])
     if callback:
         await callback('run_started', {'run_id': log.run_id})  # so a channel can link to the run while it goes
@@ -274,7 +287,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
                    **({'mcp_servers': sorted({server for server, _ in mcp.origin.values()}),
                        'mcp_errors': mcp.errors} if mcp else {}))
 
-        chat = history + [{'role': 'user', 'content': message}]
+        chat = history + [{'role': 'user', 'content': user_content(message, images)}]
         # Reminders for this moment go right after the owner's message
         start_block = reminders.inject(log, reminders.RUN_START,
                                        reminders.due(reminders.REMINDERS, reminders.RUN_START, situation))

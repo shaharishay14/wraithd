@@ -12,6 +12,7 @@ was actually opened must still be the one the path resolves to inside the folder
 
 import asyncio
 import os
+import re
 import secrets
 from pathlib import Path
 
@@ -95,6 +96,44 @@ def _write_in(folder: int, real: Path, content: str, append: bool) -> int:
             os.unlink(temporary, dir_fd=folder)
             raise
     return os.stat(real.name, dir_fd=folder, follow_symlinks=False).st_size
+
+
+def safe_name(name: str, default: str = 'file') -> str:
+    """A file name someone else chose (a Telegram upload), made harmless: no folders, no leading dot, plain
+    characters, at most 100 of them, the extension kept."""
+    name = re.sub(r'[^\w.\- ]+', '_', os.path.basename((name or '').replace('\\', '/'))).strip(' ._')
+    stem, dot, extension = name.rpartition('.')
+    if not stem:
+        stem, dot, extension = name, '', ''
+    extension = extension[:10]
+    return (stem[:100 - len(extension) - 1] + dot + extension) if stem else default
+
+
+def save_new(root: Path, folder: str, name: str, data: bytes) -> str:
+    """
+    Saves data as a new file in folder (relative to root), never replacing one: a name that's taken gets -2, -3...
+    before its extension. Same checks as files_write: the folder must resolve inside root, is checked after
+    opening, and the file is created in it with O_EXCL and O_NOFOLLOW. Returns the path relative to root.
+    Raises OutsideWorkspace.
+    """
+    name = safe_name(name)
+    real = resolve_inside(root, f'{folder}/{name}')
+    real.parent.mkdir(parents=True, exist_ok=True)
+    handle = _open_checked(root, real.parent, os.O_RDONLY | os.O_DIRECTORY)
+    stem, dot, extension = name.rpartition('.') if '.' in name else (name, '', '')
+    try:
+        for number in range(1, 1000):
+            candidate = name if number == 1 else f'{stem}-{number}{dot}{extension}'
+            try:
+                fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=handle)
+            except FileExistsError:
+                continue
+            with os.fdopen(fd, 'wb') as out:
+                out.write(data)
+            return (real.parent / candidate).relative_to(root.resolve()).as_posix()
+        raise OutsideWorkspace(f'Too many files named {name!r} already.')
+    finally:
+        os.close(handle)
 
 
 def file_tools(root: Path) -> list:

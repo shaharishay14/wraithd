@@ -8,11 +8,16 @@ Telegram, by long polling over httpx: no public URL, no webhook, no extra librar
 - The bot is personal: anyone else's message gets no run, no model call and no reply, except `/pair <code>` (the
   owner's first contact comes from a chat that isn't paired yet). Each such chat is logged as a telegram_ignored
   event, at most once an hour, so the owner can see someone tried without strangers filling the log.
+- Attachments from the owner: a photo goes to the model as image input with its caption (saved to the workspace
+  instead when the model can't see images), a voice note is transcribed (voice.py) and the transcript is the
+  message, and any other file is saved to workspace/files/inbox/ with a line in the message saying where. A
+  stranger's attachment is never downloaded. Downloads are capped (Telegram lets bots download 20 MB at most).
 - The bot token is in the keychain (`local-agent key set telegram`) and registered for redaction; errors never
   include the API URL, since the token is in it.
 """
 
 import asyncio
+import base64
 import json
 import logging
 import secrets
@@ -20,10 +25,12 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
+from local_agent import providers, voice
 from local_agent.channels.conversation import reply
 from local_agent.core import events as ev
 from local_agent.core.gate import approval_card
 from local_agent.store import base as store_base
+from local_agent.tools import files
 from local_agent.tools.notify import StoreNotifier
 
 logger = logging.getLogger(__name__)
@@ -34,12 +41,25 @@ MESSAGE_CHARS = 4000  # Telegram's limit is 4096
 PAIRING_MINUTES = 10
 PAIRING_TRIES = 5
 IGNORED_LOG_EVERY = timedelta(hours=1)  # per stranger chat
+MAX_FILE_BYTES = 20_000_000  # the Bot API's own limit for downloads
+MAX_PHOTO_BYTES = 5_000_000  # what goes to the model as an image (Anthropic takes up to 5 MB)
+INBOX = 'inbox'  # in workspace/files/
+FILE_KINDS = {'document': 'file', 'audio': 'audio', 'video': 'video.mp4', 'video_note': 'video-note.mp4',
+              'animation': 'animation.mp4'}  # saved to the inbox; the value is the name when Telegram gives none
 OWNER_CHAT, OWNER_NAME, PAIRING, OFFSET = 'telegram.owner_chat', 'telegram.owner_name', 'telegram.pairing', \
     'telegram.offset'
 
 
 class TelegramError(Exception):
     """A Bot API call failed. The message never includes the URL (it has the token in it)."""
+
+
+class FileTooLarge(TelegramError):
+    """A download is over its cap."""
+
+
+class Unusable(Exception):
+    """An attachment that won't reach a run. The message is the reply the owner gets."""
 
 
 def new_pairing(store, now: datetime | None = None) -> dict:
@@ -63,6 +83,7 @@ class TelegramBot:
     def __init__(self, token: str, transport: httpx.AsyncBaseTransport | None = None):
         self._client = httpx.AsyncClient(base_url=f'{API}/bot{token}/', transport=transport,
                                          timeout=POLL_SECONDS + 10)
+        self._files = f'{API}/file/bot{token}/'  # has the token in it too: never logged or shown
 
     async def call(self, method: str, **params) -> dict | list:
         try:
@@ -73,6 +94,25 @@ class TelegramBot:
         if not data.get('ok'):
             raise TelegramError(f'Telegram {method} failed: {data.get("description", "unknown error")}')
         return data['result']
+
+    async def download(self, file_id: str, limit: int) -> bytes:
+        """A file someone sent, through getFile, read up to limit bytes (FileTooLarge past it)."""
+        info = await self.call('getFile', file_id=file_id)
+        if (info.get('file_size') or 0) > limit:
+            raise FileTooLarge('The file is too large.')
+        if not info.get('file_path'):
+            raise TelegramError('Telegram getFile gave no file path.')
+        data = bytearray()
+        try:
+            async with self._client.stream('GET', self._files + info['file_path']) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes():
+                    data += chunk
+                    if len(data) > limit:
+                        raise FileTooLarge('The file is too large.')
+        except httpx.HTTPError as e:
+            raise TelegramError(f'Telegram file download failed ({type(e).__name__}).') from None
+        return bytes(data)
 
     async def send(self, chat_id, text: str, buttons=None) -> int | None:
         message_id = None
@@ -161,12 +201,12 @@ class TelegramChannel:
             return await self._pair(chat_id, chat, text.removeprefix('/pair').strip())
         if chat_id != self.owner_chat:
             return self._ignore(chat_id, chat)
-        if not text:
+        if not text and not _has_attachment(message):
             return
         if text == '/start':
             return await self.bot.send(chat_id, 'Hi. This is a personal assistant. Its owner pairs it with '
                                                 '`local-agent telegram pair`.')
-        task = asyncio.create_task(self._answer(chat_id, chat, text))  # so button presses keep being handled
+        task = asyncio.create_task(self._answer(chat_id, message))  # so button presses keep being handled
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
 
@@ -195,13 +235,85 @@ class TelegramChannel:
                                   or str(chat_id))
         await self.bot.send(chat_id, 'Paired: this chat is now the owner\'s.')
 
-    async def _answer(self, chat_id: int, chat: dict, text: str) -> None:
+    async def _answer(self, chat_id: int, message: dict) -> None:
         """The owner's message (handle() never gets here for anyone else)."""
+        try:
+            text, images = await self._for_run(message)
+        except Unusable as e:
+            return await self.bot.send(chat_id, str(e))
         conversation = (self.rt.store.find_conversation('telegram', str(chat_id))
                         or self.rt.store.start_conversation('telegram', external=str(chat_id)))
         result = await reply(self.rt, conversation.id, text, source='telegram',
-                             callback=self._callback(chat_id), mcp=self.mcp)
+                             callback=self._callback(chat_id), mcp=self.mcp, images=images)
         await self.bot.send(chat_id, result.answer)
+
+    # --- attachments ---------------------------------------------------------------------------------------
+
+    async def _for_run(self, message: dict) -> tuple[str, list[str]]:
+        """The run's message and images for one of the owner's messages, attachments downloaded. Raises Unusable."""
+        text = (message.get('text') or message.get('caption') or '').strip()
+        if message.get('photo'):
+            return await self._photo(message['photo'], text)
+        if message.get('voice'):
+            return await self._voice(message['voice'], text), []
+        kind = next((kind for kind in FILE_KINDS if message.get(kind)), None)
+        if kind:
+            return await self._file(message[kind], FILE_KINDS[kind], text), []
+        return text, []
+
+    async def _download(self, item: dict, limit: int) -> bytes:
+        too_large = f'That is too large for me to download from Telegram ({limit // 1_000_000} MB at most).'
+        if (item.get('file_size') or 0) > limit:
+            raise Unusable(too_large)
+        try:
+            return await self.bot.download(item['file_id'], limit)
+        except FileTooLarge:
+            raise Unusable(too_large) from None
+        except TelegramError as e:
+            logger.warning(str(e))
+            raise Unusable('I couldn\'t download that from Telegram. Please send it again.') from None
+
+    def _save(self, name: str, data: bytes) -> str:
+        try:
+            name = f'{self.clock().astimezone():%Y-%m-%d}-{files.safe_name(name)}'
+            return files.save_new(self.rt.home.files_dir, INBOX, name, data)
+        except (files.OutsideWorkspace, OSError) as e:
+            logger.warning(f'Saving a Telegram file failed: {e}')
+            raise Unusable('I couldn\'t save that file in your workspace.') from None
+
+    async def _photo(self, sizes: list, caption: str) -> tuple[str, list[str]]:
+        """The largest size under the cap, as image input; saved instead when the model can't see."""
+        fitting = [size for size in sizes if (size.get('file_size') or 0) <= MAX_PHOTO_BYTES]
+        if not fitting:
+            raise Unusable(f'That photo is too large for me ({MAX_PHOTO_BYTES // 1_000_000} MB at most).')
+        best = max(fitting, key=lambda size: (size.get('width', 0) * size.get('height', 0), size.get('file_size', 0)))
+        data = await self._download(best, MAX_PHOTO_BYTES)
+        if not providers.can_see_images(self.rt.config):
+            saved = self._save('photo.jpg', data)
+            raise Unusable(f'Your model ({self.rt.config.model.default}) can\'t see images, so I saved the photo to '
+                           f'your workspace files as {saved}.')
+        image = 'data:image/jpeg;base64,' + base64.b64encode(data).decode()  # Telegram photos are always JPEG
+        return (f'[photo] {caption}' if caption else '[photo, no caption]'), [image]
+
+    async def _voice(self, note: dict, caption: str) -> str:
+        transcriber = voice.transcriber(self.rt.config, self.rt.voice_transport)
+        if transcriber is None:
+            why = voice.choose_transcriber(self.rt.config).why
+            raise Unusable(f'I can\'t listen to voice notes yet: transcription is {why}.')
+        data = await self._download(note, MAX_FILE_BYTES)
+        try:
+            words = await transcriber.transcribe(data, 'voice.ogg', note.get('mime_type') or 'audio/ogg')
+        except voice.TranscriptionFailed as e:
+            raise Unusable(f'I couldn\'t transcribe that voice note: {e}') from None
+        if not words:
+            raise Unusable('I couldn\'t hear any words in that voice note.')
+        return f'[voice note, transcribed] {words}' + (f'\n[caption] {caption}' if caption else '')
+
+    async def _file(self, item: dict, default_name: str, caption: str) -> str:
+        data = await self._download(item, MAX_FILE_BYTES)
+        saved = self._save(item.get('file_name') or default_name, data)
+        note = f'[The user sent a file, saved in the workspace files as {saved}. Read it with files_read if needed.]'
+        return f'{caption}\n{note}' if caption else note
 
     # --- approvals as buttons ------------------------------------------------------------------------------
 
@@ -245,6 +357,10 @@ class TelegramChannel:
             await self.bot.call('editMessageReplyMarkup', chat_id=where[0], message_id=where[1],
                                 reply_markup={'inline_keyboard': [[{'text': status.capitalize(),
                                                                     'callback_data': 'done'}]]})
+
+
+def _has_attachment(message: dict) -> bool:
+    return any(message.get(kind) for kind in ('photo', 'voice', *FILE_KINDS))
 
 
 class TelegramNotifier:

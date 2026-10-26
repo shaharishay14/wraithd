@@ -87,6 +87,10 @@ def checks(home: Home, service=None, transport=None, port_free=port_free) -> lis
     add(OK if search.backend else INFO, f'Web search: {search.why}'
         + (f' (local-agent key set {search.missing_key})' if search.missing_key else ''))
     add(INFO, 'Telegram bot token: ' + ('set' if get_key('telegram') else 'not set (Telegram is off)'))
+    from local_agent.voice import choose_transcriber
+
+    voice = choose_transcriber(config)
+    add(OK if voice.name else INFO, f'Voice notes: {voice.why}')
 
     token = home.root / TOKEN_FILE
     if token.exists():

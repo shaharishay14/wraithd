@@ -56,6 +56,7 @@ def test_doctor_all_good(home, healthy, capsys):
     assert 'openai key: set' in text
     # web search needs no key of its own: OpenAI's, on the model key
     assert 'Web search: openai (your model key), about $10 per 1,000 searches on your OpenAI account' in text
+    assert 'Voice notes: openai (your OpenAI key is set), about $0.003 per minute on your OpenAI account' in text
     assert 'is private (mode 700)' in text and 'API token file is private (mode 600)' in text
     assert 'Background service: running (pid 4242)' in text and f'Daemon answers on port 7878 (version {__version__})' \
         in text
@@ -188,3 +189,15 @@ def test_update_leaves_other_installs_and_missing_tools_to_the_owner(home, manag
     assert update.update(home, runner=manager, prefix=tmp_path, which=lambda name: None, say=said.append) == 1
     assert said[-1] == 'Installed with uv, but `uv` isn\'t on the PATH. Run: uv tool upgrade local-agent'
     assert manager.calls == []
+
+
+def test_doctor_says_how_voice_notes_are_transcribed_or_how_to_turn_them_on(home, manager, monkeypatch):
+    from local_agent import voice
+
+    monkeypatch.setattr(voice, 'whisper_installed', lambda: False)
+    off = states(doctor.checks(home, service=Launchd(home, runner=manager), transport=silent()))
+    [line] = [text for text in off if text.startswith('Voice notes:')]
+    assert 'off: no OpenAI key' in line and 'local-agent[whisper]' in line and off[line] == doctor.INFO
+    monkeypatch.setattr(voice, 'whisper_installed', lambda: True)
+    found = states(doctor.checks(home, service=Launchd(home, runner=manager), transport=silent()))
+    assert found['Voice notes: whisper (installed, no OpenAI key), free, runs on this computer'] == doctor.OK

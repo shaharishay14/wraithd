@@ -3,7 +3,7 @@ Where Local Agent keeps its state, and the owner's settings.
 
 Everything lives in one folder, ~/.local-agent/ (or $LOCAL_AGENT_HOME):
 
-    config.toml     model, budgets, owner, web search, shell (no secrets: those are in the OS keychain)
+    config.toml     model, budgets, owner, web search, voice notes, shell (no secrets: those are in the OS keychain)
     state.db        the event log, conversations, approvals
     workspace/      AGENTS.md (standing orders), memory/, skills/, files/
 
@@ -32,11 +32,13 @@ HOME_ENV = 'LOCAL_AGENT_HOME'
 PROVIDERS = ('openai', 'anthropic', 'ollama', 'openai-compatible')
 # [web] search: auto is the model provider's own search (openai, anthropic) or duckduckgo for local models
 SEARCH_BACKENDS = ('auto', 'openai', 'anthropic', 'duckduckgo', 'serpapi')
+# [voice] transcribe: auto is openai if its key is set, else local whisper if installed, else off
+TRANSCRIBERS = ('auto', 'openai', 'whisper', 'elevenlabs')
 # Where a key comes from when it isn't in the keychain (and the variable is set)
 KEY_ENV = {'openai': 'OPENAI_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY', 'serpapi': 'SERPAPI_KEY',
-           'telegram': 'TELEGRAM_BOT_TOKEN'}
+           'telegram': 'TELEGRAM_BOT_TOKEN', 'elevenlabs': 'ELEVENLABS_API_KEY'}
 # what `local-agent key set` takes
-KEY_NAMES = tuple(p for p in PROVIDERS if p != 'ollama') + ('serpapi', 'telegram')
+KEY_NAMES = tuple(p for p in PROVIDERS if p != 'ollama') + ('serpapi', 'telegram', 'elevenlabs')
 
 DEFAULT_CONFIG = """\
 # Local Agent settings. API keys are not stored here: set them with `local-agent key set <provider>`.
@@ -59,6 +61,10 @@ run_tool_calls = 40          # per run
 [web]
 search = "auto"              # your model provider's own search, on your model key; DuckDuckGo for local models
                              # or openai | anthropic | duckduckgo | serpapi (needs a key) | "" (off)
+
+[voice]
+transcribe = "auto"          # Telegram voice notes: openai if its key is set, else local whisper if installed
+                             # or openai | whisper | elevenlabs (needs a key) | "" (off)
 
 [shell]
 enabled = false              # true: the agent may run shell commands, each one only after you say yes
@@ -94,6 +100,7 @@ class Config:
     owner_email: str = ''
     timezone: str = ''  # IANA name; empty: the system's (schedules.local_timezone)
     search: str = 'auto'  # a SEARCH_BACKENDS name; '' turns web search off
+    transcribe: str = 'auto'  # a TRANSCRIBERS name; '' turns voice notes off
     shell_enabled: bool = False
     shell_timeout: int = 30
     mcp_servers: tuple = ()  # mcp.config.McpServer, from the [mcp.servers.*] blocks
@@ -160,7 +167,7 @@ def load_config(home: Home) -> Config:
         raise ConfigError(f'{home.config_path} is not valid TOML: {e}') from None
     model, budget, owner = data.get('model', {}), data.get('budget', {}), data.get('owner', {})
     web, shell, daemon = data.get('web', {}), data.get('shell', {}), data.get('daemon', {})
-    telegram = data.get('telegram', {})
+    telegram, voice = data.get('telegram', {}), data.get('voice', {})
     port = daemon.get('port', Config.daemon_port)
     if not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535:
         raise ConfigError('[daemon] port must be a number from 1024 to 65535.')
@@ -176,6 +183,9 @@ def load_config(home: Home) -> Config:
     search = web.get('search', Config.search) or ''
     if search and search not in SEARCH_BACKENDS:
         raise ConfigError(f'[web] search must be one of {", ".join(SEARCH_BACKENDS)}, or "" for none.')
+    transcribe = voice.get('transcribe', Config.transcribe) or ''
+    if transcribe and transcribe not in TRANSCRIBERS:
+        raise ConfigError(f'[voice] transcribe must be one of {", ".join(TRANSCRIBERS)}, or "" for none.')
     if not isinstance(shell.get('enabled', False), bool):
         raise ConfigError('[shell] enabled must be true or false.')
     if 'answer_strangers' in telegram:
@@ -203,6 +213,7 @@ def load_config(home: Home) -> Config:
         owner_email=owner.get('email', ''),
         timezone=timezone,
         search=search,
+        transcribe=transcribe,
         shell_enabled=shell.get('enabled', False),
         shell_timeout=_positive_or_none(shell.get('timeout_seconds', Config.shell_timeout), 'timeout_seconds')
         or Config.shell_timeout,
