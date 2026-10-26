@@ -2,7 +2,7 @@
 python -m local_agent.evals: the golden set on one or more models, as a JSON report and a markdown table.
 
     uv run python -m local_agent.evals --scripted          # offline: scripted models, no key, no cost
-    uv run python -m local_agent.evals --model openai:gpt-4o --model anthropic:claude-sonnet-4-6 \\
+    uv run python -m local_agent.evals --model openai:gpt-4o --model anthropic:claude-sonnet-5-5 \\
         --model ollama:qwen2.5:7b --max-cost 3
 
 Real models are called only when named with --model. docs/evals.md has the whole procedure.
@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog='python -m local_agent.evals', description=__doc__.split('\n\n')[0])
     parser.add_argument('--model', action='append', default=[], metavar='PROVIDER:NAME',
                         help='a model to run the set on (repeat for more): openai:gpt-4o, '
-                             'anthropic:claude-sonnet-4-6, ollama:qwen2.5:7b, scripted')
+                             'anthropic:claude-sonnet-5-5, ollama:qwen2.5:7b, scripted')
     parser.add_argument('--scripted', action='store_true',
                         help='offline run: scripted models and judge, no key, no network, no cost')
     parser.add_argument('--judge', default=None, metavar='PROVIDER:NAME|none',

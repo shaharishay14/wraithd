@@ -56,13 +56,13 @@ class ModelSpec:
 
 
 def parse_spec(text: str) -> ModelSpec:
-    """'openai:gpt-4o', 'anthropic:claude-sonnet-4-6', 'ollama:qwen2.5:7b' (the name may have colons), 'scripted'."""
+    """'openai:gpt-4o', 'anthropic:claude-sonnet-5-5', 'ollama:qwen2.5:7b' (the name may have colons), 'scripted'."""
     provider, _, name = text.partition(':')
     if provider == 'scripted':
         return ModelSpec('scripted', name or 'scripted')
     if provider not in PROVIDERS or not name:
         raise SetupError(f'{text!r} is not a model: write provider:name, provider one of {", ".join(PROVIDERS)} '
-                         '(e.g. openai:gpt-4o, anthropic:claude-sonnet-4-6, ollama:qwen2.5:7b, scripted).')
+                         '(e.g. openai:gpt-4o, anthropic:claude-sonnet-5-5, ollama:qwen2.5:7b, scripted).')
     return ModelSpec(provider, name)
 
 
@@ -73,7 +73,7 @@ def parse_price(text: str) -> tuple[str, Price]:
         given, taken = (float(part) for part in prices.split(','))
     except ValueError:
         raise SetupError(f'--price {text!r}: write NAME=IN,OUT in $ per million tokens, e.g. '
-                         'claude-sonnet-4-6=3,15.') from None
+                         'claude-sonnet-5-5=2,10.') from None
     return name, Price(given / 1e6, taken / 1e6)
 
 

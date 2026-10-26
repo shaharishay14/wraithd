@@ -118,7 +118,7 @@ async def test_a_call_with_no_reported_usage_is_charged_at_its_estimate():
 
 
 def test_missing_keys_are_named_before_anything_runs(tmp_path, capsys):
-    code = cli.main(['--model', 'openai:gpt-4o', '--model', 'anthropic:claude-sonnet-4-6', '--out', str(tmp_path)])
+    code = cli.main(['--model', 'openai:gpt-4o', '--model', 'anthropic:claude-sonnet-5-5', '--out', str(tmp_path)])
     assert code == 2
     error = capsys.readouterr().err
     assert 'No openai key in the keychain. Set one with: local-agent key set openai' in error
@@ -149,7 +149,7 @@ def test_a_model_without_a_price_or_a_silent_ollama_is_refused():
 
 def test_model_names_and_prices_parse():
     assert parse_spec('ollama:qwen2.5:7b') == ModelSpec('ollama', 'qwen2.5:7b')
-    assert parse_spec('anthropic:claude-sonnet-4-6').label == 'anthropic:claude-sonnet-4-6'
+    assert parse_spec('anthropic:claude-sonnet-5-5').label == 'anthropic:claude-sonnet-5-5'
     assert parse_price('x=3,15') == ('x', Price(3e-6, 15e-6))
     for bad in ('gpt-4o', 'gemini:pro', 'openai:'):
         with pytest.raises(SetupError, match='is not a model'):

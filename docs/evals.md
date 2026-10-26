@@ -84,7 +84,7 @@ Ollama costs nothing. The cap is $3 either way.
    ```sh
    uv run python -m local_agent.evals \
      --model openai:gpt-4o \
-     --model anthropic:claude-sonnet-4-6 \
+     --model anthropic:claude-sonnet-5-5 \
      --model ollama:qwen2.5:7b \
      --max-cost 3.00
    ```
