@@ -1,5 +1,5 @@
 """
-Workspace files: list, read and write, inside workspace/files/ and nowhere else.
+Workspace files: list, read, write and edit, inside workspace/files/ and nowhere else.
 
 The model's path is joined to the folder and the real path is resolved (following every symlink) before
 anything is opened. Anything that ends up outside the folder is refused: `..`, absolute paths, and a symlink
@@ -15,11 +15,13 @@ from pathlib import Path
 
 from local_agent.tools.base import clamp_int, function_tool, tool_error
 
-LIST, READ, WRITE = 'files_list', 'files_read', 'files_write'
-NAMES = (LIST, READ, WRITE)
+LIST, READ, WRITE, EDIT = 'files_list', 'files_read', 'files_write', 'files_edit'
+NAMES = (LIST, READ, WRITE, EDIT)
 READ_CHARS = 3500  # one part per call, like a web page: the model asks for the next part if it needs it
 MAX_WRITE_CHARS = 1_000_000
 MAX_LISTED = 200
+DOCUMENTS = {'.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.odt', '.ods'}  # files_edit can't edit them as text
+CONTEXT_LINES = 2  # around the first change in files_edit's result
 
 
 class OutsideWorkspace(ValueError):
@@ -68,8 +70,10 @@ def _open_checked(root: Path, real: Path, flags: int) -> int:
     return fd
 
 
-def _write_in(folder: int, real: Path, content: str, append: bool) -> int:
-    """Writes content to real's name in the open, checked folder. Returns the file's size."""
+def _write_in(folder: int, real: Path, content: str, append: bool, mode: int | None = None,
+              newline: str | None = None) -> int:
+    """Writes content to real's name in the open, checked folder. Returns the file's size. mode: the replaced
+    file's permissions, kept (files_edit); newline='' writes line endings exactly as they are in content."""
     if append:
         fd = os.open(real.name, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o666, dir_fd=folder)
         with os.fdopen(fd, 'a', encoding='utf-8') as out:
@@ -79,8 +83,14 @@ def _write_in(folder: int, real: Path, content: str, append: bool) -> int:
         # folder itself, and the rename replaces whatever is at the name (a symlink too) without following it.
         temporary = f'.{real.name}.{secrets.token_hex(4)}.tmp'
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
-        with os.fdopen(fd, 'w', encoding='utf-8') as out:
-            out.write(content)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8', newline=newline) as out:
+                if mode is not None:
+                    os.fchmod(out.fileno(), mode)
+                out.write(content)
+        except OSError:
+            os.unlink(temporary, dir_fd=folder)
+            raise
         try:
             if os.replace in os.supports_dir_fd:
                 os.replace(temporary, real.name, src_dir_fd=folder, dst_dir_fd=folder)
@@ -92,6 +102,24 @@ def _write_in(folder: int, real: Path, content: str, append: bool) -> int:
             os.unlink(temporary, dir_fd=folder)
             raise
     return os.stat(real.name, dir_fd=folder, follow_symlinks=False).st_size
+
+
+def _replaced(text: str, old: str, new: str, replace_all: bool) -> tuple[str, int, int]:
+    """(new text, replacements, where the first one starts). replacements is 0 or more than 1 without replace_all
+    when nothing was changed."""
+    count = text.count(old)
+    if count == 0 or (count > 1 and not replace_all):
+        return text, count, -1
+    return text.replace(old, new), count, text.index(old)
+
+
+def _context(text: str, start: int, length: int) -> str:
+    """The changed lines and CONTEXT_LINES on each side, numbered, for the model to check the edit."""
+    first = text.count('\n', 0, start)
+    last = first + text[start:start + length].rstrip('\n').count('\n')
+    lines = text.split('\n')
+    low, high = max(0, first - CONTEXT_LINES), min(len(lines), last + CONTEXT_LINES + 1)
+    return '\n'.join(f'{number + 1}| {lines[number].rstrip(chr(13))}' for number in range(low, high))
 
 
 def file_tools(root: Path) -> list:
@@ -165,6 +193,65 @@ def file_tools(root: Path) -> list:
             os.close(folder)
         return {'written': shown(file), 'bytes': size, 'appended': bool(append)}
 
+    async def edit_file(path: str, old_text: str, new_text: str = '', replace_all: bool = False) -> dict:
+        old_text = old_text if isinstance(old_text, str) else str(old_text or '')
+        new_text = new_text if isinstance(new_text, str) else str(new_text or '')
+        if not old_text:
+            return tool_error('old_text is empty.', f'Copy the exact text to replace from {READ}; to add to the end '
+                                                    f'of a file use {WRITE} with append=true.')
+        try:
+            file = resolve_inside(root, path)
+        except OutsideWorkspace as e:
+            return tool_error(str(e), 'Use a path inside the workspace.')
+        if not file.is_file():
+            return tool_error(f'There is no file {path!r}.', f'Call {LIST} to see the files, or {WRITE} to make one.')
+        if file.suffix.lower() in DOCUMENTS:
+            return tool_error(f'{path!r} is a document, not a text file, so it can\'t be edited in place.',
+                              f'Convert it to text, or write a new file with {WRITE}.')
+        try:
+            fd = _open_checked(root, file, os.O_RDONLY)
+        except OutsideWorkspace as e:
+            return tool_error(str(e), 'Tell the user; do not retry.')
+        with os.fdopen(fd, 'rb') as opened:
+            mode = os.fstat(opened.fileno()).st_mode & 0o7777
+            data = opened.read(MAX_WRITE_CHARS * 4 + 1)
+        if b'\x00' in data[:8192]:
+            return tool_error(f'{path!r} is a binary file.', 'Tell the user it can\'t be edited as text.')
+        try:
+            text = data.decode('utf-8')
+        except UnicodeDecodeError:
+            return tool_error(f'{path!r} is not UTF-8 text, so editing it could damage it.',
+                              f'Tell the user, or write a new file with {WRITE}.')
+        if len(text) > MAX_WRITE_CHARS:
+            return tool_error(f'{path!r} is too large to edit ({MAX_WRITE_CHARS:,} characters at most).',
+                              'Tell the user; it can be split into smaller files.')
+        result, count, start = _replaced(text, old_text, new_text, replace_all)
+        if count == 0 and '\r\n' in text and '\n' in old_text and '\r' not in old_text:
+            # a Windows file, and the model wrote plain newlines: match its line endings
+            old_text, new_text = old_text.replace('\n', '\r\n'), new_text.replace('\n', '\r\n')
+            result, count, start = _replaced(text, old_text, new_text, replace_all)
+        if count == 0:
+            return tool_error(f'old_text was not found in {path!r}.',
+                              f'Call {READ} and copy the exact text, including spaces, tabs and line breaks.')
+        if start < 0:
+            return tool_error(f'old_text was found {count} times in {path!r}.',
+                              'Add the lines around it to old_text so it matches once, or set replace_all=true '
+                              'to change every one.')
+        if len(result) > MAX_WRITE_CHARS:
+            return tool_error('The edited file would be too large.', 'Make a smaller change.')
+        try:
+            folder = _open_checked(root, file.parent, os.O_RDONLY | os.O_DIRECTORY)
+        except OutsideWorkspace as e:
+            return tool_error(str(e), 'Tell the user; do not retry.')
+        try:
+            size = _write_in(folder, file, result, append=False, mode=mode, newline='')
+        except OSError:
+            return tool_error('The file could not be written; it was left as it was.', 'Tell the user; do not retry.')
+        finally:
+            os.close(folder)
+        return {'path': shown(file), 'replacements': count, 'bytes': size,
+                'context': _context(result, start, len(new_text))}
+
     path_description = 'Relative to the workspace files folder, e.g. "notes/todo.md"'
     return [
         function_tool(LIST, 'List the files and folders in the user\'s workspace files folder (or a subfolder).',
@@ -179,10 +266,21 @@ def file_tools(root: Path) -> list:
                        'required': ['path']},
                       read_file),
         function_tool(WRITE, ('Write a text file in the user\'s workspace files folder (creating folders as needed). '
-                              'Replaces the file unless append is true.'),
+                              f'Replaces the whole file unless append is true; to change part of a file, use {EDIT}.'),
                       {'properties': {'path': {'type': 'string', 'description': path_description},
                                       'content': {'type': 'string', 'description': 'The full text to write'},
                                       'append': {'type': 'boolean', 'description': 'Add to the end instead'}},
                        'required': ['path', 'content']},
                       write_file),
+        function_tool(EDIT, ('Change one part of a text file in the user\'s workspace files folder: old_text is '
+                             'replaced by new_text, and the rest of the file stays exactly as it was. old_text must '
+                             'match the file exactly (copy it from files_read) and only once, unless replace_all is '
+                             'true; an empty new_text deletes it. Returns the changed lines with line numbers.'),
+                      {'properties': {'path': {'type': 'string', 'description': path_description},
+                                      'old_text': {'type': 'string', 'description': 'The exact text to replace'},
+                                      'new_text': {'type': 'string', 'description': 'What to put instead; "" deletes'},
+                                      'replace_all': {'type': 'boolean',
+                                                      'description': 'Replace every match, not just one'}},
+                       'required': ['path', 'old_text', 'new_text']},
+                      edit_file),
     ]
