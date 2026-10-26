@@ -216,6 +216,18 @@ async def test_mcp_servers_tools_and_always_allow(make_daemon, home, capsys):
     assert (await client.get('/api/mcp/servers/nope/tools')).status_code == 404
 
 
+async def test_a_destructive_tool_cannot_be_always_allowed_through_the_api(make_daemon, home, capsys):
+    cli.main(['mcp', 'add', 'drive', '--', sys.executable, FAKE, '--app', 'drive'])
+    daemon, client = await make_daemon(ScriptedModel([]))
+    tools = {t['tool']: t for t in (await client.get('/api/mcp/servers/drive/tools')).json()}
+    assert tools['delete_file']['destructive'] is True and tools['delete_file']['tier'] == 'asks'
+    assert tools['share_file']['destructive'] is False
+    refused = await client.put('/api/mcp/servers/drive/always-allow/delete_file')
+    assert refused.status_code == 409 and 'destructive' in refused.json()['error']['message']
+    assert 'always_allow = []' in home.config_path.read_text() and not daemon.mcp.always_allowed
+    assert (await client.put('/api/mcp/servers/drive/always-allow/share_file')).status_code == 200
+
+
 # --- status, Telegram --------------------------------------------------------------------------------------
 
 async def test_status_and_telegram_without_a_bot(make_daemon):

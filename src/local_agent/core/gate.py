@@ -89,6 +89,9 @@ APPROVAL_REASONS = {
     'schedule_create': 'Your agent will run this on its own at these times, without asking you first. '
                        'See and remove schedules with `local-agent schedules`.',
 }
+# On the card for a tool in always_ask (an MCP tool its server marks destructive)
+ALWAYS_ASK_REASON = ('The app marks this action as destructive: it may delete or overwrite data. It is asked about '
+                     'every time and never runs unattended.')
 
 # Built-in tools that read the owner's private data, like the connected apps do
 PRIVATE_OUTPUT_BUILTINS = {'memory_search', 'memory_read', 'files_list', 'files_read', 'shell_run'}
@@ -267,16 +270,19 @@ class PermissionGate:
     tool_access gives this run's tools their tier where the name rules don't apply (an MCP tool's tier comes from
     its read-only annotation). preapproved are writes the owner allowed in advance ("always allow" for an MCP
     tool): they run without asking, but after third-party content only to recipients the owner wrote.
+    always_ask are writes asked about every time (an MCP tool marked destructive): never pre-approved, whatever the
+    config says, and never unattended.
     """
 
     def __init__(self, store, callback=None, chat_history=None, user_message=None, instructions: str = '',
                  owner_email: str = '', unattended_write_tools=(), tool_access=None, preapproved=(),
-                 channel: str = '', run_id: str = ''):
+                 always_ask=(), channel: str = '', run_id: str = ''):
         self.store = store
         self.channel, self.run_id = channel, run_id  # shown on the approval card: where it was asked, for which run
         self.callback = callback
         self.owner_email = owner_email.lower()
-        self.preapproved = set(unattended_write_tools) | set(preapproved)
+        self.always_ask = set(always_ask)
+        self.preapproved = (set(unattended_write_tools) | set(preapproved)) - self.always_ask
         self.tool_access = dict(tool_access or {})
 
         # Everything the owner wrote: their message, their earlier messages, and their standing instructions
@@ -307,13 +313,14 @@ class PermissionGate:
             # Unattended runs reuse stored history, which can hold earlier summaries of emails or pages
             self.untrusted_sources.append('chat history')
 
-    def add_untrusted_input(self, source: str, text: str) -> None:
+    def add_untrusted_input(self, source: str, text: str, private: bool = True) -> None:
         """
         Third-party content that is part of the run's input, not a tool result: the event that started it
-        (a new email, a stranger's Telegram message). The run is tainted from its first step, and the event's
-        addresses count as third-party, not as written by the owner.
+        (a new email, a stranger's Telegram message), or the MCP tool descriptions the model is given. The run is
+        tainted from its first step, and the text's addresses count as third-party, not as written by the owner.
+        private: the text is also the owner's private data (an email is; a tool description isn't).
         """
-        for name in (self.untrusted_sources, self.private_data_sources):
+        for name in (self.untrusted_sources, *([self.private_data_sources] if private else [])):
             if source not in name:
                 name.append(source)
         self.untrusted_texts.append((source, text.lower()))
@@ -329,6 +336,8 @@ class PermissionGate:
         access = self.access(tool_name)
         if access == ToolAccess.WRITE and tool_name in self.preapproved:
             return 'always allowed'
+        if access == ToolAccess.WRITE and tool_name in self.always_ask:
+            return 'needs approval every time (destructive)'
         return {ToolAccess.READ: 'read', ToolAccess.WRITE: 'needs approval', ToolAccess.DENY: 'blocked'}[access]
 
     def record_completed(self, tool_name: str, arguments: dict[str, Any]) -> None:
@@ -398,7 +407,7 @@ class PermissionGate:
                 'themselves.'
             )
 
-        if self.callback is None and tool_name in NEVER_UNATTENDED:
+        if self.callback is None and (tool_name in NEVER_UNATTENDED or tool_name in self.always_ask):
             return denial(
                 f'{tool_name} never runs unattended: nobody is here to approve it. Do not retry. Tell the user '
                 'to ask for it in a conversation.'
@@ -430,7 +439,8 @@ class PermissionGate:
             else:
                 suspicious = not_from_user
         return await self._ask_user(tool_name, arguments, untrusted_sources=general, suspicious_recipients=suspicious,
-                                    reason=APPROVAL_REASONS.get(tool_name, ''))
+                                    reason=APPROVAL_REASONS.get(tool_name)
+                                    or (ALWAYS_ASK_REASON if tool_name in self.always_ask else ''))
 
     def _preapproved_refusal(self, tool_name: str, arguments: dict[str, Any]) -> str | None:
         """Why a pre-approved write can't run without asking now, or None if it can."""

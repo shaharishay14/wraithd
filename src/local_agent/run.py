@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 RUN_TIMEOUT_SECONDS = 180
 RETRY_DELAYS = (1, 2)  # seconds before the 2nd and 3rd attempt; only for failures before anything happened
 INSTRUCTIONS_CHARS = 10_000  # cap on AGENTS.md in the prompt
+MCP_DESCRIPTIONS = 'MCP tool descriptions'  # the taint source when MCP tools are given to the model directly
 
 BASE_INSTRUCTIONS = (
     'You are Local Agent, a personal assistant that runs on the user\'s own computer. Be direct and useful. '
@@ -203,7 +204,8 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         orders = standing_orders(rt.home)
         gate = PermissionGate(rt.store, callback, history, '' if untrusted_source else message, instructions=orders,
                               owner_email=rt.config.owner_email, tool_access=mcp.access if mcp else None,
-                              preapproved=mcp.always_allowed if mcp else (), channel=source, run_id=log.run_id)
+                              preapproved=mcp.always_allowed if mcp else (), always_ask=mcp.destructive if mcp else (),
+                              channel=source, run_id=log.run_id)
         if untrusted_source:
             gate.add_untrusted_input(untrusted_source, message)
         notes = rt.memory.load() if owner else []
@@ -233,12 +235,16 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         if use_discovery:
             # App actions stay out of the model's tool list: run_app_action calls their guarded versions
             catalog = disclosure.AppCatalog(guard_function_tools(list(app_tools), gate, log, after_result),
-                                            guides=app_guides)
+                                            guides=app_guides, third_party=mcp.origin if mcp else ())
             find_tool, describe_tool, run_tool = disclosure.discovery_tools(catalog, log, label=gate.label)
             guarded = guard_function_tools([*tools, *own, find_tool, describe_tool], gate, log, after_result,
                                            prechecks) + [run_tool]
         else:
             guarded = guard_function_tools([*tools, *app_tools, *own], gate, log, after_result, prechecks)
+            if mcp is not None and mcp.tools:
+                # The servers' own descriptions are in the model's tool list from the first step: third-party text
+                gate.add_untrusted_input(MCP_DESCRIPTIONS, '\n'.join(
+                    [tool.description or '' for tool in mcp.tools] + list(mcp.guides.values())), private=False)
 
         now = datetime.now().astimezone()
         instructions = BASE_INSTRUCTIONS.format(now=f'{now:%A %d %B %Y, %H:%M} ({now.tzname()})')

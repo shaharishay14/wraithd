@@ -8,7 +8,8 @@
     local-agent mcp disallow gmail send_email
     local-agent mcp remove gmail
 
-A secret given as NAME alone is asked for without echo, so it never lands in the shell history.
+A secret given as NAME alone is asked for without echo, so it never lands in the shell history. A tool the server
+marks destructive can't be always-allowed: `allow` connects to check, and refuses it.
 """
 
 import asyncio
@@ -122,9 +123,19 @@ async def _tools(server: McpServer) -> int:
         for tool in connected.tools:
             _, original = connected.origin[tool.name]
             tier = ('read-only' if connected.access[tool.name].value == 'read' else
+                    'destructive (asks every time)' if tool.name in connected.destructive else
                     'always allowed' if tool.name in connected.always_allowed else 'asks')
             summary = (tool.description or '').strip().splitlines()[0][:70] if (tool.description or '').strip() else ''
             print(f'{original:<28} {tier:<15} {summary}')
+    return 0
+
+
+async def _destructive(server: McpServer, tool: str) -> bool | None:
+    """Whether the server marks this tool destructive; None if the server doesn't connect."""
+    async with McpConnections([server]) as connected:
+        if server.name in connected.errors:
+            return None
+        return connected.marked_destructive(server.name, tool)
     return 0
 
 
@@ -141,6 +152,15 @@ def set_allowed(home: Home, name: str, tool: str, allowed: bool) -> int:
     if server is None:
         print(f'No MCP server named {name}.', file=sys.stderr)
         return 1
+    if allowed:
+        destructive = asyncio.run(_destructive(server, tool))
+        if destructive:
+            print(f'{name} marks {tool} as destructive: it asks every time and never runs unattended, so it can\'t '
+                  'be always allowed.', file=sys.stderr)
+            return 1
+        if destructive is None:
+            print(f'{name} did not connect, so {tool} could not be checked. If the server marks it destructive, it '
+                  'will still ask every time.', file=sys.stderr)
     current = [t for t in server.always_allow if t != tool] + ([tool] if allowed else [])
     mcp_config.write_server(home.config_path, replace(server, always_allow=tuple(current)), name)
     print(f'{name} {tool}: ' + ('runs without asking (read-only tools always do).' if allowed else 'asks first.'))

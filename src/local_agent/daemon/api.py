@@ -392,13 +392,16 @@ def build_api(daemon, ui_dir: Path | None) -> Starlette:
             tier = ('read-only' if daemon.mcp.access[tool.name].value == 'read' else
                     'always allowed' if tool.name in daemon.mcp.always_allowed else 'asks')
             listed.append({'tool': original, 'registered_name': tool.name, 'description': tool.description,
-                           'tier': tier})
+                           'tier': tier, 'destructive': tool.name in daemon.mcp.destructive})
         return JSONResponse(listed)
 
     async def mcp_always_allow(request):
         server = server_named(request.path_params['name'])
         tool = request.path_params['tool']
         allow = request.method == 'PUT'
+        if allow and daemon.mcp and daemon.mcp.marked_destructive(server.name, tool):
+            raise ApiError(409, 'conflict', f'{server.name} marks {tool} as destructive: it asks every time, so it '
+                                               'can\'t be always allowed.')
         names = [t for t in server.always_allow if t != tool] + ([tool] if allow else [])
         mcp_config.write_server(rt.home.config_path, replace(server, always_allow=tuple(names)), server.name)
         rt.config = load_config(rt.home)
