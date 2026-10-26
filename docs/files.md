@@ -1,16 +1,22 @@
 # Workspace files
 
-**File:** `tools/files.py`
+**Files:** `tools/files.py`, `tools/documents.py`
 
 ## One-liner
 
-> The agent can list, read and write text files in `~/.local-agent/workspace/files/`, and nowhere else. The
-> boundary is a real-path check in code, so `..`, absolute paths and symlinks can't talk their way out of it.
+> The agent can list, read and write files in `~/.local-agent/workspace/files/` (PDF, Word and spreadsheets read
+> as text), and nowhere else. The boundary is a real-path check in code, so `..`, absolute paths and symlinks
+> can't talk their way out of it.
 
 ## How it works
 
 - **Three tools:** `files_list(path)`, `files_read(path, offset)` (3,500 characters per call, like a web page,
   with `next_offset` for the next part), `files_write(path, content, append)` (atomic, creates folders).
+- **Documents come out as text.** `files_read` on a `.pdf` (pypdf, pages marked `--- page 3 ---`), a `.docx`
+  (paragraphs, headings marked `#`/`##`, tables as tab-separated rows), a `.xlsx` (openpyxl in read-only mode with
+  cached values, `--- sheet <name> ---`, tab-separated rows, empty trailing rows and columns left out) or a `.csv`
+  returns the extracted text, paged with `offset` like any text file. The result says which: `format` is `pdf`,
+  `docx`, `xlsx`, `csv` or `text`. The text is extracted again on each call; it isn't cached.
 - **The boundary:** the model's path is joined to the folder and resolved with every symlink followed
   (`Path.resolve()`), then it must still be inside the folder (`is_relative_to`). Absolute paths and `~` are
   refused before that. A symlink inside the folder that points out is refused, and isn't even listed.
@@ -40,4 +46,14 @@ folder, checked in code, keeps the useful part without the rest.
   contents) from outside. `files_write` creates missing folders before its check, so a swap at that moment could
   leave an empty folder outside. Both need a process already running as the owner, which could read the files
   itself.
-- Text only: binary files are refused rather than dumped into the context.
+- **Documents are read within caps**, since anyone can send one: 50 MB on disk, 100 MB once a `.docx`/`.xlsx` is
+  unzipped (a zip bomb is refused before it's opened), 2,000,000 characters of text, 500 pages, 50 sheets,
+  20,000 rows and 200 columns per sheet or CSV. Hitting a cap adds a `limits` note to the result, so the model
+  knows it hasn't seen the whole document. Extraction runs in a thread and the run waits 30 seconds at most; a
+  thread can't be killed, so the caps are what bound the work left behind.
+- **What can't be read says so.** A password-protected PDF (one encrypted only to set permissions opens), a
+  damaged file, an old `.doc`/`.xls` renamed, or a scanned PDF with no text layer returns an error that tells the
+  model what the user can do: remove the password, re-save it, or run it through OCR. There's no OCR here.
+- `.docx` is parsed with the standard library (it's a zip of XML) rather than python-docx, which needs lxml: the
+  dependencies stay pure Python. Embedded images, comments, footnotes and headers are not read.
+- Other binary files (images, `.doc`, `.xls`, ...) are refused rather than dumped into the context.

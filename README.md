@@ -21,7 +21,7 @@ What it does with nothing but a model:
   in every conversation.
 - **Follows skills**: a starter pack (morning brief, inbox triage, research report, meeting prep, weekly
   review) that loads only when a request matches, plus rules you add ("never include newsletters").
-- **Works**: reads web pages and searches the web (with your model provider's own search, no extra key), reads and writes files in its own folder, keeps
+- **Works**: reads web pages and searches the web (with your model provider's own search, no extra key), reads and writes files in its own folder (PDF, Word and spreadsheets read as text), keeps
   schedules and reminders that fire with the terminal closed, and runs shell commands only if you turn that on
   and say yes to each one.
 - **Connects your apps** as MCP servers (`local-agent mcp add`). Reading runs freely; anything else asks
