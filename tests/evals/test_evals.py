@@ -162,3 +162,11 @@ def test_the_calculator_only_does_arithmetic():
     assert world.calculate('17% * 2,340') == 397.8 and world.calculate('(2 + 3) ** 2') == 25
     with pytest.raises(ValueError):
         world.calculate('__import__("os").system("true")')
+
+
+def test_the_fake_inbox_searches_like_gmail():
+    ids = lambda query: [m['id'] for m in world.search_emails(query)]  # noqa: E731
+    assert ids('from:support@cloudhost.io') == ['m4']
+    assert ids('from:support@cloudhost.com') == []  # a wrong domain finds nothing, as in Gmail
+    assert ids('is:unread newer_than:1d') == ids('') == [m['id'] for m in world.EMAILS]
+    assert ids('subject:"launch date"') == ['m1'] and ids('budget') == ['m3']
