@@ -4,10 +4,13 @@ Workspace files: list, read and write, inside workspace/files/ and nowhere else.
 The model's path is joined to the folder and the real path is resolved (following every symlink) before
 anything is opened. Anything that ends up outside the folder is refused: `..`, absolute paths, and a symlink
 inside the folder that points out of it. Writes stay inside the folder too, so they need no approval.
+
+A symlink swapped in between that check and the open (a race) is caught after opening: the file or folder that
+was actually opened must still be the one the path resolves to inside the folder, or nothing is read or written.
 """
 
 import os
-import tempfile
+import secrets
 from pathlib import Path
 
 from local_agent.tools.base import clamp_int, function_tool, tool_error
@@ -34,6 +37,61 @@ def resolve_inside(root: Path, path: str) -> Path:
     if not real.is_relative_to(root):
         raise OutsideWorkspace(f'{path!r} is outside the workspace files folder.')
     return real
+
+
+def check_opened(root: Path, real: Path, fd: int) -> None:
+    """
+    The open file (or folder) fd must be the one at real, which must still resolve inside root: a path swapped for a
+    symlink after resolve_inside fails one or the other. Raises OutsideWorkspace.
+    """
+    again = real.resolve()
+    try:
+        same = again.is_relative_to(root.resolve()) and os.path.samestat(os.fstat(fd), os.stat(again))
+    except OSError:
+        same = False
+    if not same:
+        raise OutsideWorkspace('The path changed while it was being opened; nothing was read or written.')
+
+
+def _open_checked(root: Path, real: Path, flags: int) -> int:
+    """os.open on a real path, then check_opened. O_NOFOLLOW: a real path ends in no symlink, unless one was
+    swapped in since."""
+    try:
+        fd = os.open(real, flags | os.O_NOFOLLOW)
+    except OSError:
+        raise OutsideWorkspace('The path changed while it was being opened; nothing was read or written.') from None
+    try:
+        check_opened(root, real, fd)
+    except OutsideWorkspace:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _write_in(folder: int, real: Path, content: str, append: bool) -> int:
+    """Writes content to real's name in the open, checked folder. Returns the file's size."""
+    if append:
+        fd = os.open(real.name, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o666, dir_fd=folder)
+        with os.fdopen(fd, 'a', encoding='utf-8') as out:
+            out.write(content)
+    else:
+        # Atomic: an editor that has the file open never sees half of it. The temporary file is made in the checked
+        # folder itself, and the rename replaces whatever is at the name (a symlink too) without following it.
+        temporary = f'.{real.name}.{secrets.token_hex(4)}.tmp'
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
+        with os.fdopen(fd, 'w', encoding='utf-8') as out:
+            out.write(content)
+        try:
+            if os.replace in os.supports_dir_fd:
+                os.replace(temporary, real.name, src_dir_fd=folder, dst_dir_fd=folder)
+            else:
+                # No renameat (Python on macOS): by path. The temporary file only exists in the checked folder, so
+                # if the path was swapped since, this finds nothing to move and fails instead of writing elsewhere.
+                os.replace(real.parent / temporary, real)
+        except OSError:
+            os.unlink(temporary, dir_fd=folder)
+            raise
+    return os.stat(real.name, dir_fd=folder, follow_symlinks=False).st_size
 
 
 def file_tools(root: Path) -> list:
@@ -66,7 +124,12 @@ def file_tools(root: Path) -> list:
             return tool_error(str(e), 'Use a path inside the workspace.')
         if not file.is_file():
             return tool_error(f'There is no file {path!r}.', f'Call {LIST} to see the files.')
-        data = file.read_bytes()
+        try:
+            fd = _open_checked(root, file, os.O_RDONLY)
+        except OutsideWorkspace as e:
+            return tool_error(str(e), 'Tell the user; do not retry.')
+        with os.fdopen(fd, 'rb') as opened:
+            data = opened.read()
         if b'\x00' in data[:8192]:
             return tool_error(f'{path!r} is a binary file.', 'Tell the user it can\'t be read as text.')
         text = data.decode('utf-8', errors='replace')
@@ -89,16 +152,18 @@ def file_tools(root: Path) -> list:
         if len(content) > MAX_WRITE_CHARS:
             return tool_error('The content is too large to write in one call.', 'Write it in smaller parts.')
         file.parent.mkdir(parents=True, exist_ok=True)
-        if append:
-            with file.open('a') as out:
-                out.write(content)
-        else:
-            # Atomic: an editor that has the file open never sees half of it
-            handle, temporary = tempfile.mkstemp(dir=file.parent, prefix='.', suffix='.tmp')
-            with os.fdopen(handle, 'w') as out:
-                out.write(content)
-            os.replace(temporary, file)
-        return {'written': shown(file), 'bytes': file.stat().st_size, 'appended': bool(append)}
+        try:
+            folder = _open_checked(root, file.parent, os.O_RDONLY | os.O_DIRECTORY)
+        except OutsideWorkspace as e:
+            return tool_error(str(e), 'Tell the user; do not retry.')
+        try:
+            size = _write_in(folder, file, content, append)
+        except OSError:
+            return tool_error('The path changed while it was being written; nothing was written.',
+                              'Tell the user; do not retry.')
+        finally:
+            os.close(folder)
+        return {'written': shown(file), 'bytes': size, 'appended': bool(append)}
 
     path_description = 'Relative to the workspace files folder, e.g. "notes/todo.md"'
     return [

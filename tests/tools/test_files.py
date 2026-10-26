@@ -9,6 +9,7 @@ import os
 import pytest
 
 from local_agent.core import events as ev
+from local_agent.tools import files as files_module
 from local_agent.tools.files import OutsideWorkspace, file_tools, resolve_inside
 from tests.scripted import ScriptedModel, call, of_type, run_once, say
 
@@ -73,6 +74,67 @@ async def test_no_tool_reads_writes_or_lists_outside(files, outside):
 
 
 # --- the tools ---------------------------------------------------------------------------------------------
+
+# --- a symlink swapped in after the check (the race) ------------------------------------------------------
+
+@pytest.fixture
+def after_the_check(monkeypatch):
+    """after_the_check(swap): runs swap() right after the next path check passes, as a racing local process would."""
+    def arm(swap):
+        check = files_module.resolve_inside
+
+        def racing(root, path):
+            real = check(root, path)
+            monkeypatch.setattr(files_module, 'resolve_inside', check)  # only once
+            swap()
+            return real
+        monkeypatch.setattr(files_module, 'resolve_inside', racing)
+    return arm
+
+
+@pytest.fixture
+def decoy(outside):
+    """A folder outside the workspace that looks like workspace/files/notes."""
+    (outside.parent / 'todo.md').write_text('the owner\'s ssh key')
+    return outside.parent
+
+
+def swap_for_link(path, target):
+    path.rename(path.with_name(path.name + '-moved'))
+    path.symlink_to(target)
+
+
+async def test_a_file_swapped_for_a_symlink_after_the_check_is_not_read(files, outside, after_the_check):
+    after_the_check(lambda: swap_for_link(files / 'notes' / 'todo.md', outside))
+    result = await call_tool(by_name(files)['files_read'], path='notes/todo.md')
+    assert 'changed while it was being opened' in result['error'] and 'ssh key' not in json.dumps(result)
+
+
+async def test_a_folder_swapped_for_a_symlink_after_the_check_is_not_read(files, decoy, after_the_check):
+    after_the_check(lambda: swap_for_link(files / 'notes', decoy))
+    result = await call_tool(by_name(files)['files_read'], path='notes/todo.md')
+    assert 'changed' in result['error'] and 'ssh key' not in json.dumps(result)
+
+
+@pytest.mark.parametrize('append', [False, True])
+async def test_a_write_into_a_swapped_folder_writes_nothing_outside(files, decoy, after_the_check, append):
+    after_the_check(lambda: swap_for_link(files / 'notes', decoy))
+    result = await call_tool(by_name(files)['files_write'], path='notes/todo.md', content='pwned', append=append)
+    assert 'changed' in result['error']
+    assert (decoy / 'todo.md').read_text() == 'the owner\'s ssh key' and sorted(p.name for p in decoy.iterdir()) == [
+        'secret.txt', 'todo.md']
+
+
+async def test_a_file_swapped_for_a_symlink_is_replaced_not_followed(files, outside, after_the_check):
+    after_the_check(lambda: swap_for_link(files / 'notes' / 'todo.md', outside))
+    tools = by_name(files)
+    result = await call_tool(tools['files_write'], path='notes/todo.md', content='- milk')
+    assert result['written'] == 'notes/todo.md' and outside.read_text() == 'the owner\'s ssh key'
+    assert not (files / 'notes' / 'todo.md').is_symlink() and (files / 'notes' / 'todo.md').read_text() == '- milk'
+    after_the_check(lambda: swap_for_link(files / 'notes' / 'todo.md', outside))
+    appended = await call_tool(tools['files_write'], path='notes/todo.md', content='pwned', append=True)
+    assert 'changed' in appended['error'] and outside.read_text() == 'the owner\'s ssh key'
+
 
 async def test_list_read_and_write_inside(files):
     tools = by_name(files)

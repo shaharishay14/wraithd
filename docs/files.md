@@ -29,6 +29,15 @@ folder, checked in code, keeps the useful part without the rest.
 
 ## Limits
 
-- The check is done before opening, so a symlink swapped in between the check and the open (a race) isn't caught.
-  Nothing but the owner writes in that folder, so that needs a local attacker already.
+- **The race is closed for reads and writes.** A symlink swapped in between the check and the open (by another
+  process on the machine) is caught after opening: the file is opened with `O_NOFOLLOW` on its real path, and the
+  file or folder that was actually opened must be the same one (`samestat`) that the path resolves to inside the
+  folder now. Writes open the folder first, check it, then create the temporary file in it (`dir_fd`) and rename
+  it over the name, which replaces a symlink rather than following it; appends open with `O_NOFOLLOW`. Python on
+  macOS has no `renameat`, so the rename there goes by path, but the temporary file only exists in the checked
+  folder: a swapped path finds nothing to move, the write fails, and nothing lands outside.
+- **What's left.** `files_list` still checks then lists, so a swap mid-listing could show names and sizes (never
+  contents) from outside. `files_write` creates missing folders before its check, so a swap at that moment could
+  leave an empty folder outside. Both need a process already running as the owner, which could read the files
+  itself.
 - Text only: binary files are refused rather than dumped into the context.
