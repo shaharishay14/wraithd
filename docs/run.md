@@ -19,8 +19,8 @@
    for the owner; the shell for the owner in a conversation, if enabled), memory and skill tools for the owner,
    the owner's MCP servers (connected once per terminal session or for the daemon's life, else for the run;
    discovered past a dozen tools, see [MCP](mcp.md)), `notify_owner`, plus whatever the caller brings, all behind
-   one permission gate. A stranger's message (Telegram, with `answer_strangers` on) is passed as `untrusted_source`: the run is tainted from
-   its first step.
+   one permission gate. A message that is itself third-party content can be passed as `untrusted_source`: the run
+   is tainted from its first step.
 5. **Runs the loop** with a 180-second limit. A failure before anything streamed or ran is retried twice; after
    that it never is.
 6. **Logs `run_end`:** answered, refused or failed, with turns, tokens and the stop reason. A failed run answers
@@ -65,6 +65,6 @@ print what a run did, from its event log.
   Composio loading, intent rules, a chain-of-thought protocol, file attachments and post-run "verification".
   None of it is here: the gate guards actions, the stop rules end bad runs, and the model asks when a request is
   unclear.
-- **The owner is the default.** In the terminal the owner is always the one talking; `owner=False` (strangers)
-  is for Telegram, when the owner has turned on `answer_strangers`.
+- **The owner is the default.** Every channel talks only to the owner (Telegram ignores other chats), so no caller
+  passes `owner=False` today; it stays as the switch that takes memory, files, apps and owner skills away.
 - **Tests run the real `run()`** with a scripted model, against a temporary home and an in-memory keychain.

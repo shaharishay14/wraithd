@@ -23,7 +23,8 @@
    `RECORD_RUNS=1 uv run pytest tests/core/record_runs.py`, after a deliberate behaviour change. Any run can be
    saved the same way with `replay.dump(store.run_events(run_id), path)`.
 
-Golden evals with a real model in a fake world come in Phase 8; they're opt-in, never part of `pytest`.
+Golden evals with a real model in a fake world are opt-in and never part of `pytest`, which runs only their
+scripted version ([Evals](evals.md)).
 
 ## On a laptop
 

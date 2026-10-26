@@ -13,7 +13,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from agents import Agent, Model, Runner
+from agents import Agent, Model, ModelSettings, Runner, set_tracing_disabled
 
 from local_agent.config import Config, Home, load_config
 from local_agent.core import compaction, disclosure, reminders, views
@@ -62,6 +62,9 @@ class Runtime:
     skills: registry.SkillFolder = field(init=False)
 
     def __post_init__(self):
+        # The Agents SDK uploads run traces to OpenAI by default (whenever OPENAI_API_KEY is in the environment).
+        # A local agent's runs stay local: every entry point (chat, daemon, schedules, evals) builds a Runtime.
+        set_tracing_disabled(True)
         self.notifier = self.notifier or StoreNotifier(self.store)
         self.memory = Vault(self.home.memory_dir)
         self.skills = registry.SkillFolder(self.home.skills_dir)
@@ -153,13 +156,14 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
 
     history: earlier messages of the conversation (already compacted), as {"role", "content"} items
     callback: async (event_type, data) for streaming and approvals; None when nobody is watching
-    owner: the owner is the one talking. Strangers get no memory, no owner skills and can't change skills.
+    owner: the owner is the one talking (every channel today: Telegram answers only its paired owner). With
+    owner=False the run gets no memory, files, apps or owner skills, and can't change skills.
     tools: extra tools (a caller's tool replaces a built-in one with the same name);
     app_tools: connected-app tools (Phase 4), discovered past a dozen;
     builtins: the built-in tools (tools/), which depend on owner and on whether anyone can approve
     mcp: the owner's MCP servers, already connected (a terminal session connects once); without it, run() connects
     them for this run. Only for the owner: they're the owner's accounts.
-    untrusted_source: the message itself is third-party content (a stranger on Telegram): the run is tainted from
+    untrusted_source: the message itself is third-party content (say, an email that starts the run): tainted from
     its first step, and addresses in it don't count as the owner's.
     """
     async with AsyncExitStack() as stack:
@@ -277,7 +281,10 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         if start_block:
             chat.append({'role': 'user', 'content': start_block})
 
-        agent = Agent(name='Local Agent', instructions=instructions, tools=guarded, model=model)
+        # include_usage: streaming through LiteLLM (Anthropic) reports token usage only when asked, and the budgets
+        # count what's reported
+        agent = Agent(name='Local Agent', instructions=instructions, tools=guarded, model=model,
+                      model_settings=ModelSettings(include_usage=True))
         result = await _run_loop(agent, chat, callback, log, policy, _strong_upgrade(rt, skills))
         answer = str(result.final_output or '')
         end('answered')

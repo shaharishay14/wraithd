@@ -19,7 +19,7 @@ a tool that can't be wrapped is dropped, never passed through):
   memory, so the decision can come from another process (the CLI while the daemon runs).
 - **Unattended runs** (a schedule firing, nobody watching) may only run writes the owner pre-approved for that
   tool; each one is logged in the same approvals table, so there's one audit trail.
-- **Taint tracking.** Once a third-party source (an email, a page, a stranger's message) enters the run, the
+- **Taint tracking.** Once a third-party source (an email, a page, an MCP tool's output) enters the run, the
   model's requests may be steered by someone else. From then on, a pre-approved write may only go to
   recipients the owner wrote themselves; an action whose recipient can't be checked needs approval. In a live
   conversation, the approval card names the recipients the owner never wrote, and where they came from.
@@ -63,15 +63,16 @@ only ([api](api.md)).
 
 `local-agent audit` checks the live setup against these rules: the state folder private and nothing in it
 writable by others, the API bound to loopback with a long, private token, the shell off or gated, no keys in
-`config.toml`. It lists standing permissions (always-allowed tools, strangers answered, schedules) as info, and
+`config.toml`. It lists standing permissions (always-allowed tools, schedules) as info, and
 exits 1 on a failure. `doctor` reports it in one line. Why each rule exists is in [From EC2 to
 laptop](ec2-to-laptop.md).
 
 ## Budgets
 
 40 tool calls and 200,000 tokens per run, checked before every model call. An optional daily token budget,
-checked before every call too (and, once `run()` exists, before the run starts, so a spent budget costs no
-model call at all).
+checked before every call too, and before the run starts, so a spent budget costs no model call at all. The
+tokens are what the provider reports. Every run asks for usage on the stream (`include_usage`), since LiteLLM
+reports none for Anthropic otherwise, and the budgets would count zero.
 
 ## On a laptop
 
@@ -91,6 +92,8 @@ model call at all).
   read-only tools run, others ask until the
   owner marks them "always allow"). Every tool that isn't built in still counts as third-party output and
   private data.
+- **No traces leave the machine.** The Agents SDK uploads run traces to OpenAI by default; every `Runtime` turns
+  that off when it's built, so chat, the daemon, schedules and the evals never send them.
 - **The owner is identified by config, not a user row.** `owner_email` and the standing instructions
   (`AGENTS.md`) are passed to the gate; recipients found there count as written by the owner.
 

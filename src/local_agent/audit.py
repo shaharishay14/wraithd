@@ -126,8 +126,6 @@ def checks(home: Home) -> list[Check]:
     if allowed:
         add(INFO, f'Always allowed (run without asking, but only to recipients you wrote): {", ".join(allowed)}. '
                   'A tool the server marks destructive asks anyway.')
-    if config.answer_strangers:
-        add(INFO, 'Telegram answers chats that aren\'t yours, as third-party content (no memory, no apps, no files)')
     if home.db_path.exists():
         from local_agent.store import SQLiteStore
 

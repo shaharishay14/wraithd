@@ -22,6 +22,8 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check
       - run: uv run pytest
+      - name: The golden evals, offline (scripted models; the table is in the log)
+        run: uv run python -m local_agent.evals --scripted --out "$RUNNER_TEMP/evals"
 
   wheel:
     # The release build: the web UI from frontend/ into the wheel, the wheel installed as a uv tool, and a wheel

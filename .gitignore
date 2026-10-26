@@ -14,3 +14,6 @@ src/local_agent/ui/
 
 # Claude Code worktrees (sessions working in isolation)
 .claude/worktrees/
+
+# Eval reports and run homes (python -m local_agent.evals)
+eval-results/

@@ -8,6 +8,8 @@ import socket
 
 import httpx
 import pytest
+from agents import set_tracing_disabled, trace
+from agents.tracing.traces import NoOpTrace
 from agents.usage import Usage
 
 from local_agent.core import egress, secrets
@@ -218,6 +220,29 @@ async def test_a_run_stops_at_its_tool_call_limit(make_runtime, home):
     result, _ = await run_once(make_runtime(model), 'calculate a lot', tools=[fake_tool('calculate', lambda **a: 1)])
     assert result.answer == 'Stopped after two.'
     assert model.tool_names[-1] == [] and 'its limit' in model.inputs[-1][-1]['content']
+
+
+def test_building_a_runtime_turns_off_the_sdks_trace_upload(make_runtime, monkeypatch):
+    monkeypatch.setenv('OPENAI_API_KEY', 'sk-test-0123456789abcdefghij')  # what would make the SDK upload
+    set_tracing_disabled(False)
+    try:
+        make_runtime(ScriptedModel([]))
+        assert isinstance(trace('a run'), NoOpTrace)
+    finally:
+        set_tracing_disabled(True)
+
+
+async def test_every_run_asks_the_provider_for_token_usage(make_runtime):
+    """LiteLLM (Anthropic) streams usage only when asked; without it the budgets would count nothing."""
+    seen = []
+
+    class Recording(ScriptedModel):
+        async def get_response(self, system_instructions, input, model_settings, *args, **kwargs):
+            seen.append(model_settings.include_usage)
+            return await super().get_response(system_instructions, input, model_settings, *args, **kwargs)
+
+    await run_once(make_runtime(Recording([[say('Hi')]])), 'hello')
+    assert seen == [True]
 
 
 async def test_token_usage_is_logged_and_the_run_budget_stops_the_run(make_runtime, home):

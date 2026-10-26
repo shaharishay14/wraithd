@@ -80,14 +80,12 @@ def test_a_dev_origin_must_be_on_this_machine(home, origin, state):
 
 
 def test_standing_permissions_are_listed(home):
-    home.config_path.write_text('[telegram]\nanswer_strangers = true\n\n'
-                                '[mcp.servers.gmail]\ncommand = "gmail-mcp"\nalways_allow = ["send_email"]\n')
+    home.config_path.write_text('[mcp.servers.gmail]\ncommand = "gmail-mcp"\nalways_allow = ["send_email"]\n')
     store = SQLiteStore(home.db_path)
     store.add_schedule('morning brief', '0 8 * * 1-5', None, 'UTC', next_fire_at=datetime.now(UTC))
     store.close()
     info = [check.text for check in audit.checks(home) if check.state == INFO]
     assert any('gmail send_email' in text for text in info)
-    assert any(text.startswith('Telegram answers chats that aren\'t yours') for text in info)
     assert '1 schedule runs unattended: local-agent schedules list' in info
 
 

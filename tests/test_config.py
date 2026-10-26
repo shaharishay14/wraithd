@@ -28,7 +28,18 @@ def test_the_default_config_loads(home):
     loaded = load_config(home)
     assert (loaded.model.provider, loaded.model.default, loaded.model.strong) == ('openai', 'gpt-4o-mini', 'gpt-4o')
     assert loaded.run_tokens == 200_000 and loaded.run_tool_calls == 40 and loaded.daily_tokens is None
-    assert 'answer_strangers = false' in home.config_path.read_text() and loaded.answer_strangers is False
+    assert '[telegram]' not in home.config_path.read_text()
+
+
+def test_an_old_answer_strangers_line_still_loads_and_warns_once(home, caplog):
+    home.config_path.write_text('[telegram]\nanswer_strangers = true\n')
+    config._warned.clear()
+    load_config(home)
+    load_config(home)
+    assert not hasattr(load_config(home), 'answer_strangers')
+    assert [r.message for r in caplog.records].count(
+        '[telegram] answer_strangers is gone: the bot only ever answers its paired owner. '
+        f'You can delete that line from {home.config_path}.') == 1
 
 
 @pytest.mark.parametrize('text, problem', [
@@ -36,7 +47,6 @@ def test_the_default_config_loads(home):
     ('[model]\nprovider = "openai-compatible"\n', 'base_url is required'),
     ('[budget]\nrun_tokens = -5\n', 'positive whole number'),
     ('[budget\n', 'not valid TOML'),
-    ('[telegram]\nanswer_strangers = "yes"\n', 'answer_strangers must be true or false'),
 ])
 def test_a_bad_config_says_what_to_fix(home, text, problem):
     home.config_path.write_text(text)
@@ -47,7 +57,6 @@ def test_a_bad_config_says_what_to_fix(home, text, problem):
 def test_set_values_keeps_comments_uncomments_examples_and_adds_sections(home):
     config.set_values(home, 'model', {'provider': 'openai-compatible', 'base_url': 'http://localhost:8000/v1'})
     config.set_values(home, 'owner', {'timezone': 'Europe/London'})
-    config.set_values(home, 'telegram', {'answer_strangers': True})
     config.set_values(home, 'budget', {'daily_tokens': 500000, 'run_tokens': 1000})
     text = home.config_path.read_text()
     assert 'provider = "openai-compatible" # openai | anthropic | ollama | openai-compatible' in text
@@ -55,8 +64,8 @@ def test_set_values_keeps_comments_uncomments_examples_and_adds_sections(home):
     assert 'timezone = "Europe/London"\n' in text and '# email = "you@example.com"' in text
     assert 'run_tokens = 1000            # per run, input + output' in text  # the comment stays in its column
     loaded = load_config(home)
-    assert (loaded.model.base_url, loaded.timezone, loaded.answer_strangers, loaded.daily_tokens, loaded.run_tokens) \
-        == ('http://localhost:8000/v1', 'Europe/London', True, 500000, 1000)
+    assert (loaded.model.base_url, loaded.timezone, loaded.daily_tokens, loaded.run_tokens) \
+        == ('http://localhost:8000/v1', 'Europe/London', 500000, 1000)
 
 
 def test_set_values_that_break_the_config_leave_it_as_it_was(home):

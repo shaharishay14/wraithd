@@ -40,8 +40,8 @@ email can't pose as the harness.
 
 ## On a laptop
 
-- **"Owner" means the person the agent belongs to,** not a logged-in user. A stranger messaging the Telegram
-  bot (when it answers strangers at all) isn't the owner, so the skill and memory nudges stay off for them.
+- **"Owner" means the person the agent belongs to,** not a logged-in user. A run with `owner=False` isn't
+  the owner's, so the skill and memory nudges stay off for it (no channel makes one today).
 - **The previous run comes from the store** (`latest_run` + `run_events`), still limited to conversation runs
   that started in the last two hours.
 - **`skills_loaded` moved into `views.py`.** It's a query over events, and the reminders shouldn't depend on
