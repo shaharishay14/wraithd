@@ -19,6 +19,7 @@ from starlette.routing import Route
 from local_agent import __version__
 from local_agent.channels.conversation import lock_for, reply
 from local_agent.config import load_config
+from local_agent.core import events as ev
 from local_agent.core import inspector
 from local_agent.core.gate import approval_card
 from local_agent.mcp import config as mcp_config
@@ -215,6 +216,21 @@ def build_api(daemon, ui_dir: Path | None) -> Starlette:
         return JSONResponse({'run_id': run_id, 'summary': summary,
                              'events': [{**event, 'at': stamp(event['at'])} for event in inspector.timeline(events)]})
 
+    # --- between runs: what the harness did on its own -----------------------------------------------------
+
+    async def events_between_runs(request):
+        try:
+            limit = max(1, min(MAX_RUNS, int(request.query_params.get('limit', 50))))
+        except ValueError:
+            raise ApiError(400, 'bad_request', 'limit must be a number.') from None
+        types = [t for t in request.query_params.get('type', '').split(',') if t]
+        unknown = [t for t in types if t not in ev.BETWEEN_RUNS]
+        if unknown:
+            raise ApiError(400, 'bad_request', f'Unknown type {unknown[0]!r}; use {", ".join(ev.BETWEEN_RUNS)}.')
+        return JSONResponse([{'type': event.type, 'at': stamp(event.created_at),
+                              'summary': inspector.between_runs_text(event), 'details': event.payload}
+                             for event in rt.store.events_between_runs(limit, types)])
+
     # --- memory ------------------------------------------------------------------------------------------
 
     def note_path(request) -> str:
@@ -392,13 +408,16 @@ def build_api(daemon, ui_dir: Path | None) -> Starlette:
             tier = ('read-only' if daemon.mcp.access[tool.name].value == 'read' else
                     'always allowed' if tool.name in daemon.mcp.always_allowed else 'asks')
             listed.append({'tool': original, 'registered_name': tool.name, 'description': tool.description,
-                           'tier': tier})
+                           'tier': tier, 'destructive': tool.name in daemon.mcp.destructive})
         return JSONResponse(listed)
 
     async def mcp_always_allow(request):
         server = server_named(request.path_params['name'])
         tool = request.path_params['tool']
         allow = request.method == 'PUT'
+        if allow and daemon.mcp and daemon.mcp.marked_destructive(server.name, tool):
+            raise ApiError(409, 'conflict', f'{server.name} marks {tool} as destructive: it asks every time, so it '
+                                               'can\'t be always allowed.')
         names = [t for t in server.always_allow if t != tool] + ([tool] if allow else [])
         mcp_config.write_server(rt.home.config_path, replace(server, always_allow=tuple(names)), server.name)
         rt.config = load_config(rt.home)
@@ -450,6 +469,7 @@ def build_api(daemon, ui_dir: Path | None) -> Starlette:
         Route('/api/approvals/{id}', handler(decide), methods=['POST']),
         Route('/api/runs', handler(runs), methods=['GET']),
         Route('/api/runs/{id}', handler(run_detail), methods=['GET']),
+        Route('/api/events', handler(events_between_runs), methods=['GET']),
         Route('/api/memory', handler(memory), methods=['GET']),
         Route('/api/memory/{folder}/{name}', handler(memory_note), methods=['GET', 'PUT', 'DELETE']),
         Route('/api/skills', handler(skills), methods=['GET']),

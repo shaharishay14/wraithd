@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from local_agent import cli, schedules
+from local_agent.core import events as ev
 from local_agent.core import gate as gate_module
 from local_agent.memory import vault
 from local_agent.memory.notes import SOURCE_AGENT, Note
@@ -125,6 +126,22 @@ async def test_runs_and_one_runs_timeline(make_daemon):
     assert (await client.get('/api/runs?limit=x')).status_code == 400
 
 
+async def test_events_between_runs(make_daemon):
+    daemon, client = await make_daemon(ScriptedModel([[say('Hi.')]]))
+    await client.post('/api/chat', json={'message': 'hi'})  # a run's events are not between runs
+    ev.record_event(daemon.rt.store, ev.COMPACTION, conversation='c0ffee12345', messages_folded=20, summary_chars=900)
+    ev.record_event(daemon.rt.store, ev.TELEGRAM_IGNORED, chat=42, username='stranger')
+    listed = (await client.get('/api/events')).json()
+    assert [e['type'] for e in listed] == ['telegram_ignored', 'compaction']
+    assert listed[0] == {'type': 'telegram_ignored', 'at': listed[0]['at'],
+                         'details': {'chat': 42, 'username': 'stranger'},
+                         'summary': 'Ignored a Telegram message from chat 42 (@stranger), which isn\'t yours'}
+    assert listed[1]['summary'].startswith('Folded 20 older messages of conversation c0ffee12')
+    assert [e['type'] for e in (await client.get('/api/events?type=compaction,distill')).json()] == ['compaction']
+    assert len((await client.get('/api/events?limit=1')).json()) == 1
+    assert (await client.get('/api/events?type=run_start')).status_code == 400
+
+
 # --- memory ------------------------------------------------------------------------------------------------
 
 async def test_memory_list_read_write_and_vouch(make_daemon, home):
@@ -214,6 +231,18 @@ async def test_mcp_servers_tools_and_always_allow(make_daemon, home, capsys):
     await client.delete('/api/mcp/servers/gmail/always-allow/send_email')
     assert 'GMAIL_SEND_EMAIL' not in daemon.mcp.always_allowed
     assert (await client.get('/api/mcp/servers/nope/tools')).status_code == 404
+
+
+async def test_a_destructive_tool_cannot_be_always_allowed_through_the_api(make_daemon, home, capsys):
+    cli.main(['mcp', 'add', 'drive', '--', sys.executable, FAKE, '--app', 'drive'])
+    daemon, client = await make_daemon(ScriptedModel([]))
+    tools = {t['tool']: t for t in (await client.get('/api/mcp/servers/drive/tools')).json()}
+    assert tools['delete_file']['destructive'] is True and tools['delete_file']['tier'] == 'asks'
+    assert tools['share_file']['destructive'] is False
+    refused = await client.put('/api/mcp/servers/drive/always-allow/delete_file')
+    assert refused.status_code == 409 and 'destructive' in refused.json()['error']['message']
+    assert 'always_allow = []' in home.config_path.read_text() and not daemon.mcp.always_allowed
+    assert (await client.put('/api/mcp/servers/drive/always-allow/share_file')).status_code == 200
 
 
 # --- status, Telegram --------------------------------------------------------------------------------------

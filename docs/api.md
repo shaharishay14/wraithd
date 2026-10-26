@@ -1,4 +1,4 @@
-# The local API (contract v1.1)
+# The local API (contract v1.2)
 
 **Files:** `daemon/api.py`, `daemon/security.py`, `daemon/app.py`
 
@@ -9,6 +9,9 @@ contract go through the coordinator; this file is the source of truth for the fr
 **v1.1** (from the frontend's first build): the UI uses hash routes; `GET /api/approvals?status=all` or a comma
 list; `run_id` on conversation messages; `approval_resolved` is sent for every outcome, whoever decided; and the
 answers on an unconnected MCP server's tools (`409`) and a PUT to a new memory path (it creates the note).
+
+**v1.2** (Phase 7, additive): `GET /api/events` lists what happened between runs; MCP tools carry `destructive`,
+and always-allowing a destructive one is `409 conflict`.
 
 ## Auth: the token
 
@@ -170,6 +173,23 @@ Deciding one that's no longer pending: `409 conflict` (the card's current status
 ```
 Event types and their payloads are listed in [the event log](event-log.md).
 
+### Between runs
+
+Some things happen outside any run: older chat messages folded into a conversation's summary (`compaction`), new
+messages read into memory (`distill`), and a Telegram chat that isn't the owner's writing to the bot
+(`telegram_ignored`, at most once an hour per chat; the stranger's text is never stored).
+
+`GET /api/events?limit=50&type=distill,compaction` → newest first (`limit` 1-200, default 50; `type` is optional,
+a comma list of the three types, anything else is `400`)
+```json
+[{"type": "distill", "at": "...", "summary": "Read 6 messages of conversation 3f2a9c1e into memory: profile/profile.md",
+  "details": {"conversation": "3f2a9c1e-...", "messages": 6, "facts": 1, "notes": ["profile/profile.md"]}},
+ {"type": "telegram_ignored", "at": "...",
+  "summary": "Ignored a Telegram message from chat 42 (@stranger), which isn't yours",
+  "details": {"chat": 42, "username": "stranger"}}]
+```
+`summary` is one line to show as is; `details` is the stored payload. `local-agent events` prints the same list.
+
 ### Memory
 
 `GET /api/memory` →
@@ -239,14 +259,16 @@ handles secrets).
 `GET /api/mcp/servers/{name}/tools` →
 ```json
 [{"tool": "send_email", "registered_name": "GMAIL_SEND_EMAIL", "description": "Send an email...",
-  "tier": "asks"}]
+  "tier": "asks", "destructive": false}]
 ```
-`tier` is `read-only`, `asks` or `always allowed`. A server that's configured but not connected (it didn't start,
+`tier` is `read-only`, `asks` or `always allowed`. `destructive` is true for a tool the server annotates
+`destructiveHint`: it asks every time and never runs unattended. A server that's configured but not connected (it didn't start,
 or the daemon couldn't reach it) gets `409 conflict`, with the reason in the message
 (`"gmail is not connected: ..."`); its entry in `GET /api/mcp/servers` has `connected: false` and the `error`.
 
 `PUT /api/mcp/servers/{name}/always-allow/{tool}` → the server. `DELETE` the same path → the server (asks again).
-Allowing a read-only tool changes nothing (they already run).
+Allowing a read-only tool changes nothing (they already run). Allowing a destructive tool is `409 conflict`; if the
+server isn't connected the PUT is saved, and the run ignores it for a tool the server marks destructive.
 
 ### Telegram
 

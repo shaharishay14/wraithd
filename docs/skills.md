@@ -56,6 +56,10 @@ instructions.
   Turning a proposal on is moving a folder; there's no Skills page to click.
 - **A broken skill of the owner's is skipped with a warning**, not fatal; a broken built-in is our bug and fails
   loudly.
+- **A skill stays in its folder.** A skill cloned from someone's repo can carry symlinks (git keeps them):
+  `reference.md -> ~/.ssh/id_rsa`. Any file (or `your-way.md`) whose real path is outside the skill's folder is
+  skipped with a warning, and a `SKILL.md` that points out skips the skill. `skill_load`'s `file` must be one of
+  the files listed, so `../` and absolute paths find nothing.
 - **Removing a rule deletes it.** agent-studio kept removed rules for the history; here the file is the history,
   and putting it in git keeps one.
 - **Requirements name capabilities, not apps.** agent-studio wrote `GMAIL|OUTLOOK`; here a skill says `email`,

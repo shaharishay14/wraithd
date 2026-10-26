@@ -4,6 +4,7 @@ Connecting to the owner's MCP servers for a run (or a terminal session), with th
 disclosure catalog groups them by server, and each tool gets its gate tier:
 
 - annotated read-only by the server: runs freely
+- annotated destructive (destructiveHint): a write that asks every time, can't be always-allowed, never unattended
 - anything else: a write, asked about each time, unless the owner marked it "always allow"
 
 What a server says about itself (tool descriptions, its instructions) is third-party text: it's capped and the
@@ -44,6 +45,14 @@ def tool_name(server: str, tool: str) -> str:
     return f'{server.upper()}_{clean}'[:MAX_NAME]
 
 
+def is_destructive(tool) -> bool:
+    """
+    The server marks the tool destructive (it may delete or overwrite). Only an explicit destructiveHint counts:
+    the MCP spec's default (true for every tool that isn't read-only) would leave nothing to "always allow".
+    """
+    return getattr(tool.annotations, 'destructive_hint', None) is True
+
+
 def result_text(result) -> str:
     """An MCP CallToolResult as the text the harness renders: the text parts, and an error marked as one."""
     parts = []
@@ -65,10 +74,15 @@ class Connected:
     tools: list[FunctionTool] = field(default_factory=list)
     access: dict[str, ToolAccess] = field(default_factory=dict)  # registered name -> tier
     always_allowed: set[str] = field(default_factory=set)  # registered names the owner allowed
+    destructive: set[str] = field(default_factory=set)  # registered names the server marks destructive
     guides: dict[str, str] = field(default_factory=dict)  # SERVER -> its instructions
     provides: set[str] = field(default_factory=set)  # capabilities of the servers that connected
     errors: dict[str, str] = field(default_factory=dict)  # server -> why it didn't connect
     origin: dict[str, tuple[str, str]] = field(default_factory=dict)  # registered name -> (server, tool)
+
+    def marked_destructive(self, server: str, tool: str) -> bool:
+        """The server marks its tool (by the server's own name for it) destructive."""
+        return any(self.origin[name] == (server, tool) for name in self.destructive)
 
 
 def sdk_server(server: McpServer):
@@ -132,7 +146,9 @@ class McpConnections:
                     registered = registered[:MAX_NAME - 2] + '_2'
                 read_only = bool(getattr(tool.annotations, 'read_only_hint', False))
                 connected.access[registered] = ToolAccess.READ if read_only else ToolAccess.WRITE
-                if tool.name in server.always_allow and not read_only:
+                if not read_only and is_destructive(tool):
+                    connected.destructive.add(registered)
+                elif tool.name in server.always_allow and not read_only:
                     connected.always_allowed.add(registered)
                 connected.origin[registered] = (server.name, tool.name)
                 connected.tools.append(_wrap(sdk, server, tool, registered))

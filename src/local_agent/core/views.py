@@ -58,10 +58,13 @@ def tools_called(events) -> list[str]:
 def untrusted_content_seen(events) -> list[str]:
     """
     Third-party content in the model's context, in the order it arrived: the run's own input (the event that
-    started it), then tools whose output was third-party.
+    started it), what the model was given with its tools (MCP tool descriptions), then tools whose output was
+    third-party.
     """
     sources = [source for event in _of_type(events, ev.RUN_START)
                for source in event.payload.get('untrusted_inputs', [])]
+    sources += [source for event in _of_type(events, ev.CONTEXT_BUILT)
+                for source in event.payload.get('untrusted_context', []) if source not in sources]
     for event in _of_type(events, ev.TOOL_RESULT):
         tool = event.payload.get('tool')
         if event.payload.get('untrusted') and tool not in sources:

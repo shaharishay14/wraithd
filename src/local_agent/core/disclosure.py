@@ -10,6 +10,9 @@ as the list grows. Instead, past a few actions, the model gets three tools:
 
 The order is enforced here, in code: the prompt only explains it. Running an action goes through the same
 guarded tool as a direct call, so the permission gate and the event log see the real action.
+
+A third-party action's description (and its app's guide) is written by whoever runs the server, so describe marks
+its result untrusted: the gate wraps it and the run is tainted from then on, like after reading an email.
 """
 
 import difflib
@@ -57,12 +60,14 @@ def _summary(description: str) -> str:
 class AppCatalog:
     """
     The connected-app actions of one run, by name. Holds the guarded tools that actually run them, and each
-    app's guide (how to use it well), shown with the app's first describe.
+    app's guide (how to use it well), shown with the app's first describe. third_party names the actions whose
+    descriptions someone else wrote (every MCP tool).
     """
 
-    def __init__(self, guarded_tools: list[FunctionTool], guides: dict[str, str] | None = None):
+    def __init__(self, guarded_tools: list[FunctionTool], guides: dict[str, str] | None = None, third_party=()):
         self.tools: dict[str, FunctionTool] = {tool.name: tool for tool in guarded_tools}
         self.guides = {app.upper(): guide for app, guide in (guides or {}).items()}
+        self.third_party = set(third_party)
 
     def __len__(self):
         return len(self.tools)
@@ -168,6 +173,8 @@ def discovery_tools(catalog: AppCatalog, log: ev.EventLog, label=None) -> list[F
             guide = catalog.guides.get(app_of(action))
             if guide:
                 description['app_guide'] = guide.strip()  # shown once per app per run, when first needed
+        if action in catalog.third_party:
+            description['untrusted'] = True  # the gate wraps it and taints the run (render.reports_untrusted)
         return json.dumps(description)
 
     async def run(ctx, input_json: str) -> str:

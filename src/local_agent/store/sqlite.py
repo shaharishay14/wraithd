@@ -170,6 +170,16 @@ class SQLiteStore:
                            'AND type = ?', (pattern, RUN_START))
         return sorted(row['run_id'] for row in rows)
 
+    def events_between_runs(self, limit=50, types=()) -> list[Event]:
+        where, parameters = 'run_id IS NULL', []
+        if types:
+            where += f' AND type IN ({", ".join("?" * len(types))})'
+            parameters += list(types)
+        rows = self._query(f'SELECT seq, type, payload, created_at FROM run_events WHERE {where} '
+                           'ORDER BY created_at DESC, id DESC LIMIT ?', (*parameters, limit))
+        return [Event(seq=row['seq'], type=row['type'], payload=json.loads(row['payload']),
+                      created_at=_parse(row['created_at'])) for row in rows]
+
     # --- conversations -----------------------------------------------------------------------------
 
     def start_conversation(self, source, external=None) -> Conversation:

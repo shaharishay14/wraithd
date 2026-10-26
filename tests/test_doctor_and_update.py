@@ -82,10 +82,11 @@ def test_doctor_names_each_problem_with_its_fix(home, manager):
         'Daemon: nothing answers on port 7878': 'local-agent daemon start (or run local-agent daemon)',
         'Port 7878: in use by another program':
             f'stop that program, or set another port in {home.config_path} ([daemon] port)',
+        'Security rules: 2 fail': 'local-agent audit, for each rule and its fix',  # the folder and the token
     }
     assert states(found)['serpapi key: missing, so web search is off'] == doctor.INFO  # optional
     text = doctor.render(found)
-    assert '        fix: local-agent key set openai' in text and text.endswith('7 problems found.')
+    assert '        fix: local-agent key set openai' in text and text.endswith('8 problems found.')
 
 
 def test_doctor_a_stopped_service_an_old_daemon_and_a_broken_config(home, healthy, manager):

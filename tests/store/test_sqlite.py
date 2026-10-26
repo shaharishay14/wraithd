@@ -61,6 +61,13 @@ def test_tokens_since_adds_up_run_ends_and_ignores_missing_counts(store):
 def test_events_between_runs_have_no_run(store):
     ev.record_event(store, ev.COMPACTION, messages_folded=12)
     assert store._query('SELECT run_id, type FROM run_events')[0]['run_id'] is None
+    store.save_events('run-1', [event(0, ev.RUN_START, source='chat')])
+    ev.record_event(store, ev.DISTILL, messages=4, notes=['profile/profile.md'])
+    ev.record_event(store, ev.TELEGRAM_IGNORED, chat=42, username='stranger')
+    assert [e.type for e in store.events_between_runs()] == [ev.TELEGRAM_IGNORED, ev.DISTILL, ev.COMPACTION]
+    assert [e.payload for e in store.events_between_runs(types=[ev.DISTILL])] == [
+        {'messages': 4, 'notes': ['profile/profile.md']}]
+    assert len(store.events_between_runs(limit=1)) == 1
 
 
 def test_an_approval_is_decided_once(store):

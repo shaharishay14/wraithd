@@ -26,6 +26,7 @@
      "schedule_create",
      "schedule_list",
      "schedule_cancel",
+     "notify_owner",
      "calculate",
      "memory_search",
      "memory_read",
@@ -35,13 +36,14 @@
      "skill_propose",
      "skill_adjust"
     ],
-    "tool_schema_chars": 6004,
+    "tool_schema_chars": 6327,
     "memory_notes": 0,
     "skills_offered": [
      "skill-writer",
      "weekly-review"
     ],
-    "instructions_chars": 1858
+    "instructions_chars": 1858,
+    "untrusted_context": []
    }
   },
   {

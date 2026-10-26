@@ -24,6 +24,11 @@ async def test_a_preference_said_in_one_session_holds_in_the_next(make_runtime, 
     await terminal.chat(make_runtime(first), owner)
     assert 'Got it, I will keep it short.' in owner.text and 'Remembered: profile/profile.md' in owner.text
     assert '- Prefers short replies' in (home.memory_dir / 'profile' / 'profile.md').read_text()
+    # That happened between runs: `local-agent events` shows it
+    capsys.readouterr()
+    assert cli.main(['events']) == 0
+    [line] = capsys.readouterr().out.splitlines()
+    assert ' distill ' in line and line.endswith('into memory: profile/profile.md')
 
     # Session 2, a new process: the preference is in the first run's context, as the profile (L0)
     second = ScriptedModel([[say('Paris.')], [say('{"facts": []}')]])
@@ -79,6 +84,7 @@ async def test_a_failed_run_is_shown_and_the_session_goes_on(make_runtime):
 def test_runs_list_and_show_without_any_runs(capsys):
     assert cli.main(['runs', 'list']) == 0 and 'No runs yet.' in capsys.readouterr().out
     assert cli.main(['runs', 'show', 'abc']) == 1 and "No run matches 'abc'" in capsys.readouterr().err
+    assert cli.main(['events']) == 0 and 'Nothing has happened between runs yet.' in capsys.readouterr().out
 
 
 async def test_runs_show_as_json_and_ambiguous_prefixes(make_runtime, capsys):

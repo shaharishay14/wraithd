@@ -94,6 +94,12 @@ def checks(home: Home, service=None, transport=None, port_free=port_free) -> lis
     else:
         add(INFO, 'No API token yet: the daemon makes it when it first starts')
 
+    from local_agent import audit  # it uses this module's Check
+
+    failed = [check for check in audit.checks(home) if check.state == FAIL]
+    add(OK if not failed else FAIL, 'Security rules: ' + ('all pass' if not failed else f'{len(failed)} fail'),
+        'local-agent audit, for each rule and its fix')
+
     # --- the web UI -------------------------------------------------------------------------------------------
     from local_agent.daemon.app import ui_dir
 

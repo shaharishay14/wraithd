@@ -107,6 +107,9 @@ class Store(Protocol):
     def find_runs(self, prefix: str) -> list[str]:
         """Run ids that start with `prefix` (so the CLI can take a short id)."""
 
+    def events_between_runs(self, limit: int = 50, types: Sequence[str] = ()) -> list[Any]:
+        """Events that belong to no run (compaction, distill, telegram_ignored), newest first; only `types` if given."""
+
     # --- conversations -----------------------------------------------------------------------------
 
     def start_conversation(self, source: str, external: str | None = None) -> Conversation: ...

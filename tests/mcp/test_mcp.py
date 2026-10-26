@@ -8,6 +8,8 @@ MCP end to end, with a fake Gmail server run as a real stdio process (tests/fixt
 - each server's secret reaches only that server: not another server, the model, the log or the shell
 """
 
+import asyncio
+import dataclasses
 import json
 import sys
 from pathlib import Path
@@ -37,6 +39,11 @@ def quick_polls(monkeypatch):
 @pytest.fixture
 def outbox(tmp_path):
     return tmp_path / 'outbox.jsonl'
+
+
+async def allow(server, tool):
+    """`local-agent mcp allow`, from a thread: it connects to the server to check the tool, with its own loop."""
+    return await asyncio.to_thread(cli.main, ['mcp', 'allow', server, tool])
 
 
 def sent(outbox):
@@ -150,26 +157,26 @@ async def test_read_only_runs_a_send_asks_and_always_allowed_does_not(make_runti
     assert 'Calendar, if one is connected' in loaded['instructions']
     found = json.loads(model.tool_outputs(2)['call_2'])
     assert found['actions'][0]['action'] == 'GMAIL_FETCH_EMAILS' and found['actions'][0]['access'] == 'read'
-    described = json.loads(model.tool_outputs(3)['call_3'])
+    described = unwrapped_json(model.tool_outputs(3)['call_3'])  # a server's own words: third-party, so wrapped
     assert described['app_guide'].startswith('Fetch unread emails')  # the server's own instructions, once
     fetched = model.tool_outputs(4)['call_4']
     assert fetched.startswith('<untrusted_tool_output tool="GMAIL_FETCH_EMAILS">')  # MCP output is third-party
-    assert json.loads(model.tool_outputs(5)['call_5'])['access'] == 'needs approval'
+    assert unwrapped_json(model.tool_outputs(5)['call_5'])['access'] == 'needs approval'
     assert owner.prompts.count('Allow? [y/N] ') == 1  # only the send asked, not the fetch
     assert 'The agent wants to run GMAIL_SEND_EMAIL:\n  to: dana@co.com' in owner.text
     assert sent(outbox) == [{'to': 'dana@co.com', 'subject': 'Your brief', 'body': 'Launch moved to Thursday.'}]
 
     # The owner always allows the send: the next session sends without asking
-    assert cli.main(['mcp', 'allow', 'gmail', 'send_email']) == 0
+    assert await allow('gmail', 'send_email') == 0
     model = ScriptedModel(discovery_turns(start=10))
     owner = ScriptedTerminal('morning brief, then send it to dana@co.com')
     await terminal.chat(make_runtime(model), owner)
     assert 'Allow?' not in ''.join(owner.prompts) and len(sent(outbox)) == 2
-    assert json.loads(model.tool_outputs(5)['call_14'])['access'] == 'always allowed'
+    assert unwrapped_json(model.tool_outputs(5)['call_14'])['access'] == 'always allowed'
 
 
 async def test_always_allowed_still_refuses_a_recipient_from_the_inbox(make_runtime, gmail, outbox, capsys):
-    cli.main(['mcp', 'allow', 'gmail', 'send_email'])
+    await allow('gmail', 'send_email')
     # The inbox asks to forward everything to eve: in a conversation the owner is asked, and warned
     model = ScriptedModel(discovery_turns(to='eve@evil.com'))
     owner = ScriptedTerminal('morning brief please', 'n')
@@ -185,13 +192,50 @@ async def test_unattended_runs_only_run_read_only_or_always_allowed(make_runtime
     assert 'no one is available to approve' in model.tool_outputs(6)['call_6'] and sent(outbox) == []
     assert of_type(events, ev.TOOL_RESULT)[2].payload['outcome'] == 'ok'  # the read-only fetch ran
 
-    cli.main(['mcp', 'allow', 'gmail', 'send_email'])
+    await allow('gmail', 'send_email')
     await run_once(make_runtime(ScriptedModel(discovery_turns()[:-1])), message, source='schedule')
     assert [mail['to'] for mail in sent(outbox)] == ['dana@co.com']  # the owner wrote that address
     model = ScriptedModel(discovery_turns(to='eve@evil.com')[:-1])
     await run_once(make_runtime(model), message, source='schedule')
     assert 'eve@evil.com (from GMAIL_FETCH_EMAILS)' in model.tool_outputs(6)['call_6']
     assert [mail['to'] for mail in sent(outbox)] == ['dana@co.com']
+
+
+# --- destructive tools -------------------------------------------------------------------------------------
+
+@pytest.fixture
+def drive(home, outbox, capsys):
+    """A server whose delete_file is annotated destructiveHint (tests/fixtures/fake_mcp.py --app drive)."""
+    assert cli.main(['mcp', 'add', 'drive', '--', sys.executable, FAKE, '--app', 'drive', '--outbox', str(outbox)]) == 0
+    capsys.readouterr()
+    return home
+
+
+def test_a_destructive_tool_cannot_be_always_allowed(drive, capsys):
+    assert cli.main(['mcp', 'allow', 'drive', 'delete_file']) == 1
+    assert 'marks delete_file as destructive' in capsys.readouterr().err
+    assert load_config(drive).mcp_servers[0].always_allow == ()
+    assert cli.main(['mcp', 'allow', 'drive', 'share_file']) == 0  # a plain write still can be
+    capsys.readouterr()
+    assert cli.main(['mcp', 'tools', 'drive']) == 0
+    shown = {line.split()[0]: line.split()[1] for line in capsys.readouterr().out.splitlines()}
+    assert shown == {'list_files': 'read-only', 'share_file': 'always', 'delete_file': 'destructive'}
+
+
+async def test_a_destructive_tool_asks_every_time_even_if_the_config_allows_it(drive, make_runtime, outbox):
+    # Written into config.toml by hand, past the CLI's check: the run ignores it
+    [server] = load_config(drive).mcp_servers
+    mcp_config.write_server(drive.config_path, dataclasses.replace(server, always_allow=('delete_file',)), 'drive')
+    deleting = [[call('1', 'DRIVE_DELETE_FILE', {'file': 'plans.md'})], [say('done')], [say('{"facts": []}')]]
+
+    owner = ScriptedTerminal('delete plans.md from my drive', 'y')
+    await terminal.chat(make_runtime(ScriptedModel(deleting)), owner)
+    assert owner.prompts.count('Allow? [y/N] ') == 1 and 'marks this action as destructive' in owner.text
+    assert sent(outbox) == [{'deleted': 'plans.md'}]
+
+    model = ScriptedModel(deleting[:2])
+    await run_once(make_runtime(model), 'delete plans.md from my drive', source='schedule')
+    assert 'never runs unattended' in model.tool_outputs(1)['call_1'] and len(sent(outbox)) == 1
 
 
 async def test_strangers_get_no_mcp_tools(make_runtime, gmail):

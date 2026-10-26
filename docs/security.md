@@ -28,6 +28,10 @@ a tool that can't be wrapped is dropped, never passed through):
 - Third-party output is wrapped in `<untrusted_tool_output>`; the wrapper can't be closed from inside, and the
   reminder tag is neutralized so a page can't pose as the harness. That's a hint for the model; the taint
   rules above are the defense.
+- **MCP tool descriptions are third-party text too.** Given to the model directly, they taint the run from its
+  first step (`MCP tool descriptions`); in discovery, `describe_app_action` marks its result untrusted.
+- **Always ask** (`always_ask`): a write that is never pre-approved, whatever the config says, and never runs
+  unattended. MCP tools the server annotates `destructiveHint` get it ([MCP](mcp.md)).
 
 ## Egress: no way back into the machine
 
@@ -54,6 +58,14 @@ It's a pattern scan, so it's best effort.
 Every website the owner visits can make their browser call `127.0.0.1`. The daemon's API needs a token (handed to
 the UI in a URL fragment), checks Host (no DNS rebinding) and Origin, sends no CORS headers, and binds to 127.0.0.1
 only ([api](api.md)).
+
+## Checking the setup
+
+`local-agent audit` checks the live setup against these rules: the state folder private and nothing in it
+writable by others, the API bound to loopback with a long, private token, the shell off or gated, no keys in
+`config.toml`. It lists standing permissions (always-allowed tools, strangers answered, schedules) as info, and
+exits 1 on a failure. `doctor` reports it in one line. Why each rule exists is in [From EC2 to
+laptop](ec2-to-laptop.md).
 
 ## Budgets
 

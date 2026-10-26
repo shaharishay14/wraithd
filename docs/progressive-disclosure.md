@@ -30,6 +30,10 @@ then read), skills (one line each, then `skill_load`), the web (search snippets,
 untrusted-output wrapper and the event log all see the real action (`GMAIL_SEND_EMAIL`), never just the
 dispatcher.
 
+A connected app's descriptions are written by whoever runs its server, so `describe_app_action` marks its result
+untrusted when the action is an MCP tool: the gate wraps it and the run is tainted from then on. `find_app_actions`
+summaries (one capped sentence each) don't taint; an action can't run without being described first.
+
 ## On a laptop
 
 - **Apps are MCP servers, not Composio.** The catalog takes any guarded tools, and each app's guide is the MCP

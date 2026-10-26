@@ -8,6 +8,9 @@ On disk, in workspace/skills/:
     my-skill/*.md              files the skill can point to (skill_load with "file")
     research-report/your-way.md  the owner's rules for a skill, one "- rule" per line, shown after its steps
     _proposed/<name>/SKILL.md  drafts the agent wrote: off until the owner moves the folder up into skills/
+
+A skill only reads files in its own folder: a symlink in it that points anywhere else (a skill cloned from
+someone's repo can carry `notes.md -> ~/.ssh/id_rsa`) is skipped, so its target never reaches the model.
 """
 
 import logging
@@ -73,15 +76,28 @@ def validate(name: str, description: str, instructions: str) -> str | None:
     return None
 
 
+def inside(folder: Path, path: Path) -> bool:
+    """True if path, with every symlink followed, is in folder (itself resolved: the folder may be a symlink)."""
+    return path.resolve().is_relative_to(folder.resolve())
+
+
 def read_skill(folder: Path, source: str) -> SkillSpec:
     """A skill folder as a SkillSpec. Raises ValueError with what's wrong."""
+    if not inside(folder, folder / 'SKILL.md'):
+        raise ValueError('SKILL.md points outside the skill\'s folder.')
     meta, body = parse_skill_md((folder / 'SKILL.md').read_text())
     name = meta.get('name') or folder.name
     problem = validate(name, str(meta.get('description') or ''), body)
     if problem:
         raise ValueError(problem)
-    files = {extra.name: extra.read_text() for extra in sorted(folder.glob('*.md'))
-             if extra.name not in ('SKILL.md', YOUR_WAY)}
+    files = {}
+    for extra in sorted(folder.glob('*.md')):
+        if extra.name in ('SKILL.md', YOUR_WAY):
+            continue
+        if not inside(folder, extra):
+            logger.warning(f'Skipping {extra}: it points outside the skill\'s folder')
+            continue
+        files[extra.name] = extra.read_text()
     model = meta.get('model') if meta.get('model') in MODELS else None
     return SkillSpec(name=name, description=str(meta['description']).strip(), instructions=body,
                      requires=tuple(str(r) for r in meta.get('requires') or ()), files=files, source=source,
@@ -138,6 +154,9 @@ class SkillFolder:
         """The owner's rules, by skill name, in file order."""
         rules = {}
         for path in sorted(self.root.glob(f'*/{YOUR_WAY}')):
+            if not inside(path.parent, path):
+                logger.warning(f'Skipping {path}: it points outside the skill\'s folder')
+                continue
             lines = [line[2:].strip() for line in path.read_text().splitlines() if line.startswith('- ')]
             if lines:
                 rules[path.parent.name] = lines
