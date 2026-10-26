@@ -220,6 +220,19 @@ async def test_a_run_stops_at_its_tool_call_limit(make_runtime, home):
     assert model.tool_names[-1] == [] and 'its limit' in model.inputs[-1][-1]['content']
 
 
+async def test_every_run_asks_the_provider_for_token_usage(make_runtime):
+    """LiteLLM (Anthropic) streams usage only when asked; without it the budgets would count nothing."""
+    seen = []
+
+    class Recording(ScriptedModel):
+        async def get_response(self, system_instructions, input, model_settings, *args, **kwargs):
+            seen.append(model_settings.include_usage)
+            return await super().get_response(system_instructions, input, model_settings, *args, **kwargs)
+
+    await run_once(make_runtime(Recording([[say('Hi')]])), 'hello')
+    assert seen == [True]
+
+
 async def test_token_usage_is_logged_and_the_run_budget_stops_the_run(make_runtime, home):
     home.config_path.write_text('[budget]\nrun_tokens = 1000\n')
     usage = Usage(requests=1, input_tokens=600, output_tokens=50, total_tokens=650)

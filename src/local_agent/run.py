@@ -13,7 +13,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from agents import Agent, Model, Runner
+from agents import Agent, Model, ModelSettings, Runner
 
 from local_agent.config import Config, Home, load_config
 from local_agent.core import compaction, disclosure, reminders, views
@@ -278,7 +278,10 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         if start_block:
             chat.append({'role': 'user', 'content': start_block})
 
-        agent = Agent(name='Local Agent', instructions=instructions, tools=guarded, model=model)
+        # include_usage: streaming through LiteLLM (Anthropic) reports token usage only when asked, and the budgets
+        # count what's reported
+        agent = Agent(name='Local Agent', instructions=instructions, tools=guarded, model=model,
+                      model_settings=ModelSettings(include_usage=True))
         result = await _run_loop(agent, chat, callback, log, policy, _strong_upgrade(rt, skills))
         answer = str(result.final_output or '')
         end('answered')
