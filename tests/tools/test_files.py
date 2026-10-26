@@ -10,7 +10,7 @@ import pytest
 
 from local_agent.core import events as ev
 from local_agent.tools import files as files_module
-from local_agent.tools.files import OutsideWorkspace, file_tools, resolve_inside
+from local_agent.tools.files import OutsideWorkspace, file_tools, resolve_inside, safe_name, save_new
 from tests.scripted import ScriptedModel, call, of_type, run_once, say
 
 
@@ -156,6 +156,40 @@ async def test_long_files_are_read_in_parts_and_binary_is_refused(files):
     assert len(second['content']) == 1500 and not second['truncated']
     (files / 'photo.jpg').write_bytes(b'\xff\xd8\x00\x10JFIF')
     assert 'binary' in (await call_tool(tools['files_read'], path='photo.jpg'))['error']
+
+
+# --- saving what someone sent (Telegram attachments) -------------------------------------------------------
+
+@pytest.mark.parametrize('name,safe', [('report.pdf', 'report.pdf'), ('../../etc/passwd', 'passwd'),
+                                       ('.bashrc', 'bashrc'), ('a\\b\\c.docx', 'c.docx'), ('', 'file'),
+                                       ('...', 'file'), ('in*voice?.pdf', 'in_voice_.pdf'),
+                                       ('x' * 300 + '.pdf', 'x' * 96 + '.pdf')])
+def test_names_from_others_are_made_safe(name, safe):
+    assert safe_name(name) == safe
+
+
+def test_save_new_never_replaces_a_file(files):
+    assert save_new(files, 'inbox', 'scan.pdf', b'one') == 'inbox/scan.pdf'
+    assert save_new(files, 'inbox', 'scan.pdf', b'two') == 'inbox/scan-2.pdf'
+    assert save_new(files, 'inbox', 'notes', b'three') == 'inbox/notes'
+    assert save_new(files, 'inbox', 'notes', b'four') == 'inbox/notes-2'
+    assert (files / 'inbox' / 'scan.pdf').read_bytes() == b'one' and (files / 'inbox' / 'scan-2.pdf').read_bytes() \
+        == b'two'
+
+
+def test_save_new_into_a_folder_that_points_out_saves_nothing(files, outside):
+    (files / 'inbox').symlink_to(outside.parent, target_is_directory=True)
+    with pytest.raises(OutsideWorkspace):
+        save_new(files, 'inbox', 'evil.sh', b'#!/bin/sh')
+    assert sorted(p.name for p in outside.parent.iterdir()) == ['secret.txt']
+
+
+async def test_save_new_into_a_folder_swapped_after_the_check_saves_nothing(files, decoy, after_the_check):
+    (files / 'inbox').mkdir()
+    after_the_check(lambda: swap_for_link(files / 'inbox', decoy))
+    with pytest.raises(OutsideWorkspace):
+        save_new(files, 'inbox', 'evil.sh', b'#!/bin/sh')
+    assert sorted(p.name for p in decoy.iterdir()) == ['secret.txt', 'todo.md']
 
 
 # --- in runs -----------------------------------------------------------------------------------------------

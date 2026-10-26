@@ -20,6 +20,11 @@ dependencies = [
 [project.scripts]
 local-agent = "local_agent.cli:main"
 
+[project.optional-dependencies]
+whisper = [
+    "faster-whisper>=1.1",
+]
+
 [build-system]
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"

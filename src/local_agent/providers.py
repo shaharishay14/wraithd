@@ -59,3 +59,23 @@ def build_models(config: Config) -> dict[str, Model]:
     if config.model.strong and config.model.strong != config.model.default:
         models['strong'] = build_model(config, config.model.strong)
     return models
+
+
+def can_see_images(config: Config) -> bool:
+    """
+    Whether the default model takes image input, from LiteLLM's model list. A model the list doesn't know is
+    assumed to see for openai and anthropic (their current models all do) and not to for local ones (most Ollama
+    models can't).
+    """
+    provider, name = config.model.provider, config.model.default
+    os.environ.setdefault('LITELLM_LOCAL_MODEL_COST_MAP', 'True')
+    import litellm
+
+    litellm.telemetry = False
+    litellm.suppress_debug_info = True  # it prints a banner for a model it doesn't know
+    lookup = {'openai': 'openai', 'anthropic': 'anthropic', 'ollama': 'ollama'}.get(provider)
+    try:
+        info = litellm.get_model_info(model=name, custom_llm_provider=lookup)
+    except Exception:  # not in the list
+        return provider in ('openai', 'anthropic')
+    return bool(info.get('supports_vision'))
