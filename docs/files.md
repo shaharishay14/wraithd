@@ -5,8 +5,8 @@
 ## One-liner
 
 > The agent can list, read and write files in `~/.local-agent/workspace/files/` (PDF, Word and spreadsheets read
-> as text), and nowhere else. The
-> boundary is a real-path check in code, so `..`, absolute paths and symlinks can't talk their way out of it.
+> as text), and nowhere else. The boundary is a real-path check in code, so `..`, absolute paths and symlinks
+> can't talk their way out of it.
 
 ## How it works
 
