@@ -49,7 +49,7 @@ says what changed for running on one person's laptop.
 | [Installing and running](install.md) | The release build, `onboard`, the background service, `doctor`, `update`. |
 | [The daemon](daemon.md) | One process: the API and UI, the scheduler, Telegram, MCP, background distill. |
 | [The local API](api.md) | The contract the web UI is built on: token, Origin and Host checks, endpoints. |
-| [Telegram](telegram.md) | A paired owner chat; strangers ignored by default (or third-party); approvals as buttons. |
+| [Telegram](telegram.md) | A paired owner chat only; strangers ignored; approvals as buttons. |
 | [The scheduler](scheduler.md) | Due schedules run unattended every minute; the answer goes to the owner. |
 | [One loop, not a team](one-loop.md) | Why there's one agent, and when a sub-agent would be worth it. |
 | [Proof](proof.md) | Unit tests, scripted runs through the real SDK, and replay of recorded runs. |

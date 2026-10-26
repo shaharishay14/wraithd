@@ -48,7 +48,7 @@ class Situation:
     message: str
     events: list  # this run so far
     previous_run: list = field(default_factory=list)  # the previous conversation run, if recent
-    owner: bool = False  # the owner is the one talking (not a stranger on Telegram)
+    owner: bool = False  # the owner is the one talking (see run()'s owner)
     tool: str | None = None  # for tool-bound reminders: which tool returned
     tool_output: str = ''  # ...and what it returned (before capping and marking)
     skills: list = field(default_factory=list)  # skills offered in this run (anything with name, description)

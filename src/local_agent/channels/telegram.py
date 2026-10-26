@@ -8,8 +8,6 @@ Telegram, by long polling over httpx: no public URL, no webhook, no extra librar
 - The bot is personal: anyone else's message gets no run, no model call and no reply, except `/pair <code>` (the
   owner's first contact comes from a chat that isn't paired yet). Each such chat is logged as a telegram_ignored
   event, at most once an hour, so the owner can see someone tried without strangers filling the log.
-- With `[telegram] answer_strangers = true`, other chats are answered as third-party content: owner=False (no
-  memory, files, schedules or apps) and a tainted run, so even what they ask for can't steer a write.
 - The bot token is in the keychain (`local-agent key set telegram`) and registered for redaction; errors never
   include the API URL, since the token is in it.
 """
@@ -161,7 +159,7 @@ class TelegramChannel:
         chat_id = chat['id']
         if text.startswith('/pair'):
             return await self._pair(chat_id, chat, text.removeprefix('/pair').strip())
-        if chat_id != self.owner_chat and not self.rt.config.answer_strangers:
+        if chat_id != self.owner_chat:
             return self._ignore(chat_id, chat)
         if not text:
             return
@@ -198,14 +196,11 @@ class TelegramChannel:
         await self.bot.send(chat_id, 'Paired: this chat is now the owner\'s.')
 
     async def _answer(self, chat_id: int, chat: dict, text: str) -> None:
-        owner = chat_id == self.owner_chat
+        """The owner's message (handle() never gets here for anyone else)."""
         conversation = (self.rt.store.find_conversation('telegram', str(chat_id))
                         or self.rt.store.start_conversation('telegram', external=str(chat_id)))
-        who = chat.get('username') or chat.get('first_name') or str(chat_id)
-        result = await reply(self.rt, conversation.id, text, source='telegram', owner=owner,
-                             callback=self._callback(chat_id) if owner else None,
-                             mcp=self.mcp if owner else None,
-                             untrusted_source='' if owner else f'telegram message from {who}')
+        result = await reply(self.rt, conversation.id, text, source='telegram',
+                             callback=self._callback(chat_id), mcp=self.mcp)
         await self.bot.send(chat_id, result.answer)
 
     # --- approvals as buttons ------------------------------------------------------------------------------

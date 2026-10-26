@@ -15,7 +15,7 @@
   the Host check and the Origin check run before any route.
 - **The scheduler** ([scheduler](scheduler.md)): every minute, what's due runs unattended, and the answer goes to
   the owner.
-- **Telegram** ([telegram](telegram.md)): long polling; the owner's chat, and strangers ignored unless the owner turns them on.
+- **Telegram** ([telegram](telegram.md)): long polling; the owner's chat only; anyone else is ignored.
 - **MCP connections** ([MCP](mcp.md)): opened once at start and passed to every owner run, instead of a process per
   run. A server that doesn't start is reported at start-up and left out.
 - **Background distill**, every hour: any conversation with at least four new messages (web, Telegram, terminal),

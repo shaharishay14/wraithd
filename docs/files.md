@@ -19,7 +19,7 @@
 - **What's read is third-party content.** Documents people drop in here (a PDF from a colleague, a page the agent
   saved) are written by someone else, so `files_read` output is wrapped and taints the run, like an email. It's
   also the owner's private data, so after reading it only links the owner wrote open freely.
-- **Owner only.** A stranger on Telegram (Phase 5) gets no file tools.
+- **Owner only.** A run with `owner=False` gets no file tools.
 
 ## On a laptop
 

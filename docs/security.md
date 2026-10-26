@@ -63,7 +63,7 @@ only ([api](api.md)).
 
 `local-agent audit` checks the live setup against these rules: the state folder private and nothing in it
 writable by others, the API bound to loopback with a long, private token, the shell off or gated, no keys in
-`config.toml`. It lists standing permissions (always-allowed tools, strangers answered, schedules) as info, and
+`config.toml`. It lists standing permissions (always-allowed tools, schedules) as info, and
 exits 1 on a failure. `doctor` reports it in one line. Why each rule exists is in [From EC2 to
 laptop](ec2-to-laptop.md).
 

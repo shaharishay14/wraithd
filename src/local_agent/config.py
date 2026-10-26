@@ -12,6 +12,7 @@ shared without leaking them.
 """
 
 import json
+import logging
 import os
 import re
 import tempfile
@@ -64,9 +65,6 @@ timeout_seconds = 30
 [daemon]
 port = 7878                  # the API and web UI, on 127.0.0.1 only
 # dev_origin = "http://localhost:5173"   # a frontend dev server, while developing the UI
-
-[telegram]
-answer_strangers = false     # true: chats other than yours get answers too, as third-party runs with no owner tools
 """
 
 AGENTS_MD = """\
@@ -99,7 +97,6 @@ class Config:
     mcp_servers: tuple = ()  # mcp.config.McpServer, from the [mcp.servers.*] blocks
     daemon_port: int = 7878
     dev_origin: str = ''
-    answer_strangers: bool = False  # Telegram: answer chats other than the paired owner's
 
 
 class ConfigError(Exception):
@@ -133,6 +130,16 @@ class Home:
             self.config_path.write_text(DEFAULT_CONFIG)
         if not self.agents_md.exists():
             self.agents_md.write_text(AGENTS_MD)
+
+
+_warned: set[str] = set()
+
+
+def _warn_once(message: str) -> None:
+    """A setting that no longer does anything: said once per process, not on every load."""
+    if message not in _warned:
+        _warned.add(message)
+        logging.getLogger(__name__).warning(message)
 
 
 def _positive_or_none(value, name: str) -> int | None:
@@ -169,8 +176,9 @@ def load_config(home: Home) -> Config:
         raise ConfigError(f'[web] search must be one of {", ".join(SEARCH_PROVIDERS)}, or "" for none.')
     if not isinstance(shell.get('enabled', False), bool):
         raise ConfigError('[shell] enabled must be true or false.')
-    if not isinstance(telegram.get('answer_strangers', False), bool):
-        raise ConfigError('[telegram] answer_strangers must be true or false.')
+    if 'answer_strangers' in telegram:
+        _warn_once('[telegram] answer_strangers is gone: the bot only ever answers its paired owner. '
+                   f'You can delete that line from {home.config_path}.')
     timezone = owner.get('timezone', '')
     if timezone:
         try:
@@ -185,7 +193,6 @@ def load_config(home: Home) -> Config:
         mcp_servers=mcp_servers,
         daemon_port=port,
         dev_origin=dev_origin,
-        answer_strangers=telegram.get('answer_strangers', False),
         model=ModelConfig(provider=provider, default=model.get('default', ModelConfig.default),
                           strong=model.get('strong', ModelConfig.strong), base_url=model.get('base_url', '')),
         run_tokens=_positive_or_none(budget.get('run_tokens', Config.run_tokens), 'run_tokens'),

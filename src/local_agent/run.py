@@ -153,13 +153,14 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
 
     history: earlier messages of the conversation (already compacted), as {"role", "content"} items
     callback: async (event_type, data) for streaming and approvals; None when nobody is watching
-    owner: the owner is the one talking. Strangers get no memory, no owner skills and can't change skills.
+    owner: the owner is the one talking (every channel today: Telegram answers only its paired owner). With
+    owner=False the run gets no memory, files, apps or owner skills, and can't change skills.
     tools: extra tools (a caller's tool replaces a built-in one with the same name);
     app_tools: connected-app tools (Phase 4), discovered past a dozen;
     builtins: the built-in tools (tools/), which depend on owner and on whether anyone can approve
     mcp: the owner's MCP servers, already connected (a terminal session connects once); without it, run() connects
     them for this run. Only for the owner: they're the owner's accounts.
-    untrusted_source: the message itself is third-party content (a stranger on Telegram): the run is tainted from
+    untrusted_source: the message itself is third-party content (say, an email that starts the run): tainted from
     its first step, and addresses in it don't count as the owner's.
     """
     async with AsyncExitStack() as stack:

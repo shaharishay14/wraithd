@@ -316,7 +316,7 @@ class PermissionGate:
     def add_untrusted_input(self, source: str, text: str, private: bool = True) -> None:
         """
         Third-party content that is part of the run's input, not a tool result: the event that started it
-        (a new email, a stranger's Telegram message), or the MCP tool descriptions the model is given. The run is
+        (a new email), or the MCP tool descriptions the model is given. The run is
         tainted from its first step, and the text's addresses count as third-party, not as written by the owner.
         private: the text is also the owner's private data (an email is; a tool description isn't).
         """

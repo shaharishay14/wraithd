@@ -19,17 +19,17 @@
   the arguments, what approving means and the third-party warnings, and **Allow** / **Deny** buttons. A tap decides
   it in the same approval store the terminal and the web UI use; the buttons are replaced by the outcome. Only the
   owner's taps count.
-- **Anyone else's messages are ignored** by default: no run, no model call, no reply, nothing stored but a log
+- **Anyone else's messages are ignored**, always: no run, no model call, no reply, nothing stored but a log
   line. The one exception is `/pair <code>`, since the owner's first contact comes from a chat that isn't paired
   yet (before pairing, every chat is a stranger; `/start` gets no reply either). Silence costs no tokens and tells
   a stranger nothing, not even that the bot is a Local Agent.
 - **Ignored chats are logged** as a `telegram_ignored` event (between runs) with the chat id and username, never the
   text: the words are a stranger's and the log is the owner's. At most one event per chat per hour, so someone
   writing all day can't flood the log. The hour is counted in memory: a daemon restart logs each chat once more.
-- **`[telegram] answer_strangers = true`** answers them instead: their messages run with `owner=False` (no memory,
-  files, schedules, apps or skill changes) and as third-party input: the run is tainted from its first step and
-  addresses in the message don't count as the owner's. Their conversations are kept per chat, like the owner's.
-- **Button taps** from any chat but the owner's are refused ("Only the owner can decide."), switch or not.
+- **There is no switch to answer strangers.** Earlier versions had `[telegram] answer_strangers`; the owner decided
+  the bot is never for anyone else, so it's gone. A config that still has the line loads (a warning says it does
+  nothing) and strangers stay ignored.
+- **Button taps** from any chat but the owner's are refused ("Only the owner can decide.").
 - **Errors** never include the API URL, since the bot token is in it.
 
 ## On a laptop
@@ -41,7 +41,6 @@ what to ask it there.
 
 ## Limits
 
-By default a stranger costs one `getUpdates` result and, at most hourly, one log row. With `answer_strangers` on,
-anyone who finds the bot's name can message it and spend the owner's tokens (the daily budget caps that); there's
-no per-stranger rate limit yet. Ignored chats are listed by `local-agent events` and `GET /api/events`, and
-`local-agent audit` notes when strangers are answered.
+A stranger costs one `getUpdates` result and, at most hourly, one log row: never a model call, so nobody who finds
+the bot's name can spend the owner's tokens. Ignored chats are listed by `local-agent events` and
+`GET /api/events`.
