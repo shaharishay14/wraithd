@@ -22,7 +22,7 @@ TIMEOUT_SECONDS = 120
 WHISPER_MODEL = 'base'  # about 150 MB, fine on a laptop CPU; downloaded into the Hugging Face cache on first use
 COST = {'openai': 'about $0.003 per minute on your OpenAI account',
         'whisper': 'free, runs on this computer',
-        'elevenlabs': 'about $0.007 per minute on your ElevenLabs plan'}
+        'elevenlabs': 'about $0.004 per minute on your ElevenLabs plan'}
 INSTALL_WHISPER = 'uv tool install --reinstall "local-agent[whisper]"'
 HOW_TO_TURN_ON = (f'set an OpenAI key (local-agent key set openai), install local whisper ({INSTALL_WHISPER}), or '
                   'set [voice] transcribe = "elevenlabs" and run local-agent key set elevenlabs')
@@ -80,7 +80,7 @@ class OpenAITranscriber:
 class ElevenLabsTranscriber:
     name = 'elevenlabs'
     URL = 'https://api.elevenlabs.io/v1/speech-to-text'
-    MODEL = 'scribe_v1'
+    MODEL = 'scribe_v2'
 
     def __init__(self, key: str, transport: httpx.AsyncBaseTransport | None = None):
         self.key, self.transport = key, transport

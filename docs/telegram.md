@@ -34,7 +34,7 @@
   | `auto` (default) | `openai` if its key is set, else `whisper` if installed, else off | |
   | `openai` | gpt-4o-mini-transcribe, on your OpenAI key | about $0.003 per minute |
   | `whisper` | faster-whisper on this computer; `uv tool install --reinstall "local-agent[whisper]"`, the `base` model downloaded on first use | free |
-  | `elevenlabs` | ElevenLabs Scribe, `local-agent key set elevenlabs` | about $0.007 per minute on your plan |
+  | `elevenlabs` | ElevenLabs Scribe v2, `local-agent key set elevenlabs` | about $0.004 per minute on your plan |
   | `""` | off | |
 
   When it's off, the reply says why and how to turn it on; `local-agent doctor` shows the active provider and why.

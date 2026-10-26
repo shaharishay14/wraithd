@@ -42,7 +42,7 @@ async def test_elevenlabs_sends_the_audio_to_scribe():
     [request] = requests
     assert str(request.url) == 'https://api.elevenlabs.io/v1/speech-to-text'
     assert request.headers['xi-api-key'] == ELEVEN_KEY and 'authorization' not in request.headers
-    assert b'name="model_id"\r\n\r\nscribe_v1' in request.content
+    assert b'name="model_id"\r\n\r\nscribe_v2' in request.content
 
 
 @pytest.mark.parametrize('cls,key,name', [(voice.OpenAITranscriber, OPENAI_KEY, 'OpenAI'),
@@ -103,7 +103,7 @@ def test_a_chosen_provider_needs_its_key_or_install(home, monkeypatch):
     assert voice.choose_transcriber(eleven).why == 'off: elevenlabs needs a key (local-agent key set elevenlabs)'
     set_key('elevenlabs', ELEVEN_KEY)
     assert isinstance(voice.transcriber(eleven), voice.ElevenLabsTranscriber)
-    assert 'about $0.007 per minute' in voice.choose_transcriber(eleven).why
+    assert 'about $0.004 per minute' in voice.choose_transcriber(eleven).why
     assert 'isn\'t installed' in voice.choose_transcriber(configured(home, 'whisper')).why
     off = configured(home, '')
     assert voice.transcriber(off) is None and voice.choose_transcriber(off).why.startswith('off in the settings')
