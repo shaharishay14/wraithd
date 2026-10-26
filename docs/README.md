@@ -44,7 +44,7 @@ says what changed for running on one person's laptop.
 | [Skills](skills.md) | One line in the prompt, instructions on demand, the owner's rules on top, `model: strong`. |
 | [Workspace files](files.md) | List, read, write in one folder; real-path checks keep everything else out. |
 | [The shell](shell.md) | Off by default; every command asks y/N; never unattended. |
-| [The web](web.md) | Pages through the egress guard, search behind a provider key, all third-party content. |
+| [The web](web.md) | Pages through the egress guard, search through the model provider's own (no extra key), all third-party content. |
 | [Schedules](schedules.md) | Cron or one time in the owner's timezone, approved, fired at most once per slot. |
 | [MCP](mcp.md) | Your apps as MCP servers: secrets per server, discovery, read-only runs, the rest asks. |
 | [Installing and running](install.md) | The release build, `onboard`, the background service, `doctor`, `update`. |

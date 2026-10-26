@@ -15,7 +15,7 @@
 3. **Builds the context:** a short base prompt with the date and time, `AGENTS.md` (the owner's standing
    orders), memory L0 and L1, one line per skill, and what `<system-reminder>` notes are. agent-studio's prompt
    was over 17,000 characters before the user said anything; this one starts under 2,000.
-4. **Wires the tools:** the built-ins (`read_website` for everyone, `web_search` with a key; files and schedules
+4. **Wires the tools:** the built-ins (`read_website` for everyone, `web_search` unless it's off ([The web](web.md)); files and schedules
    for the owner; the shell for the owner in a conversation, if enabled), memory and skill tools for the owner,
    the owner's MCP servers (connected once per terminal session or for the daemon's life, else for the run;
    discovered past a dozen tools, see [MCP](mcp.md)), `notify_owner`, plus whatever the caller brings, all behind
