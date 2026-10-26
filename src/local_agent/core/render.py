@@ -43,6 +43,26 @@ def outcome_of(text: str) -> str:
     return 'ok'
 
 
+def search_usage(tool_name: str, text: str) -> dict[str, Any] | None:
+    """
+    What a web_search call cost ({"backend", "searches", "input_tokens", "output_tokens"}), from its result. A
+    native search runs a model on the owner's account, so its tokens go in the event log and count toward the
+    run's token budget (views.tokens_used).
+    """
+    if tool_name != 'web_search':
+        return None
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    usage = data.get('usage') if isinstance(data, dict) else None
+    if not isinstance(usage, dict):
+        return None
+    counts = {key: usage[key] for key in ('searches', 'input_tokens', 'output_tokens')
+              if isinstance(usage.get(key), int) and not isinstance(usage.get(key), bool)}
+    return {'backend': str(usage.get('backend') or ''), **counts}
+
+
 def reports_untrusted(text: str) -> bool:
     """True if a tool result says it holds third-party data ({"untrusted": true}), like a low-trust memory note."""
     try:

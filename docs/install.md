@@ -18,7 +18,9 @@
 - **Install:** `uv tool install local-agent` or `pipx install local-agent`. Both give the command its own
   environment; nothing goes into the system Python.
 - **`local-agent onboard`** asks, in order: the provider and models, the key (typed without echo, into the
-  keychain) and whether to check it with one request for the provider's model list, an optional search key, an
+  keychain) and whether to check it with one request for the provider's model list, which web search is active (nothing to
+  ask: it's the model provider's own search, or DuckDuckGo for local models; a serpapi key only if `[web] search`
+  says serpapi), an
   optional Telegram bot (the token is checked with `getMe` before it's saved), whether to install the background
   service, then pairing (it shows the `/pair` code and waits for it), and ends with a summary and the web UI link.
   - **Safe to run again.** Every question defaults to what's set, so Enter keeps it; a key in the keychain is only

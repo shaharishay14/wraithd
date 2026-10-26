@@ -81,10 +81,11 @@ def checks(home: Home, service=None, transport=None, port_free=port_free) -> lis
             f'local-agent key set {provider}')
     else:
         add(OK, f'{provider}: no key needed' + (f' ({config.model.base_url})' if config.model.base_url else ''))
-    if config.search:
-        add(OK if get_key(config.search) else INFO,
-            f'{config.search} key: ' + ('set' if get_key(config.search) else 'missing, so web search is off'),
-            f'local-agent key set {config.search}')
+    from local_agent.tools import choose_search
+
+    search = choose_search(config)
+    add(OK if search.backend else INFO, f'Web search: {search.why}'
+        + (f' (local-agent key set {search.missing_key})' if search.missing_key else ''))
     add(INFO, 'Telegram bot token: ' + ('set' if get_key('telegram') else 'not set (Telegram is off)'))
 
     token = home.root / TOKEN_FILE

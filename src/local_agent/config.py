@@ -30,12 +30,13 @@ APP = 'local-agent'  # the keychain service name
 HOME_ENV = 'LOCAL_AGENT_HOME'
 
 PROVIDERS = ('openai', 'anthropic', 'ollama', 'openai-compatible')
-SEARCH_PROVIDERS = ('serpapi',)
+# [web] search: auto is the model provider's own search (openai, anthropic) or duckduckgo for local models
+SEARCH_BACKENDS = ('auto', 'openai', 'anthropic', 'duckduckgo', 'serpapi')
 # Where a key comes from when it isn't in the keychain (and the variable is set)
 KEY_ENV = {'openai': 'OPENAI_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY', 'serpapi': 'SERPAPI_KEY',
            'telegram': 'TELEGRAM_BOT_TOKEN'}
 # what `local-agent key set` takes
-KEY_NAMES = tuple(p for p in PROVIDERS if p != 'ollama') + SEARCH_PROVIDERS + ('telegram',)
+KEY_NAMES = tuple(p for p in PROVIDERS if p != 'ollama') + ('serpapi', 'telegram')
 
 DEFAULT_CONFIG = """\
 # Local Agent settings. API keys are not stored here: set them with `local-agent key set <provider>`.
@@ -56,7 +57,8 @@ run_tool_calls = 40          # per run
 # timezone = "Europe/London" # for schedules; defaults to this computer's timezone
 
 [web]
-search = "serpapi"           # the web_search tool appears once a key is set: `local-agent key set serpapi`
+search = "auto"              # your model provider's own search, on your model key; DuckDuckGo for local models
+                             # or openai | anthropic | duckduckgo | serpapi (needs a key) | "" (off)
 
 [shell]
 enabled = false              # true: the agent may run shell commands, each one only after you say yes
@@ -91,7 +93,7 @@ class Config:
     daily_tokens: int | None = None
     owner_email: str = ''
     timezone: str = ''  # IANA name; empty: the system's (schedules.local_timezone)
-    search: str = 'serpapi'  # '' turns web search off
+    search: str = 'auto'  # a SEARCH_BACKENDS name; '' turns web search off
     shell_enabled: bool = False
     shell_timeout: int = 30
     mcp_servers: tuple = ()  # mcp.config.McpServer, from the [mcp.servers.*] blocks
@@ -172,8 +174,8 @@ def load_config(home: Home) -> Config:
     if provider == 'openai-compatible' and not model.get('base_url'):
         raise ConfigError('[model] base_url is required for an openai-compatible endpoint.')
     search = web.get('search', Config.search) or ''
-    if search and search not in SEARCH_PROVIDERS:
-        raise ConfigError(f'[web] search must be one of {", ".join(SEARCH_PROVIDERS)}, or "" for none.')
+    if search and search not in SEARCH_BACKENDS:
+        raise ConfigError(f'[web] search must be one of {", ".join(SEARCH_BACKENDS)}, or "" for none.')
     if not isinstance(shell.get('enabled', False), bool):
         raise ConfigError('[shell] enabled must be true or false.')
     if 'answer_strangers' in telegram:

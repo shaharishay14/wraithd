@@ -21,7 +21,7 @@ What it does with nothing but a model:
   in every conversation.
 - **Follows skills**: a starter pack (morning brief, inbox triage, research report, meeting prep, weekly
   review) that loads only when a request matches, plus rules you add ("never include newsletters").
-- **Works**: reads web pages (and searches, with a key), reads and writes files in its own folder, keeps
+- **Works**: reads web pages and searches the web (with your model provider's own search, no extra key), reads and writes files in its own folder, keeps
   schedules and reminders that fire with the terminal closed, and runs shell commands only if you turn that on
   and say yes to each one.
 - **Connects your apps** as MCP servers (`local-agent mcp add`). Reading runs freely; anything else asks
@@ -53,7 +53,7 @@ uv run local-agent runs list          # what each run did
 uv run local-agent runs show <id>
 uv run local-agent events             # what happened between runs: distill, compaction, ignored chats
 uv run local-agent schedules list
-uv run local-agent key set serpapi    # optional: web search
+uv run local-agent key set serpapi    # optional: Google results via SerpAPI, with [web] search = "serpapi"
 uv run local-agent mcp add gmail --provides email --env GMAIL_TOKEN -- <command that starts the server>
 uv run local-agent key set telegram   # optional: your bot's token
 uv run local-agent daemon             # prints http://127.0.0.1:7878/#token=...

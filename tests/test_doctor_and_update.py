@@ -13,7 +13,7 @@ from local_agent.daemon.security import load_or_create_token
 from local_agent.daemon.service import Launchd, Systemd
 from tests.fixtures.services import FakeServiceManager
 
-OPENAI_KEY, SERP_KEY = 'sk-test-doctor-0123456789', 'serp-test-0123456789'
+OPENAI_KEY = 'sk-test-doctor-0123456789'
 
 
 def answering(version=__version__):
@@ -35,7 +35,6 @@ def manager():
 def healthy(home, manager, tmp_path, monkeypatch):
     """Everything in place: keys, a private token file, a built UI, the service installed and running."""
     set_key('openai', OPENAI_KEY)
-    set_key('serpapi', SERP_KEY)
     load_or_create_token(home.root)
     ui = tmp_path / 'ui'
     ui.mkdir()
@@ -54,12 +53,14 @@ def test_doctor_all_good(home, healthy, capsys):
     found = doctor.checks(home, service=healthy, transport=answering(), port_free=lambda port: True)
     assert {check.state for check in found} <= {doctor.OK, doctor.INFO}
     text = doctor.render(found)
-    assert 'openai key: set' in text and 'serpapi key: set' in text
+    assert 'openai key: set' in text
+    # web search needs no key of its own: OpenAI's, on the model key
+    assert 'Web search: openai (your model key), about $10 per 1,000 searches on your OpenAI account' in text
     assert 'is private (mode 700)' in text and 'API token file is private (mode 600)' in text
     assert 'Background service: running (pid 4242)' in text and f'Daemon answers on port 7878 (version {__version__})' \
         in text
     assert text.endswith('All good.')
-    assert OPENAI_KEY not in text and SERP_KEY not in text  # present or missing, never the value
+    assert OPENAI_KEY not in text  # present or missing, never the value
     assert doctor.main(home, service=healthy, transport=answering(), port_free=lambda port: True) == 0
     capsys.readouterr()
 
@@ -84,7 +85,8 @@ def test_doctor_names_each_problem_with_its_fix(home, manager):
             f'stop that program, or set another port in {home.config_path} ([daemon] port)',
         'Security rules: 2 fail': 'local-agent audit, for each rule and its fix',  # the folder and the token
     }
-    assert states(found)['serpapi key: missing, so web search is off'] == doctor.INFO  # optional
+    assert states(found)['Web search: off: openai search needs your model key, which is missing '
+                         '(local-agent key set openai)'] == doctor.INFO  # the model key's own check fails
     text = doctor.render(found)
     assert '        fix: local-agent key set openai' in text and text.endswith('8 problems found.')
 
@@ -116,6 +118,24 @@ def test_doctor_ollama_needs_no_key(home, manager):
                           port_free=lambda port: True)
     assert states(found)['ollama: no key needed'] == doctor.OK
     assert states(found)['Port 7878: free'] == doctor.OK
+    assert states(found)['Web search: duckduckgo (free, no key, since a local model has no provider search)'] == \
+        doctor.OK
+
+
+@pytest.mark.parametrize('web, text, state', [
+    ('search = "serpapi"', 'Web search: off: serpapi search needs your serpapi key, which is missing '
+                           '(local-agent key set serpapi)', doctor.INFO),
+    ('search = ""', 'Web search: off in the settings ([web] search = "")', doctor.INFO),
+    ('search = "anthropic"', 'Web search: anthropic (your anthropic key), about $10 per 1,000 searches on your '
+                             'Anthropic account', doctor.OK),
+])
+def test_doctor_says_which_search_runs_and_why(home, manager, web, text, state):
+    set_key('openai', OPENAI_KEY)
+    set_key('anthropic', 'sk-ant-test-doctor-0123456789')
+    home.config_path.write_text(f'[web]\n{web}\n')
+    found = doctor.checks(home, service=Launchd(home, runner=manager), transport=silent(),
+                          port_free=lambda port: True)
+    assert states(found)[text] == state
 
 
 # --- update ------------------------------------------------------------------------------------------------

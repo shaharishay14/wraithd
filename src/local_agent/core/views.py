@@ -22,9 +22,12 @@ def turns(events) -> int:
 
 
 def tokens_used(events) -> int:
-    """Input plus output tokens of every model call so far."""
-    return sum(event.payload.get('input_tokens', 0) + event.payload.get('output_tokens', 0)
-               for event in _of_type(events, ev.MODEL_OUTPUT))
+    """Input plus output tokens of every model call so far, the native web searches' included."""
+    calls = sum(event.payload.get('input_tokens', 0) + event.payload.get('output_tokens', 0)
+                for event in _of_type(events, ev.MODEL_OUTPUT))
+    searches = sum((usage := event.payload.get('usage') or {}).get('input_tokens', 0) + usage.get('output_tokens', 0)
+                   for event in _of_type(events, ev.TOOL_RESULT))
+    return calls + searches
 
 
 def consecutive_tool_errors(events) -> int:
