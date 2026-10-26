@@ -42,7 +42,7 @@ says what changed for running on one person's laptop.
 | [Progressive disclosure](progressive-disclosure.md) | Search → View → Use, so the prompt doesn't grow with every tool. |
 | [Memory](memory.md) | Markdown files, a keyword map instead of vectors, BM25, distill, trust labels. |
 | [Skills](skills.md) | One line in the prompt, instructions on demand, the owner's rules on top, `model: strong`. |
-| [Workspace files](files.md) | List, read, write in one folder; real-path checks keep everything else out. |
+| [Workspace files](files.md) | List, read (PDF, Word, spreadsheets too), write in one folder; real-path checks keep everything else out. |
 | [The shell](shell.md) | Off by default; every command asks y/N; never unattended. |
 | [The web](web.md) | Pages through the egress guard, search through the model provider's own (no extra key), all third-party content. |
 | [Schedules](schedules.md) | Cron or one time in the owner's timezone, approved, fired at most once per slot. |
