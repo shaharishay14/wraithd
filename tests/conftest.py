@@ -3,7 +3,7 @@ import pytest
 from keyring.backend import KeyringBackend
 
 from local_agent import run as run_module
-from local_agent.config import HOME_ENV, Home
+from local_agent.config import HOME_ENV, KEY_ENV, Home
 from local_agent.core import gate, secrets
 from local_agent.daemon import app as app_module
 from local_agent.run import Runtime
@@ -39,6 +39,8 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv(HOME_ENV, str(tmp_path / 'home'))
     monkeypatch.setenv('HOME', str(tmp_path / 'user'))
     monkeypatch.delenv(app_module.UI_ENV, raising=False)
+    for variable in KEY_ENV.values():  # a key in the developer's environment would turn tools on
+        monkeypatch.delenv(variable, raising=False)
     # a release build in this checkout (scripts/release.sh) must not change what the tests see
     monkeypatch.setattr(app_module, 'PACKAGE_UI', tmp_path / 'no-ui')
     previous = keyring.get_keyring()

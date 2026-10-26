@@ -94,7 +94,6 @@ async def test_onboard_from_nothing_to_a_paired_bot_and_a_running_service(manage
         '',             # strong model [gpt-4o]
         OPENAI_KEY,     # openai API key (not shown)
         'y',            # check it
-        'y', SERP_KEY,  # web search key
         'y', BOT_TOKEN,  # Telegram bot
         '',             # run in the background [Y/n]
         '',             # pair now [Y/n]
@@ -107,7 +106,7 @@ async def test_onboard_from_nothing_to_a_paired_bot_and_a_running_service(manage
     assert home.workspace.is_dir() and home.agents_md.exists()
     config = load_config(home)
     assert (config.model.provider, config.model.default, config.model.strong) == ('openai', 'gpt-4o-mini', 'gpt-4o')
-    assert (get_key('openai'), get_key('serpapi'), get_key('telegram')) == (OPENAI_KEY, SERP_KEY, BOT_TOKEN)
+    assert (get_key('openai'), get_key('serpapi'), get_key('telegram')) == (OPENAI_KEY, None, BOT_TOKEN)
     assert check.calls == [('openai', OPENAI_KEY, '')]
     assert manager.loaded and manager.running and Launchd(home, runner=manager).path.is_file()
 
@@ -121,12 +120,15 @@ async def test_onboard_from_nothing_to_a_paired_bot_and_a_running_service(manage
     token = (home.root / 'api-token').read_text().strip()
     assert f'Web UI:    http://127.0.0.1:7878/#token={token}' in text
     assert 'Telegram:  @my_agent_bot, paired with @shahar' in text and 'Service:   running' in text
-    for secret in (OPENAI_KEY, SERP_KEY, BOT_TOKEN):  # keys are typed without echo and never printed
+    # web search needs no key of its own: OpenAI's, on the model key, with SerpAPI as an option
+    assert 'Web search: openai (your model key), about $10 per 1,000 searches on your OpenAI account.' in text
+    assert 'Search:    openai' in text and 'run `local-agent key set serpapi`' in text
+    for secret in (OPENAI_KEY, BOT_TOKEN):  # keys are typed without echo and never printed
         assert secret not in text
 
 
 async def test_running_it_again_with_enter_everywhere_changes_nothing(manager):
-    assert await wizard(ScriptedTerminal('', '', '', OPENAI_KEY, 'n', 'y', SERP_KEY, 'y', BOT_TOKEN, '', '', ''),
+    assert await wizard(ScriptedTerminal('', '', '', OPENAI_KEY, 'n', 'y', BOT_TOKEN, '', '', ''),
                         manager).run() == 0
     home = onboard_home()
     config_before = home.config_path.read_text()
@@ -135,21 +137,20 @@ async def test_running_it_again_with_enter_everywhere_changes_nothing(manager):
         '', '', '',  # provider, model, strong model: as they are
         '',          # replace the openai key? [y/N]
         'n',         # check it
-        '',          # replace the serpapi key? [y/N]
         '',          # replace the bot token? [y/N]
         '',          # restart the service so the settings apply [Y/n]
     )                # already paired: no pairing question
     assert await wizard(term, manager).run() == 0
     assert term.lines == []
     assert home.config_path.read_text() == config_before
-    assert (get_key('openai'), get_key('serpapi'), get_key('telegram')) == (OPENAI_KEY, SERP_KEY, BOT_TOKEN)
+    assert (get_key('openai'), get_key('telegram')) == (OPENAI_KEY, BOT_TOKEN)
     assert manager.commands('launchctl')[-1][:3] == ['launchctl', 'kickstart', '-k']
     assert 'Telegram:  @my_agent_bot, paired with @shahar' in term.text
 
 
 async def test_ollama_needs_no_key_and_the_settings_keep_their_comments(manager):
     check = KeyCheck((False, 'could not reach ollama (ConnectError)'))
-    term = ScriptedTerminal('ollama', '', '', 'none', 'y', 'n', 'n', 'n')
+    term = ScriptedTerminal('ollama', '', '', 'none', 'y', 'n', 'n')
     assert await wizard(term, manager, check=check).run() == 0
     assert term.lines == []
     home = onboard_home()
@@ -164,7 +165,7 @@ async def test_ollama_needs_no_key_and_the_settings_keep_their_comments(manager)
 
 
 async def test_a_bad_bot_token_is_not_saved(manager):
-    term = ScriptedTerminal('', '', '', OPENAI_KEY, 'n', 'n', 'y', '999:wrong-token', '', 'n')
+    term = ScriptedTerminal('', '', '', OPENAI_KEY, 'n', 'y', '999:wrong-token', '', 'n')
     assert await wizard(term, manager).run() == 0
     assert term.lines == []
     assert get_key('telegram') is None
@@ -173,7 +174,7 @@ async def test_a_bad_bot_token_is_not_saved(manager):
 
 
 async def test_an_invalid_answer_is_asked_again(manager):
-    term = ScriptedTerminal('gemini', 'anthropic', '', '', '', 'n', 'maybe', 'n', 'n')
+    term = ScriptedTerminal('gemini', 'anthropic', '', '', '', 'maybe', 'n', 'n')
     assert await wizard(term, manager).run() == 0
     assert term.lines == []
     assert 'That isn\'t one of: openai, anthropic, ollama, openai-compatible.' in term.text
@@ -206,8 +207,25 @@ async def test_with_a_daemon_running_pairing_waits_for_it(manager, monkeypatch):
             return await super().ask(prompt)
 
     fake = FakeTelegram()
-    term = OwnerPairsOnTheirPhone('', '', '', '', 'n', 'n', '', 'n', '', '')
+    term = OwnerPairsOnTheirPhone('', '', '', '', 'n', '', 'n', '', '')
     assert await wizard(term, manager, fake, health=running).run() == 0
     assert term.lines == []
     assert 'Paired. The bot answers you, and only you.' in term.text
     assert not [method for method, _ in fake.calls if method == 'getUpdates']  # onboard didn't poll
+
+
+async def test_ollama_gets_duckduckgo_and_serpapi_is_asked_for_only_when_chosen(manager):
+    term = ScriptedTerminal('ollama', '', '', 'none', 'n', 'n', 'n')
+    assert await wizard(term, manager).run() == 0
+    assert term.lines == []
+    assert 'Web search: duckduckgo (free, no key, since a local model has no provider search).' in term.text
+    assert 'Search:    duckduckgo' in term.text
+
+    home = onboard_home()
+    home.config_path.write_text(home.config_path.read_text().replace('search = "auto"', 'search = "serpapi"'))
+    term = ScriptedTerminal('', '', '', '', 'n', 'y', SERP_KEY, 'n', 'n')
+    assert await wizard(term, manager).run() == 0
+    assert term.lines == []
+    assert get_key('serpapi') == SERP_KEY and SERP_KEY not in term.text
+    assert 'Web search: off: serpapi search needs your serpapi key, which is missing.' in term.text
+    assert 'Search:    serpapi' in term.text

@@ -6,8 +6,9 @@ read_website opens a URL the model chose, which can come from an email or anothe
 through the egress guard: public addresses only, on every redirect and after the DNS answer, so nothing on this
 laptop or its network can be reached. Both tools return third-party text, which taints the run (core/gate.py).
 
-web_search goes through a small provider interface. SerpAPI (what agent-studio used) is the first provider;
-without its key, the tool isn't offered at all.
+web_search goes through a small provider interface. By default it is the model provider's own search (OpenAI or
+Anthropic, on the model key the owner already set), DuckDuckGo for local models, and SerpAPI (what agent-studio
+used) for an owner who sets its key. Which one a run gets is decided in tools/__init__.py.
 """
 
 import asyncio
@@ -16,6 +17,7 @@ import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Protocol
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
@@ -126,6 +128,16 @@ class SearchResult:
     snippet: str
 
 
+@dataclass(frozen=True)
+class Searched:
+    """What one search found, and what it cost: a native search also spends model tokens on the owner's account."""
+
+    results: list[SearchResult]
+    searches: int = 1
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
 class SearchFailed(Exception):
     """The search provider failed. The message is safe to show the model (no URL, so no key)."""
 
@@ -133,7 +145,15 @@ class SearchFailed(Exception):
 class SearchProvider(Protocol):
     name: str
 
-    async def search(self, query: str, count: int) -> list[SearchResult]: ...
+    async def search(self, query: str, count: int) -> Searched: ...
+
+
+def _status_failed(status: int) -> SearchFailed:
+    if status in (401, 403):
+        return SearchFailed(f'Web search rejected the key (HTTP {status}).')
+    if status == 429:
+        return SearchFailed('Web search is rate limited right now (HTTP 429).')
+    return SearchFailed(f'Web search failed (HTTP {status}).')
 
 
 class SerpAPI:
@@ -145,7 +165,7 @@ class SerpAPI:
     def __init__(self, key: str, transport: httpx.AsyncBaseTransport | None = None):
         self.key, self.transport = key, transport
 
-    async def search(self, query: str, count: int) -> list[SearchResult]:
+    async def search(self, query: str, count: int) -> Searched:
         params = {'q': query, 'num': count, 'api_key': self.key, 'engine': 'google'}
         try:
             async with httpx.AsyncClient(transport=self.transport, timeout=SEARCH_TIMEOUT_SECONDS) as client:
@@ -153,20 +173,227 @@ class SerpAPI:
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as e:
-            status = e.response.status_code
-            if status in (401, 403):
-                raise SearchFailed(f'Web search rejected the key (HTTP {status}).') from None
-            if status == 429:
-                raise SearchFailed('Web search is rate limited right now (HTTP 429).') from None
-            raise SearchFailed(f'Web search failed (HTTP {status}).') from None
+            raise _status_failed(e.response.status_code) from None
         except (httpx.HTTPError, ValueError):
             raise SearchFailed('Web search did not respond.') from None
-        return [SearchResult(title=item.get('title') or '', url=item.get('link') or '',
-                             snippet=item.get('snippet') or '')
-                for item in (data.get('organic_results') or [])[:count]]
+        return Searched([SearchResult(title=item.get('title') or '', url=item.get('link') or '',
+                                      snippet=item.get('snippet') or '')
+                         for item in (data.get('organic_results') or [])[:count]])
 
 
-PROVIDERS = {'serpapi': SerpAPI}
+# The native searches: the model provider runs the search (one hosted search, on a small model) and bills it to
+# the owner's account. The model never gets the provider's hosted tool: it calls our web_search, so the gate,
+# the event log and the third-party wrapping still see every search.
+
+NATIVE_TIMEOUT_SECONDS = 60  # a model call around a search, slower than a plain search API
+NATIVE_MAX_TOKENS = 2000
+
+
+def _instruction(query: str, count: int) -> str:
+    return (f'Search the web once for: {query}\n\nThen list up to {count} of the most relevant results, one per line: '
+            'one factual sentence from the page, with its citation. No introduction, no conclusion.')
+
+
+async def _post(url: str, headers: dict, body: dict, transport) -> dict:
+    async with httpx.AsyncClient(transport=transport, timeout=NATIVE_TIMEOUT_SECONDS) as client:
+        response = await client.post(url, headers=headers, json=body)
+        response.raise_for_status()
+        return response.json()
+
+
+def _error_text(response: httpx.Response) -> tuple[str, str]:
+    """(message, code) from a provider's JSON error, lowercased; empty when the body isn't one."""
+    try:
+        error = response.json().get('error') or {}
+    except ValueError:
+        return '', ''
+    if not isinstance(error, dict):
+        return str(error).lower(), ''
+    return str(error.get('message') or '').lower(), str(error.get('code') or error.get('type') or '').lower()
+
+
+def _sentence(text: str) -> str:
+    """The sentence a citation closes: the last line before it, without markdown links or list markers."""
+    lines = [line for line in text.splitlines() if line.strip()]
+    line = re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', lines[-1] if lines else '')
+    line = re.sub(r'^\s*(?:[-*•]|\d+[.)])\s*', '', line).strip().rstrip('(').strip()
+    return line[-300:]
+
+
+def _without_tracking(url: str) -> str:
+    """OpenAI adds utm_source=openai to the links it cites; the owner's link shouldn't carry it."""
+    parts = urlsplit(url)
+    pairs = parse_qsl(parts.query, keep_blank_values=True)
+    if ('utm_source', 'openai') not in pairs:
+        return url
+    return urlunsplit(parts._replace(query=urlencode([pair for pair in pairs if pair != ('utm_source', 'openai')])))
+
+
+class OpenAISearch:
+    """OpenAI's web search through the Responses API, on the owner's OpenAI key. The answer's url citations (and
+    the sentence each one closes) become the results."""
+
+    name = 'openai'
+    URL = 'https://api.openai.com/v1/responses'
+    MODEL = 'gpt-4o-mini'
+
+    def __init__(self, key: str, transport: httpx.AsyncBaseTransport | None = None, model: str = MODEL):
+        self.key, self.transport, self.model = key, transport, model
+
+    async def search(self, query: str, count: int) -> Searched:
+        body = {'model': self.model, 'tools': [{'type': 'web_search'}], 'input': _instruction(query, count),
+                'max_output_tokens': NATIVE_MAX_TOKENS}
+        try:
+            data = await _post(self.URL, {'Authorization': f'Bearer {self.key}'}, body, self.transport)
+        except httpx.HTTPStatusError as e:
+            status, (_, code) = e.response.status_code, _error_text(e.response)
+            if status == 429 and code == 'insufficient_quota':
+                raise SearchFailed('Web search failed: the OpenAI account is out of credit (HTTP 429).') from None
+            raise _status_failed(status) from None
+        except (httpx.HTTPError, ValueError):
+            raise SearchFailed('Web search did not respond.') from None
+        rows, seen = [], set()
+        for item in data.get('output') or []:
+            for part in (item.get('content') or []) if item.get('type') == 'message' else []:
+                text, previous = part.get('text') or '', 0
+                notes = [n for n in part.get('annotations') or [] if n.get('type') == 'url_citation' and n.get('url')]
+                for note in sorted(notes, key=lambda n: n.get('start_index') or 0):
+                    start = note.get('start_index') or 0
+                    snippet, previous = _sentence(text[previous:start]), max(previous, note.get('end_index') or 0)
+                    url = _without_tracking(note['url'])
+                    if url not in seen:
+                        seen.add(url)
+                        rows.append(SearchResult(title=note.get('title') or url, url=url, snippet=snippet))
+        usage = data.get('usage') or {}
+        return Searched(rows[:count], searches=sum(item.get('type') == 'web_search_call' for item in
+                                                  data.get('output') or []),
+                        input_tokens=usage.get('input_tokens') or 0, output_tokens=usage.get('output_tokens') or 0)
+
+
+class AnthropicSearch:
+    """Anthropic's web search server tool (one use per call), on the owner's Anthropic key. The search results
+    become the rows, with the text the answer cited from each page as its snippet."""
+
+    name = 'anthropic'
+    URL = 'https://api.anthropic.com/v1/messages'
+    MODEL = 'claude-haiku-5-5'
+    TURNED_OFF = ('Web search is turned off for this Anthropic organization. An admin can turn it on in the Claude '
+                  'Console (organization settings, web search).')
+
+    def __init__(self, key: str, transport: httpx.AsyncBaseTransport | None = None, model: str = MODEL):
+        self.key, self.transport, self.model = key, transport, model
+
+    async def search(self, query: str, count: int) -> Searched:
+        body = {'model': self.model, 'max_tokens': NATIVE_MAX_TOKENS, 'output_config': {'effort': 'low'},
+                'tools': [{'type': 'web_search_20250305', 'name': 'web_search', 'max_uses': 1}],
+                'messages': [{'role': 'user', 'content': _instruction(query, count)}]}
+        headers = {'x-api-key': self.key, 'anthropic-version': '2023-06-01'}
+        try:
+            data = await _post(self.URL, headers, body, self.transport)
+        except httpx.HTTPStatusError as e:
+            status, (message, _) = e.response.status_code, _error_text(e.response)
+            # Some organizations have to turn web search on first; the API says so in a 400 or 403
+            if status in (400, 403) and 'web search' in message.replace('_', ' '):
+                raise SearchFailed(self.TURNED_OFF) from None
+            raise _status_failed(status) from None
+        except (httpx.HTTPError, ValueError):
+            raise SearchFailed('Web search did not respond.') from None
+        found, cited, failed = [], {}, ''
+        for block in data.get('content') or []:
+            if block.get('type') == 'web_search_tool_result':
+                content = block.get('content')
+                if isinstance(content, list):  # a list of results, or one error object (HTTP 200 either way)
+                    found += [item for item in content if item.get('type') == 'web_search_result' and item.get('url')]
+                elif isinstance(content, dict):
+                    failed = content.get('error_code') or 'unavailable'
+            for citation in (block.get('citations') or []) if block.get('type') == 'text' else []:
+                if citation.get('url') and citation.get('cited_text'):
+                    cited.setdefault(citation['url'], citation['cited_text'])
+        if failed and not found:
+            if failed == 'too_many_requests':
+                raise SearchFailed('Web search is rate limited right now.')
+            raise SearchFailed(f'Web search failed ({failed}).')
+        usage = data.get('usage') or {}
+        return Searched([SearchResult(title=item.get('title') or item['url'], url=item['url'],
+                                      snippet=cited.get(item['url'], '')) for item in found[:count]],
+                        searches=(usage.get('server_tool_use') or {}).get('web_search_requests', 1),
+                        input_tokens=usage.get('input_tokens') or 0, output_tokens=usage.get('output_tokens') or 0)
+
+
+class _DuckDuckGoResults(HTMLParser):
+    """The result links and snippets of DuckDuckGo's HTML page."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.rows, self._field, self._tag, self._href, self._text = [], '', '', '', []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        classes = (attrs.get('class') or '').split()
+        if not self._field and ('result__a' in classes or 'result__snippet' in classes):
+            self._field = 'title' if 'result__a' in classes else 'snippet'
+            self._tag, self._href, self._text = tag, attrs.get('href') or '', []
+
+    def handle_endtag(self, tag):
+        if not self._field or tag != self._tag:
+            return
+        text = re.sub(r'\s+', ' ', ''.join(self._text)).strip()
+        if self._field == 'title':
+            self.rows.append({'title': text, 'url': self._href, 'snippet': ''})
+        elif self.rows and not self.rows[-1]['snippet']:
+            self.rows[-1]['snippet'] = text
+        self._field = ''
+
+    def handle_data(self, data):
+        if self._field:
+            self._text.append(data)
+
+
+def unwrap_duckduckgo(href: str) -> str:
+    """The real URL behind a DuckDuckGo result link (//duckduckgo.com/l/?uddg=<url>); '' for its ads."""
+    url = 'https:' + href if href.startswith('//') else href
+    parts = urlsplit(url)
+    if (parts.hostname or '').endswith('duckduckgo.com'):
+        return dict(parse_qsl(parts.query)).get('uddg', '') if parts.path.startswith('/l/') else ''
+    return url if parts.scheme in ('http', 'https') else ''
+
+
+class DuckDuckGo:
+    """Keyless results from DuckDuckGo's HTML page, for local models (there's no provider search to use). The
+    request goes through the egress guard like read_website, so it can only ever reach a public address."""
+
+    name = 'duckduckgo'
+    URL = 'https://html.duckduckgo.com/html/'
+
+    def __init__(self, transport: httpx.BaseTransport | None = None):
+        self.transport = transport
+
+    async def search(self, query: str, count: int) -> Searched:
+        try:
+            page = await asyncio.to_thread(egress.safe_get, f'{self.URL}?{urlencode({"q": query})}',
+                                           {'User-Agent': USER_AGENT}, self.transport)
+        except egress.EgressBlocked:
+            raise SearchFailed('Web search could not reach DuckDuckGo.') from None
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code
+            # DuckDuckGo answers a client it thinks is a bot with 403 or 429
+            raise (SearchFailed(f'Web search is rate limited right now (HTTP {status}).') if status in (403, 429)
+                   else _status_failed(status)) from None
+        except httpx.HTTPError:
+            raise SearchFailed('Web search did not respond.') from None
+        if page.status_code == 202 or b'anomaly-modal' in page.content:  # its "are you a robot" page
+            raise SearchFailed('Web search is rate limited right now (DuckDuckGo asked for a captcha).')
+        parser = _DuckDuckGoResults()
+        parser.feed(page.content.decode('utf-8', errors='replace'))
+        rows = [SearchResult(title=row['title'], url=url, snippet=row['snippet'])
+                for row in parser.rows if (url := unwrap_duckduckgo(row['url']))]
+        return Searched(rows[:count])
+
+
+# What each backend costs the owner, for doctor and onboard (searches only: a native search also uses model tokens)
+COST = {'openai': 'about $10 per 1,000 searches on your OpenAI account',
+        'anthropic': 'about $10 per 1,000 searches on your Anthropic account',
+        'duckduckgo': 'free, no key', 'serpapi': 'billed by your SerpAPI plan'}
 
 
 def web_search_tool(provider: SearchProvider):
@@ -176,11 +403,14 @@ def web_search_tool(provider: SearchProvider):
             return tool_error('The query is empty.', 'Search with a few focused words.')
         count = clamp_int(num_results, 1, 10, default=5)
         try:
-            results = await provider.search(query, count)
+            found = await provider.search(query, count)
         except SearchFailed as e:
             return tool_error(str(e), 'Do not retry more than once. Tell the user web search is unavailable.')
-        return {'query': query, 'results_count': len(results),
-                'results': [{'title': r.title, 'url': r.url, 'snippet': r.snippet} for r in results]}
+        # usage goes into the tool_result event (core/gate.py), and its tokens count toward the run's budget
+        return {'query': query, 'results_count': len(found.results),
+                'results': [{'title': r.title, 'url': r.url, 'snippet': r.snippet} for r in found.results],
+                'usage': {'backend': provider.name, 'searches': found.searches, 'input_tokens': found.input_tokens,
+                          'output_tokens': found.output_tokens}}
 
     return function_tool(
         SEARCH,

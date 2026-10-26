@@ -631,8 +631,9 @@ def guard_function_tools(tools: list[Any], gate: PermissionGate, log: ev.EventLo
                 # Keys and tokens in a result (an email with an API key, an echoed header) never reach the model
                 text, redacted = secrets.redact(text)
                 untrusted = returns_untrusted_content(name) or render.reports_untrusted(text)
+                usage = render.search_usage(name, text)
                 record(ev.TOOL_RESULT, **render.for_log(name, text, render.outcome_of(text), untrusted=untrusted),
-                       **({'redacted': redacted} if redacted else {}))
+                       **({'redacted': redacted} if redacted else {}), **({'usage': usage} if usage else {}))
                 output = gate.record_output(name, render.cap_tool_result(text), untrusted=untrusted)
                 note = after_result(name, text) if after_result else None
                 return f'{output}\n{note}' if note else output

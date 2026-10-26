@@ -1,7 +1,7 @@
 """
 `local-agent onboard`: from nothing to a working agent, one question at a time.
 
-    workspace -> model and key (with an optional check) -> search key -> Telegram bot -> background service
+    workspace -> model and key (with an optional check) -> web search -> Telegram bot -> background service
     -> Telegram pairing -> a summary with the web UI link
 
 Safe to run again: every question defaults to what's already set (Enter keeps it), a key already in the keychain
@@ -155,17 +155,21 @@ class Wizard:
                                                           f'`local-agent key set {provider}` and `local-agent doctor`.')
 
     async def search(self) -> None:
-        self.term.say('\n-- Web search (optional) --')
-        provider = load_config(self.home).search
-        if not provider:
-            self.term.say('Web search is off in the settings ([web] search).')
-            self.summary['search'] = 'off'
-            return
-        if get_key(provider) or await self.yes(f'Add a {provider} key so the agent can search the web?', False):
-            on = await self.maybe_key(provider, f'{provider} key')
-        else:
-            on = False
-        self.summary['search'] = provider if on else 'off (no key)'
+        """Nothing to ask by default: search uses the model provider's own (or DuckDuckGo). SerpAPI is optional."""
+        from local_agent.tools import choose_search
+
+        self.term.say('\n-- Web search --')
+        config = load_config(self.home)
+        choice = choose_search(config)
+        self.term.say(f'Web search: {choice.why}.')
+        if config.search == 'serpapi':
+            if get_key('serpapi') or await self.yes('Add a serpapi key so the agent can search the web?', False):
+                await self.maybe_key('serpapi', 'serpapi key')
+                choice = choose_search(config)
+        elif config.search:
+            self.term.say('Optional: Google results through SerpAPI instead. Set [web] search = "serpapi" in '
+                          f'{self.home.config_path} and run `local-agent key set serpapi`.')
+        self.summary['search'] = choice.backend or 'off'
 
     async def telegram_bot(self) -> str | None:
         """The bot's @name if a working token is set."""
