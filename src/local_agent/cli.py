@@ -12,6 +12,7 @@ The `local-agent` command.
     local-agent daemon                   the API, web UI, scheduler and Telegram, in the foreground
     local-agent daemon install|start|stop|restart|status|logs|uninstall   the same, as a background service
     local-agent doctor                   check the setup; a fix for anything wrong
+    local-agent audit                    check the live setup against the security rules
     local-agent update                   upgrade (with uv or pipx) and restart the service
     local-agent telegram pair            a code that makes your Telegram chat the owner's
     local-agent key set <provider>       store an API key in the OS keychain
@@ -67,6 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_commands.add_arguments(commands)
     daemon_commands.add_arguments(commands)
     commands.add_parser('doctor', help='check the setup: settings, keys, permissions, the service, the daemon')
+    commands.add_parser('audit', help='check the setup against the security rules: the API, the token, the shell, '
+                                      'file permissions')
     commands.add_parser('update', help='upgrade Local Agent (uv or pipx) and restart the background service')
     telegram = commands.add_parser('telegram', help='the Telegram channel').add_subparsers(
         dest='telegram_command', required=True)
@@ -217,6 +220,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'doctor':
         from local_agent import doctor
         return doctor.main(home)
+    if args.command == 'audit':
+        from local_agent import audit
+        return audit.main(home)
     if args.command == 'update':
         from local_agent import update
         return update.update(home)
