@@ -26,7 +26,8 @@ from local_agent.mcp.config import McpConfigError, McpServer
 def add_arguments(subparsers) -> None:
     mcp = subparsers.add_parser('mcp', help='the MCP servers that connect your apps').add_subparsers(
         dest='mcp_command', required=True)
-    add = mcp.add_parser('add', help='add (or replace) a server: a local command after --, or --url')
+    add = mcp.add_parser('add', help='add (or replace) a server: a local command after --, or --url',
+                         usage='local-agent mcp add NAME [options] [-- COMMAND [ARG ...]]')
     add.add_argument('name', help='a short name, e.g. gmail')
     add.add_argument('--provides', default='', help='capabilities for skills, comma-separated, e.g. email,calendar')
     add.add_argument('--env', action='append', default=[], metavar='KEY[=VALUE]',
@@ -34,9 +35,10 @@ def add_arguments(subparsers) -> None:
     add.add_argument('--url', default='', help='a remote server\'s streamable HTTP URL')
     add.add_argument('--header', action='append', default=[], metavar='NAME[: VALUE]',
                      help='a secret header for a remote server (asked for if no value)')
+    # The command after -- isn't an argparse positional: cli.main splits it off before parsing (split_command), since
+    # Python 3.12.3's argparse (Ubuntu's) rejects a -- that comes after options once NAME has been read.
     # dest isn't "command": that's the top-level subcommand
-    add.add_argument('server_command', nargs='*', metavar='command',
-                     help='after --: the command that starts a local server, and its args')
+    add.set_defaults(server_command=[])
     mcp.add_parser('list', help='the configured servers')
     tools = mcp.add_parser('tools', help='connect to a server and show its tools and their tiers')
     tools.add_argument('name')
@@ -47,6 +49,14 @@ def add_arguments(subparsers) -> None:
         parser.add_argument('tool', help='the tool\'s name as the server gives it, e.g. send_email')
     remove = mcp.add_parser('remove', help='remove a server and its secrets')
     remove.add_argument('name')
+
+
+def split_command(argv: list[str]) -> tuple[list[str], list[str]]:
+    """`mcp add ... -- COMMAND ARGS`: (the arguments before the first --, the local server's command line after it)."""
+    if argv[:2] != ['mcp', 'add'] or '--' not in argv:
+        return argv, []
+    at = argv.index('--')
+    return argv[:at], argv[at + 1:]
 
 
 def _server(home: Home, name: str) -> McpServer | None:
@@ -68,7 +78,7 @@ def _secret_pairs(items, separator: str, kind: str, server: str, ask) -> dict[st
 
 def add(home: Home, args, ask=None) -> int:
     ask = ask or getpass.getpass  # looked up now, so it can be replaced
-    command = [part for part in args.server_command if part != '--']
+    command = list(args.server_command)
     if bool(args.url) == bool(command):
         print('Give either a command after -- (a local server) or --url (a remote one).', file=sys.stderr)
         return 1

@@ -21,6 +21,7 @@ from local_agent.channels import terminal
 from local_agent.config import load_config
 from local_agent.core import events as ev
 from local_agent.core import gate as gate_module
+from local_agent.mcp import commands as mcp_commands
 from local_agent.mcp import config as mcp_config
 from local_agent.mcp.client import McpConnections, neutralize, tool_name
 from local_agent.tools.shell import shell_tool
@@ -107,6 +108,15 @@ def test_a_secret_without_a_value_is_asked_for(home, monkeypatch, isolated):
 def test_bad_adds_say_what_to_fix(home, capsys, argv, problem):
     assert cli.main(argv) == 1 and problem in capsys.readouterr().err
     assert load_config(home).mcp_servers == ()
+
+
+def test_the_server_command_is_everything_after_the_first_double_dash():
+    # Split before argparse sees it: Python 3.12.3's argparse (Ubuntu's, so CI's) rejects a -- after options
+    assert mcp_commands.split_command(['mcp', 'add', 'x', '--env', 'K=v', '--', 'npx', '-y', 'srv', '--', 'z']) == \
+        (['mcp', 'add', 'x', '--env', 'K=v'], ['npx', '-y', 'srv', '--', 'z'])
+    assert mcp_commands.split_command(['mcp', 'add', 'x', '--url', 'https://a']) == \
+        (['mcp', 'add', 'x', '--url', 'https://a'], [])
+    assert mcp_commands.split_command(['chat', '--', 'x']) == (['chat', '--', 'x'], [])
 
 
 def test_allow_disallow_and_remove(gmail, isolated, capsys):

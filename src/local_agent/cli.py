@@ -212,7 +212,10 @@ def chat(home: Home) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
+    argv, server_command = mcp_commands.split_command(sys.argv[1:] if argv is None else list(argv))
     args = parser.parse_args(argv)
+    if server_command:
+        args.server_command = server_command
     home = Home.locate()
     if args.command == 'onboard':
         from local_agent import onboard
