@@ -16,7 +16,8 @@ send to your model provider (or nothing, with a local model through Ollama).
 What it does with nothing but a model:
 
 - **Talks** in the terminal (`local-agent chat`), on a local web page, and in your own Telegram bot, which
-  answers only you.
+  answers only you: send it photos (it sees them, if your model can), voice notes (transcribed) and files (saved
+  to its folder for it to read).
 - **Remembers** what you tell it, as markdown notes you can open and edit, and keeps a short profile of you
   in every conversation.
 - **Follows skills**: a starter pack (morning brief, inbox triage, research report, meeting prep, weekly
@@ -56,13 +57,14 @@ uv run local-agent schedules list
 uv run local-agent key set serpapi    # optional: Google results via SerpAPI, with [web] search = "serpapi"
 uv run local-agent mcp add gmail --provides email --env GMAIL_TOKEN -- <command that starts the server>
 uv run local-agent key set telegram   # optional: your bot's token
+uv run local-agent key set elevenlabs # optional: voice notes via ElevenLabs, with [voice] transcribe = "elevenlabs"
 uv run local-agent daemon             # prints http://127.0.0.1:7878/#token=...
 uv run local-agent telegram pair      # then send /pair <code> to your bot
 ```
 
 Settings are in `~/.local-agent/config.toml`: the provider (`openai`, `anthropic`, `ollama` or any
-OpenAI-compatible endpoint), the model, a stronger model for subtle skills, budgets, your timezone, and the
-shell switch (off by default). Your standing orders go in `~/.local-agent/workspace/AGENTS.md`; the agent's
+OpenAI-compatible endpoint), the model, a stronger model for subtle skills, budgets, your timezone, how Telegram voice notes are transcribed (`[voice] transcribe`), and
+the shell switch (off by default). Your standing orders go in `~/.local-agent/workspace/AGENTS.md`; the agent's
 files are in `~/.local-agent/workspace/files/`.
 
 ## How it stays safe
