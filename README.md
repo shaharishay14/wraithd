@@ -25,6 +25,7 @@ Requires macOS or Linux, Python 3.12+ and [uv](https://docs.astral.sh/uv/) (or p
 uv tool install local-agent           # or: pipx install local-agent
 local-agent onboard                   # model and key, search, Telegram, the background service
 local-agent doctor                    # checks everything, with a fix for anything wrong
+local-agent audit                     # checks the setup against the security rules
 local-agent daemon status             # also: start, stop, restart, logs, uninstall
 local-agent update                    # upgrade and restart the service
 ```
@@ -37,6 +38,7 @@ uv run local-agent key set openai     # stored in the OS keychain
 uv run local-agent chat
 uv run local-agent runs list          # what each run did
 uv run local-agent runs show <id>
+uv run local-agent events             # what happened between runs: distill, compaction, ignored chats
 uv run local-agent schedules list
 uv run local-agent key set serpapi    # optional: web search
 uv run local-agent mcp add gmail --provides email --env GMAIL_TOKEN -- <command that starts the server>

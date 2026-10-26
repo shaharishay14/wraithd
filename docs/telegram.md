@@ -42,6 +42,6 @@ what to ask it there.
 ## Limits
 
 By default a stranger costs one `getUpdates` result and, at most hourly, one log row. With `answer_strangers` on,
-anyone who finds the bot's name can message it and spend the owner's tokens (the daily budget caps that); rate
-limits for them are a Phase 7 decision. The ignored-chat events are in the store only: no API endpoint or command
-shows events between runs yet.
+anyone who finds the bot's name can message it and spend the owner's tokens (the daily budget caps that); there's
+no per-stranger rate limit yet. Ignored chats are listed by `local-agent events` and `GET /api/events`, and
+`local-agent audit` notes when strangers are answered.

@@ -46,8 +46,9 @@
     HOME, so they never touch the real ones.
 - **`local-agent doctor`** reads and changes nothing: Python and package versions, the state folder (mode 700),
   the settings, which keys are present (never their values), the API token file (mode 600), the web UI, the
-  service (installed, running), `/api/health` (and whether it's the installed version), and the port. One line per
-  check, a fix under each failure, exit code 1 if anything failed.
+  service (installed, running), `/api/health` (and whether it's the installed version), the port, and one line for
+  `local-agent audit` (the security rules, [From EC2 to laptop](ec2-to-laptop.md)). One line per check, a fix under
+  each failure, exit code 1 if anything failed.
 - **`local-agent update`** finds the installer from its own environment (`uv-receipt.toml` for uv,
   `pipx_metadata.json` for pipx), runs `uv tool upgrade local-agent` or `pipx upgrade local-agent`, and restarts the
   service if it's installed. Any other install (a checkout, plain pip) is left to the owner rather than guessed at.
