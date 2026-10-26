@@ -21,7 +21,7 @@ from pathlib import Path
 
 import httpx
 import keyring
-from agents import Agent, Model, ModelSettings, Runner, set_tracing_disabled
+from agents import Agent, Model, ModelSettings, Runner
 
 from local_agent.channels.conversation import reply
 from local_agent.config import APP, Config, Home, ModelConfig
@@ -247,7 +247,6 @@ async def run_evals(specs: list[ModelSpec], judge_spec: ModelSpec | None, out: P
     Every task on every model, task by task (so a stop at the cap leaves every model with the same tasks done).
     model_factory(spec, task_id) and judge_factory() replace the keychain models (the scripted run, tests).
     """
-    set_tracing_disabled(True)  # the SDK would otherwise send traces of these runs to OpenAI
     prices = prices or {}
     meter = Meter(max_cost)
     report = Report(models=[spec.label for spec in specs], judge=judge_spec.label if judge_spec else 'none',

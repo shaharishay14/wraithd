@@ -92,6 +92,8 @@ reports none for Anthropic otherwise, and the budgets would count zero.
   read-only tools run, others ask until the
   owner marks them "always allow"). Every tool that isn't built in still counts as third-party output and
   private data.
+- **No traces leave the machine.** The Agents SDK uploads run traces to OpenAI by default; every `Runtime` turns
+  that off when it's built, so chat, the daemon, schedules and the evals never send them.
 - **The owner is identified by config, not a user row.** `owner_email` and the standing instructions
   (`AGENTS.md`) are passed to the gate; recipients found there count as written by the owner.
 

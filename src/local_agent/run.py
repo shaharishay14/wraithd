@@ -13,7 +13,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from agents import Agent, Model, ModelSettings, Runner
+from agents import Agent, Model, ModelSettings, Runner, set_tracing_disabled
 
 from local_agent.config import Config, Home, load_config
 from local_agent.core import compaction, disclosure, reminders, views
@@ -62,6 +62,9 @@ class Runtime:
     skills: registry.SkillFolder = field(init=False)
 
     def __post_init__(self):
+        # The Agents SDK uploads run traces to OpenAI by default (whenever OPENAI_API_KEY is in the environment).
+        # A local agent's runs stay local: every entry point (chat, daemon, schedules, evals) builds a Runtime.
+        set_tracing_disabled(True)
         self.notifier = self.notifier or StoreNotifier(self.store)
         self.memory = Vault(self.home.memory_dir)
         self.skills = registry.SkillFolder(self.home.skills_dir)
