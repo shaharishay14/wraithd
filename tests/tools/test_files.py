@@ -192,6 +192,119 @@ async def test_save_new_into_a_folder_swapped_after_the_check_saves_nothing(file
     assert sorted(p.name for p in decoy.iterdir()) == ['secret.txt', 'todo.md']
 
 
+# --- files_edit --------------------------------------------------------------------------------------------
+
+PLAN = '# Trip\n\n## Flights\nTLV -> LIS, 9 May\n\n## Hotel\nnot booked\n\n## Notes\n- pack light\n'
+
+
+async def edit(root, **arguments):
+    return await call_tool(by_name(root)['files_edit'], **arguments)
+
+
+async def test_an_edit_changes_one_section_and_leaves_the_rest_byte_for_byte(files):
+    plan = files / 'plan.md'
+    plan.write_bytes(PLAN.encode())
+    plan.chmod(0o640)
+    result = await edit(files, path='plan.md', old_text='## Hotel\nnot booked\n',
+                        new_text='## Hotel\nCasa do Rio, 9-14 May\nconfirmation 4471\n')
+    after = plan.read_bytes()
+    before = PLAN.encode()
+    start = before.index(b'## Hotel')
+    assert after[:start] == before[:start]  # everything before the section, unchanged
+    assert after.endswith(before[before.index(b'\n## Notes'):])  # and everything after it
+    assert after == before.replace(b'not booked', b'Casa do Rio, 9-14 May\nconfirmation 4471')
+    assert result == {'path': 'plan.md', 'replacements': 1, 'bytes': len(after),
+                      'context': '4| TLV -> LIS, 9 May\n5| \n6| ## Hotel\n7| Casa do Rio, 9-14 May\n'
+                                 '8| confirmation 4471\n9| \n10| ## Notes'}
+    assert (plan.stat().st_mode & 0o777) == 0o640  # the file's mode is kept
+    assert [p.name for p in files.iterdir() if p.name.endswith('.tmp')] == []
+
+
+async def test_text_that_isnt_there_or_is_there_twice_changes_nothing(files):
+    (files / 'plan.md').write_text(PLAN)
+    missing = await edit(files, path='plan.md', old_text='## Hotels', new_text='x')
+    assert 'not found' in missing['error'] and 'files_read' in missing['error'] and 'spaces' in missing['error']
+    twice = await edit(files, path='plan.md', old_text='\n\n## ', new_text='\n## ')
+    assert 'found 3 times' in twice['error'] and 'replace_all' in twice['error']
+    empty = await edit(files, path='plan.md', old_text='', new_text='x')
+    assert 'old_text is empty' in empty['error']
+    assert (files / 'plan.md').read_text() == PLAN
+
+
+async def test_replace_all_and_delete(files):
+    (files / 'plan.md').write_text(PLAN)
+    every = await edit(files, path='plan.md', old_text='\n\n## ', new_text='\n## ', replace_all=True)
+    assert every['replacements'] == 3
+    assert (files / 'plan.md').read_text() == PLAN.replace('\n\n## ', '\n## ')
+    gone = await edit(files, path='plan.md', old_text='## Notes\n- pack light\n', new_text='')
+    assert gone['replacements'] == 1 and not (files / 'plan.md').read_text().count('Notes')
+
+
+async def test_windows_line_endings_and_unicode_are_kept(files):
+    note = files / 'notes' / 'win.txt'
+    note.write_bytes('שלום עולם\r\ncafé ☕\r\nlast line\r\n'.encode())
+    # the model writes plain newlines; the file's own CRLF are matched and kept
+    result = await edit(files, path='notes/win.txt', old_text='café ☕\nlast', new_text='café ☕ (closed)\nfinal')
+    assert result['replacements'] == 1
+    assert note.read_bytes() == 'שלום עולם\r\ncafé ☕ (closed)\r\nfinal line\r\n'.encode()
+    exact = await edit(files, path='notes/win.txt', old_text='שלום', new_text='Hello')
+    assert exact['replacements'] == 1 and note.read_bytes().startswith(b'Hello \xd7\xa2')
+
+
+async def test_documents_binary_and_non_utf8_files_are_refused(files):
+    (files / 'report.pdf').write_bytes(b'%PDF-1.4 text')
+    (files / 'photo.jpg').write_bytes(b'\xff\xd8\x00\x10JFIF')
+    (files / 'latin1.txt').write_bytes('caf\xe9'.encode('latin-1'))
+    document = await edit(files, path='report.pdf', old_text='text', new_text='x')
+    assert 'is a document' in document['error'] and 'write a new file' in document['error']
+    assert 'binary' in (await edit(files, path='photo.jpg', old_text='JFIF', new_text='x'))['error']
+    assert 'not UTF-8' in (await edit(files, path='latin1.txt', old_text='caf', new_text='x'))['error']
+    assert (files / 'latin1.txt').read_bytes() == b'caf\xe9'
+    assert 'no file' in (await edit(files, path='nope.md', old_text='a', new_text='b'))['error']
+
+
+async def test_files_too_large_to_edit_are_refused(files, monkeypatch):
+    monkeypatch.setattr(files_module, 'MAX_WRITE_CHARS', 100)
+    (files / 'big.txt').write_text('x' * 150)
+    assert 'too large to edit' in (await edit(files, path='big.txt', old_text='x', new_text='y',
+                                              replace_all=True))['error']
+    (files / 'small.txt').write_text('x' * 90)
+    assert 'would be too large' in (await edit(files, path='small.txt', old_text='x', new_text='yy',
+                                               replace_all=True))['error']
+    assert (files / 'small.txt').read_text() == 'x' * 90
+
+
+async def test_a_failed_write_leaves_the_original_intact(files, monkeypatch):
+    (files / 'plan.md').write_text(PLAN)
+
+    def failing(*args, **kwargs):
+        raise OSError(28, 'No space left on device')
+    monkeypatch.setattr(files_module.os, 'replace', failing)
+    result = await edit(files, path='plan.md', old_text='not booked', new_text='booked')
+    monkeypatch.undo()
+    assert 'left as it was' in result['error']
+    assert (files / 'plan.md').read_text() == PLAN
+    assert [p.name for p in files.iterdir() if p.name.endswith('.tmp')] == []
+
+
+async def test_edits_outside_the_folder_or_through_a_swapped_file_change_nothing(files, outside, after_the_check):
+    (files / 'escape.txt').symlink_to(outside)
+    for path in ['../outside/secret.txt', 'escape.txt', str(outside)]:
+        result = await edit(files, path=path, old_text='ssh key', new_text='pwned')
+        assert 'error' in result and 'ssh key' not in json.dumps(result)
+    assert outside.read_text() == 'the owner\'s ssh key'
+
+    after_the_check(lambda: swap_for_link(files / 'notes' / 'todo.md', outside))
+    swapped = await edit(files, path='notes/todo.md', old_text='ssh key', new_text='pwned')
+    assert 'changed while it was being opened' in swapped['error'] and outside.read_text() == 'the owner\'s ssh key'
+
+
+async def test_an_edit_into_a_folder_swapped_after_the_check_changes_nothing(files, decoy, after_the_check):
+    after_the_check(lambda: swap_for_link(files / 'notes', decoy))
+    folder = await edit(files, path='notes/todo.md', old_text='ssh key', new_text='pwned')
+    assert 'changed' in folder['error'] and (decoy / 'todo.md').read_text() == 'the owner\'s ssh key'
+
+
 # --- in runs -----------------------------------------------------------------------------------------------
 
 async def test_the_agent_saves_and_reads_a_file_without_asking(make_runtime, files, events):

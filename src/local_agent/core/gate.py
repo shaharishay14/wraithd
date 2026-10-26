@@ -47,6 +47,7 @@ BUILTIN_TOOL_ACCESS = {
     'files_list': ToolAccess.READ,
     'files_read': ToolAccess.READ,
     'files_write': ToolAccess.READ,
+    'files_edit': ToolAccess.READ,
     # Runs anything the owner's account can: every command is asked about, and never unattended (below)
     'shell_run': ToolAccess.WRITE,
     # A schedule is a standing instruction that later runs unattended: the owner decides, like skill_adjust
