@@ -19,7 +19,7 @@ a tool that can't be wrapped is dropped, never passed through):
   memory, so the decision can come from another process (the CLI while the daemon runs).
 - **Unattended runs** (a schedule firing, nobody watching) may only run writes the owner pre-approved for that
   tool; each one is logged in the same approvals table, so there's one audit trail.
-- **Taint tracking.** Once a third-party source (an email, a page, a stranger's message) enters the run, the
+- **Taint tracking.** Once a third-party source (an email, a page, an MCP tool's output) enters the run, the
   model's requests may be steered by someone else. From then on, a pre-approved write may only go to
   recipients the owner wrote themselves; an action whose recipient can't be checked needs approval. In a live
   conversation, the approval card names the recipients the owner never wrote, and where they came from.
@@ -70,8 +70,9 @@ laptop](ec2-to-laptop.md).
 ## Budgets
 
 40 tool calls and 200,000 tokens per run, checked before every model call. An optional daily token budget,
-checked before every call too (and, once `run()` exists, before the run starts, so a spent budget costs no
-model call at all).
+checked before every call too, and before the run starts, so a spent budget costs no model call at all. The
+tokens are what the provider reports. Every run asks for usage on the stream (`include_usage`), since LiteLLM
+reports none for Anthropic otherwise, and the budgets would count zero.
 
 ## On a laptop
 

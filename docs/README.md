@@ -37,6 +37,7 @@ says what changed for running on one person's laptop.
 | [Event log](event-log.md) | Every step is an event; the run's state is a query over them. |
 | [Security](security.md) | Hard rules in code: the gate, taint tracking, egress, redaction, budgets. |
 | [From EC2 to laptop](ec2-to-laptop.md) | What changed in the threat model, the mechanism and test for each, and `audit`. |
+| [Compaction](compaction.md) | The newest 10 messages word for word, older ones folded into a stored summary. |
 | [System reminders](reminders.md) | Short hints at the moment they're relevant; nudges, not rules. |
 | [Progressive disclosure](progressive-disclosure.md) | Search → View → Use, so the prompt doesn't grow with every tool. |
 | [Memory](memory.md) | Markdown files, a keyword map instead of vectors, BM25, distill, trust labels. |
@@ -53,6 +54,7 @@ says what changed for running on one person's laptop.
 | [The scheduler](scheduler.md) | Due schedules run unattended every minute; the answer goes to the owner. |
 | [One loop, not a team](one-loop.md) | Why there's one agent, and when a sub-agent would be worth it. |
 | [Proof](proof.md) | Unit tests, scripted runs through the real SDK, and replay of recorded runs. |
+| [Evals](evals.md) | Ten golden tasks in a fake world of MCP servers, graded by checks and a judge, cost-capped. |
 
 ## Where the ideas come from
 
