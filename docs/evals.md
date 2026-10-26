@@ -86,8 +86,11 @@ Ollama costs nothing. The cap is $3 either way.
      --model openai:gpt-4o \
      --model anthropic:claude-sonnet-5-5 \
      --model ollama:qwen2.5:7b \
+     --price claude-sonnet-5-5=2,10 \
      --max-cost 3.00
    ```
+
+   The `--price` is needed because the litellm version we bundle has no Claude 5.x prices.
 
    Before anything is spent it checks that every key is there, that every model has a price, and that Ollama
    is answering. It names everything that's missing and exits 2. It then runs task by task across the three
