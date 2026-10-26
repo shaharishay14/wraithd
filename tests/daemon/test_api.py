@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from local_agent import cli, schedules
+from local_agent.core import events as ev
 from local_agent.core import gate as gate_module
 from local_agent.memory import vault
 from local_agent.memory.notes import SOURCE_AGENT, Note
@@ -123,6 +124,22 @@ async def test_runs_and_one_runs_timeline(make_daemon):
     assert [e['type'] for e in detail['events']][:2] == ['run_start', 'context_built']
     assert (await client.get('/api/runs/nope')).status_code == 404
     assert (await client.get('/api/runs?limit=x')).status_code == 400
+
+
+async def test_events_between_runs(make_daemon):
+    daemon, client = await make_daemon(ScriptedModel([[say('Hi.')]]))
+    await client.post('/api/chat', json={'message': 'hi'})  # a run's events are not between runs
+    ev.record_event(daemon.rt.store, ev.COMPACTION, conversation='c0ffee12345', messages_folded=20, summary_chars=900)
+    ev.record_event(daemon.rt.store, ev.TELEGRAM_IGNORED, chat=42, username='stranger')
+    listed = (await client.get('/api/events')).json()
+    assert [e['type'] for e in listed] == ['telegram_ignored', 'compaction']
+    assert listed[0] == {'type': 'telegram_ignored', 'at': listed[0]['at'],
+                         'details': {'chat': 42, 'username': 'stranger'},
+                         'summary': 'Ignored a Telegram message from chat 42 (@stranger), which isn\'t yours'}
+    assert listed[1]['summary'].startswith('Folded 20 older messages of conversation c0ffee12')
+    assert [e['type'] for e in (await client.get('/api/events?type=compaction,distill')).json()] == ['compaction']
+    assert len((await client.get('/api/events?limit=1')).json()) == 1
+    assert (await client.get('/api/events?type=run_start')).status_code == 400
 
 
 # --- memory ------------------------------------------------------------------------------------------------

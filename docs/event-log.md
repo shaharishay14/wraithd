@@ -12,8 +12,9 @@
 
 - **Events**: `run_start`, `context_built`, `turn_start`, `model_output` (with token usage), `tool_call`
   (with access level and allowed/blocked), `tool_result` (ok/error/denied, untrusted, redacted), `reminder`,
-  `stop`, `model_upgrade`, `run_end`; between runs, `compaction` and `distill`. Kept in memory during the run and saved in one batch at the end, so logging never slows
-  the loop. Long strings are cut and secrets redacted before anything is stored.
+  `stop`, `model_upgrade`, `run_end`; between runs (no run id), `compaction`, `distill` and `telegram_ignored`,
+  shown by `local-agent events` and `GET /api/events`. Kept in memory during the run and saved in one batch at
+  the end, so logging never slows the loop. Long strings are cut and secrets redacted before anything is stored.
 - **Views** are plain functions over the list: `consecutive_tool_errors`, `most_repeated_call`,
   `tokens_used`, `untrusted_content_seen`, `skills_loaded`... They run live before each model call or later
   from the store, and they're trivially unit-testable.

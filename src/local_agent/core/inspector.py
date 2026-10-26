@@ -90,6 +90,23 @@ def _short(value) -> str:
     return text if len(text) <= VALUE_CHARS else text[:VALUE_CHARS - 3] + '...'
 
 
+def between_runs_text(event) -> str:
+    """One line for an event that belongs to no run: what the harness did on its own, or what it ignored."""
+    p = event.payload
+    conversation = str(p.get('conversation', ''))[:8]
+    if event.type == ev.COMPACTION:
+        return (f'Folded {p.get("messages_folded", 0)} older messages of conversation {conversation} into its summary '
+                f'({p.get("summary_chars", 0)} characters)')
+    if event.type == ev.DISTILL:
+        notes = p.get('notes') or []
+        return (f'Read {p.get("messages", 0)} messages of conversation {conversation} into memory: '
+                + (', '.join(notes) if notes else 'nothing new'))
+    if event.type == ev.TELEGRAM_IGNORED:
+        who = f' (@{p["username"]})' if p.get('username') else ''
+        return f'Ignored a Telegram message from chat {p.get("chat")}{who}, which isn\'t yours'
+    return json.dumps(p)
+
+
 def render_text(run_id: str, events) -> str:
     """A run as the terminal shows it: the numbers, then one line per event."""
     summary = summarize(events)

@@ -5,6 +5,7 @@ The `local-agent` command.
     local-agent chat                     talk to the agent in the terminal
     local-agent runs list                the latest runs
     local-agent runs show <id> [--json]  one run's timeline (a unique prefix of the id is enough)
+    local-agent events [--type T]        what happened between runs: compaction, distill, ignored Telegram chats
     local-agent schedules list [--all]   schedules and reminders, with their next times
     local-agent schedules rm <id>        cancel one
     local-agent mcp add|list|tools|allow|disallow|remove   your apps, as MCP servers (see mcp/commands.py)
@@ -25,6 +26,7 @@ import sys
 
 from local_agent import __version__
 from local_agent.config import KEY_NAMES, ConfigError, Home, set_key
+from local_agent.core import events as ev
 from local_agent.core import inspector
 from local_agent.daemon import commands as daemon_commands
 from local_agent.mcp import commands as mcp_commands
@@ -50,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     show = runs.add_parser('show', help="one run's timeline")
     show.add_argument('run_id', help='the run id, or a unique prefix of it')
     show.add_argument('--json', action='store_true', help='the summary and every event, as JSON')
+
+    events = commands.add_parser('events', help='what happened between runs: compaction, distill, ignored chats')
+    events.add_argument('--limit', type=int, default=20)
+    events.add_argument('--type', choices=ev.BETWEEN_RUNS, action='append', help='only this type (repeatable)')
 
     schedules = commands.add_parser('schedules', help='schedules and reminders').add_subparsers(
         dest='schedules_command', required=True)
@@ -102,6 +108,17 @@ def runs_show(home: Home, prefix: str, as_json: bool) -> int:
                           'events': inspector.timeline(events)}, indent=1, default=str))
     else:
         print(inspector.render_text(matches[0], events))
+    return 0
+
+
+def events_list(home: Home, limit: int, types) -> int:
+    store = _store(home)
+    listed = store.events_between_runs(limit, types or ()) if store else []
+    if not listed:
+        print('Nothing has happened between runs yet.')
+        return 0
+    for event in listed:
+        print(f'{event.created_at.astimezone():%Y-%m-%d %H:%M}  {event.type:<16} {inspector.between_runs_text(event)}')
     return 0
 
 
@@ -209,6 +226,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.runs_command == 'list':
             return runs_list(home, args.limit)
         return runs_show(home, args.run_id, args.json)
+    if args.command == 'events':
+        return events_list(home, args.limit, args.type)
     if args.command == 'schedules':
         if args.schedules_command == 'list':
             return schedules_list(home, args.all)
