@@ -52,7 +52,7 @@ class ModelSpec:
 
     @property
     def label(self) -> str:
-        return f'{self.provider}:{self.name}' if self.provider != 'scripted' else 'scripted'
+        return 'scripted' if (self.provider, self.name) == ('scripted', 'scripted') else f'{self.provider}:{self.name}'
 
 
 def parse_spec(text: str) -> ModelSpec:
