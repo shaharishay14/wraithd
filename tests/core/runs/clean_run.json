@@ -26,6 +26,7 @@
      "schedule_create",
      "schedule_list",
      "schedule_cancel",
+     "notify_owner",
      "get_weather",
      "memory_search",
      "memory_read",
@@ -35,13 +36,14 @@
      "skill_propose",
      "skill_adjust"
     ],
-    "tool_schema_chars": 6006,
+    "tool_schema_chars": 6329,
     "memory_notes": 0,
     "skills_offered": [
      "skill-writer",
      "weekly-review"
     ],
-    "instructions_chars": 1858
+    "instructions_chars": 1858,
+    "untrusted_context": []
    }
   },
   {
@@ -111,7 +113,7 @@
    "type": "run_end",
    "payload": {
     "outcome": "answered",
-    "duration_ms": 24,
+    "duration_ms": 29,
     "turns": 2,
     "tokens": 0,
     "stop_reason": null

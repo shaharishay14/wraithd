@@ -232,6 +232,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         own += [propose_tool, adjust_tool] if owner else []
 
         use_discovery = len(app_tools) > disclosure.DIRECT_ACTIONS_LIMIT
+        untrusted_context = []  # third-party text in what the model is given before any tool runs
         if use_discovery:
             # App actions stay out of the model's tool list: run_app_action calls their guarded versions
             catalog = disclosure.AppCatalog(guard_function_tools(list(app_tools), gate, log, after_result),
@@ -245,6 +246,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
                 # The servers' own descriptions are in the model's tool list from the first step: third-party text
                 gate.add_untrusted_input(MCP_DESCRIPTIONS, '\n'.join(
                     [tool.description or '' for tool in mcp.tools] + list(mcp.guides.values())), private=False)
+                untrusted_context.append(MCP_DESCRIPTIONS)
 
         now = datetime.now().astimezone()
         instructions = BASE_INSTRUCTIONS.format(now=f'{now:%A %d %B %Y, %H:%M} ({now.tzname()})')
@@ -264,7 +266,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
                    disclosure='discovery' if use_discovery else 'direct', app_actions=len(app_tools),
                    tools_offered=[tool.name for tool in guarded], tool_schema_chars=disclosure.schema_chars(guarded),
                    memory_notes=len(notes) if owner else None, skills_offered=[skill.name for skill in skills],
-                   instructions_chars=len(instructions),
+                   instructions_chars=len(instructions), untrusted_context=untrusted_context,
                    **({'mcp_servers': sorted({server for server, _ in mcp.origin.values()}),
                        'mcp_errors': mcp.errors} if mcp else {}))
 
