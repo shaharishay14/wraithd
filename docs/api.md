@@ -303,6 +303,18 @@ The summary and content are third-party text: show them as data, next to where t
 `rejected`; nothing of it is used. Both are `409 conflict` when the item isn't pending, when nothing handles its kind,
 or when its handler refuses (a memory replacement whose note changed since it was queued); the message says which.
 
+### Tokens, cache and spill
+
+No new routes; existing responses carry new event types, and nothing existing changed shape.
+- **A run's events** (`GET /api/runs/{id}`) hold one `context_tokens` per model call:
+  `{"parts": {"tools", "system", "agents_md", "skills", "profile", "history", "tool_results", "notes"}, "measured",
+  "input_tokens", "cache_read", "cache_write", "prefix_hash", "model", "tokenizer"}`.
+- **Spilled results:** a run's events hold a `spilled` for each one: `{"tool", "chars", "path", "untrusted"}`.
+- **`context_built`** gains `prefix_hash` and `section_chars`.
+- **`GET /api/events`** can return `spill_cleaned`: `{"folders", "keep_days"}`.
+
+See [tokens](tokens.md), [caching](caching.md) and [spill](spill.md).
+
 ### Telegram
 
 `GET /api/telegram` → `{"configured": true, "paired": true, "owner": "@shahar"}` (`owner` is the paired chat's
