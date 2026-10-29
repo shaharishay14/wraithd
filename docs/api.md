@@ -37,6 +37,18 @@ Every request, including static files, is checked before anything else:
 - For frontend development with a dev server, `[daemon] dev_origin = "http://localhost:5173"` allows exactly that
   one extra Origin. It's off unless set; the token is still required.
 
+## Remote access (reach)
+
+With `[remote] allowed_hosts = ["box.tail1234.ts.net"]` and `tailscale serve` in front of the daemon
+([remote access](remote-access.md)), the same API and UI answer at `https://box.tail1234.ts.net`:
+
+- **Host** may also be each listed name (`box.tail1234.ts.net`, or `box.tail1234.ts.net:443`), and **Origin**
+  `https://box.tail1234.ts.net`. Only `https`, only the exact name: `http://`, other subdomains and other tailnet
+  machines still get `403`.
+- Everything else is unchanged: the token is required, there's no CORS, and the daemon still binds to `127.0.0.1`.
+  No routes are added, and the UI needs no change (it calls `/api/...` on its own origin).
+- `local-agent daemon` and `daemon status` print the tailnet link with the token in the fragment.
+
 ## Errors
 
 Every error is JSON with an HTTP status:

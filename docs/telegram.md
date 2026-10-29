@@ -1,6 +1,7 @@
 # Telegram
 
-**Files:** `channels/telegram.py`, `voice.py` (transcription)
+**Files:** `channels/telegram.py`, `channels/base.py` (the rules every channel shares: [channels](channels.md)),
+`voice.py` (transcription)
 
 ## One-liner
 
@@ -58,7 +59,8 @@
 - **There is no switch to answer strangers.** Earlier versions had `[telegram] answer_strangers`; the owner decided
   the bot is never for anyone else, so it's gone. A config that still has the line loads (a warning says it does
   nothing) and strangers stay ignored.
-- **Button taps** from any chat but the owner's are refused ("Only the owner can decide.").
+- **Button taps** from any chat but the owner's are refused ("Only the owner can decide.") and the chat is logged
+  as `telegram_ignored`, within the same once-an-hour limit.
 - **Errors** never include the API URL or the file download URL, since the bot token is in both.
 
 ## On a laptop
