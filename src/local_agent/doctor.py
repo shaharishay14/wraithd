@@ -153,6 +153,9 @@ def checks(home: Home, service=None, transport=None, port_free=port_free) -> lis
     # >>> evals
     # <<< evals
     # >>> sandbox
+    from local_agent.sandbox.audit import doctor_checks as sandbox_checks
+
+    found += sandbox_checks(home, config)
     # <<< sandbox
     return found
 

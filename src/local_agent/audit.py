@@ -153,6 +153,9 @@ def checks(home: Home) -> list[Check]:
     # >>> evals
     # <<< evals
     # >>> sandbox
+    from local_agent.sandbox.audit import sandbox_rules
+
+    found += sandbox_rules(home, config)
     # <<< sandbox
     return found
 
