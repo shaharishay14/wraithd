@@ -33,27 +33,52 @@ REGISTRIES = {
 MARKER = re.compile(r'^\s*# (>>>|<<<) (\w+)\s*$')
 
 
-@pytest.mark.parametrize('path', sorted(REGISTRIES))
-def test_each_registry_has_every_workers_block(path):
-    lines = (SRC / path).read_text().splitlines()
+def check_blocks(path: str, lines: list[str], anchors: list[tuple[str, str]]) -> None:
     markers = [(number, *MARKER.match(line).groups()) for number, line in enumerate(lines) if MARKER.match(line)]
-    expected = [(side, worker) for _ in REGISTRIES[path] for worker in WORKERS for side in ('>>>', '<<<')]
+    expected = [(side, worker) for _ in anchors for worker in WORKERS for side in ('>>>', '<<<')]
     assert [(side, worker) for _, side, worker in markers] == expected
 
     # Each registry's blocks sit after its anchor and before the next line that closes it
     groups = [markers[i:i + 2 * len(WORKERS)] for i in range(0, len(markers), 2 * len(WORKERS))]
-    for (after, before), group in zip(REGISTRIES[path], groups, strict=True):
+    for (after, before), group in zip(anchors, groups, strict=True):
         first, last = group[0][0], group[-1][0]
         start = max(i for i in range(first) if after in lines[i])
         assert start < first
         end = next(i for i in range(last + 1, len(lines)) if lines[i].strip().startswith(before))
-        # nothing but other blocks between the anchors and the blocks' ends: the blocks are one run of lines
-        assert all(MARKER.match(lines[i]) for i in range(first, last + 1)), f'{path}: blocks interleaved with code'
+        # the blocks are one run of lines: outside a block, only markers (a block's own lines are the worker's)
+        inside = False
+        for i in range(first, last + 1):
+            match = MARKER.match(lines[i])
+            if match:
+                inside = match.group(1) == '>>>'
+            else:
+                assert inside, f'{path}: blocks interleaved with code'
         assert end > last
 
 
+@pytest.mark.parametrize('path', sorted(REGISTRIES))
+def test_each_registry_has_every_workers_block(path):
+    check_blocks(path, (SRC / path).read_text().splitlines(), REGISTRIES[path])
+
+
+def _registry(between: list[str] = (), inside_first: list[str] = ()) -> list[str]:
+    blocks = [f'    # {side} {worker}' for worker in WORKERS for side in ('>>>', '<<<')]
+    return ['x = {', blocks[0], *inside_first, blocks[1], *between, *blocks[2:], '}']
+
+
+def test_a_block_with_content_passes():
+    check_blocks('x.py', _registry(inside_first=["    'a': 1,"]), [('x = {', '}')])
+
+
+def test_code_between_blocks_fails():
+    with pytest.raises(AssertionError, match='interleaved'):
+        check_blocks('x.py', _registry(between=["    'a': 1,"]), [('x = {', '}')])
+
+
 def test_between_runs_still_holds_the_core_types():
-    assert ev.BETWEEN_RUNS == (ev.COMPACTION, ev.DISTILL, ev.TELEGRAM_IGNORED)
+    # workers add their own between-runs types in their blocks, after the core ones
+    assert ev.BETWEEN_RUNS[:3] == (ev.COMPACTION, ev.DISTILL, ev.TELEGRAM_IGNORED)
+
 
 
 def test_the_api_blocks_come_before_the_catch_all():
