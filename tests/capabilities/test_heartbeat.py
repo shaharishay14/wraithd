@@ -154,3 +154,19 @@ def test_only_read_only_app_tools_are_allowed():
                           destructive={'GMAIL_LIST_ODD'})
     allowed = heartbeat.allowed_tools(mcp)
     assert 'GMAIL_FETCH_EMAILS' in allowed and not {'GMAIL_SEND_EMAIL', 'GMAIL_LIST_ODD'} & allowed
+
+
+async def test_heartbeat_status(make_runtime, home):
+    on(home)
+    model = ScriptedModel([[say('Your dentist is at 10:00.')]])
+    rt = runtime(make_runtime, model)
+    await heartbeat.Heartbeat(rt).tick(T0)
+    text = heartbeat.status_text(rt, now=T0 + timedelta(minutes=5))
+    assert 'Heartbeat: on, every 30 minutes, quiet 22:00-07:00' in text and 'Due now: no' in text
+    assert 'Your dentist is at 10:00.' in text
+
+
+def test_the_cli_has_a_heartbeat_command():
+    from local_agent.cli import build_parser
+
+    assert build_parser().parse_args(['heartbeat', 'status']).heartbeat_command == 'status'

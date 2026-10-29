@@ -92,6 +92,9 @@ def build_parser() -> argparse.ArgumentParser:
     tokens.set_defaults(command='runs_tokens')  # handled in main's efficiency block
     # <<< efficiency
     # >>> capabilities
+    from local_agent.daemon import heartbeat
+
+    heartbeat.add_arguments(commands)
     # <<< capabilities
     # >>> reach
     # <<< reach
@@ -282,6 +285,10 @@ def main(argv: list[str] | None = None) -> int:
         return tokens.main(home, args.run_id, args.json)
     # <<< efficiency
     # >>> capabilities
+    if args.command == 'heartbeat':
+        from local_agent.daemon import heartbeat
+
+        return heartbeat.main(home, args)
     # <<< capabilities
     # >>> reach
     # <<< reach

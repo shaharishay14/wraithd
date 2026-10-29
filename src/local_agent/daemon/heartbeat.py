@@ -169,3 +169,45 @@ async def run_once(rt, mcp=None, now: datetime | None = None) -> str:
 async def heartbeat_job(rt) -> str | None:
     """The daemon's periodic job (daemon/jobs.py): checks every minute whether a heartbeat is due."""
     return await Heartbeat(rt).tick()
+
+
+# --- `local-agent heartbeat ...` --------------------------------------------------------------------------------
+
+def add_arguments(subparsers) -> None:
+    beat = subparsers.add_parser('heartbeat', help='the periodic look-around (off unless [heartbeat] enabled)'
+                                 ).add_subparsers(dest='heartbeat_command', required=True)
+    beat.add_parser('status', help='on or off, when it last ran, what it said')
+    beat.add_parser('now', help='run one heartbeat now (a model call), and print what it would send')
+
+
+def status_text(rt, now: datetime | None = None) -> str:
+    settings, beat = rt.config.section('heartbeat'), Heartbeat(rt)
+    now = now or datetime.now(UTC)
+    lines = [f'Heartbeat: {"on" if settings["enabled"] else "off ([heartbeat] enabled = true turns it on)"}, every '
+             f'{settings["every_minutes"]} minutes, quiet {settings["quiet_hours"] or "never"}, at most '
+             f'{settings["max_tokens"]} tokens']
+    last = beat.last_run_at()
+    lines.append(f'Last ran: {last.astimezone():%Y-%m-%d %H:%M}' if last else 'Last ran: never')
+    if settings['enabled']:
+        lines.append(f'Due now: {"yes" if beat.due(now) else "no"}')
+    for event in beat._runs(5):
+        said = event.payload.get('message') if event.payload.get('sent') else '(nothing)'
+        lines.append(f'  {event.created_at.astimezone():%m-%d %H:%M}  {said}')
+    return '\n'.join(lines)
+
+
+def main(home, args) -> int:
+    import asyncio
+
+    from local_agent.run import Runtime
+
+    rt = Runtime.open(home)
+    try:
+        if args.heartbeat_command == 'status':
+            print(status_text(rt))
+            return 0
+        run_id = asyncio.run(run_once(rt))
+        print(f'Heartbeat run {run_id[:8]}: see `local-agent runs show {run_id[:8]}`')
+        return 0
+    finally:
+        rt.close()
