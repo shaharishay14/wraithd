@@ -95,3 +95,12 @@ def test_remote_hosts_reads_the_config(home):
     assert remote_hosts(load_config(home)) == []
     home.config_path.write_text('[remote]\nallowed_hosts = ["Box.Tail1234.TS.net"]\n')
     assert remote_hosts(load_config(home)) == ['box.tail1234.ts.net']
+
+
+def test_daemon_status_lists_the_tailnet_link(home):
+    from local_agent.daemon import commands
+
+    assert commands.remote_links(home) == []
+    home.config_path.write_text(f'[remote]\nallowed_hosts = ["{TAILNET}"]\n')
+    [link] = commands.remote_links(home)
+    assert link.startswith(f'https://{TAILNET}/#token=') and len(link) > 60

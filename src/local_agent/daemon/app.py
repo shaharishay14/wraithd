@@ -17,7 +17,7 @@ import uvicorn
 
 from local_agent.channels.telegram import TelegramBot, TelegramChannel, TelegramNotifier
 from local_agent.config import get_key
-from local_agent.daemon import jobs
+from local_agent.daemon import jobs, service
 from local_agent.daemon.api import build_api
 from local_agent.daemon.jobs import DISTILL_EVERY_SECONDS, distill_all  # noqa: F401 (where they used to live)
 from local_agent.daemon.scheduler import Scheduler
@@ -59,6 +59,7 @@ class Daemon:
         return [f'https://{host.removesuffix(":443")}/#token={self.token}' for host in remote_hosts(self.rt.config)]
 
     async def start(self) -> None:
+        service.rotate_log(self.rt.home)  # a log that grew while the daemon was down
         await self._stack.__aenter__()
         # Owner-only, long-lived: every owner run in the daemon shares these sessions
         self.mcp = await self._stack.enter_async_context(McpConnections(self.rt.config.mcp_servers))

@@ -5,13 +5,19 @@ Both run `local-agent daemon` (as this Python's `-m local_agent daemon`, so it s
 lookup), start it at login, restart it if it crashes, and append its output to ~/.local-agent/logs/daemon.log.
 Nothing runs as root and nothing is installed system-wide.
 
+The log is rotated by the daemon itself (rotate_log, at start and every minute): past 5 MB it's copied to
+daemon.log.1 (older ones move to .2 and .3, the oldest dropped) and emptied in place. In place, because the service
+manager holds the file open and appends to it; a few lines written during the copy can be lost.
+
 Every launchctl/systemctl call goes through `runner` (subprocess.run by default), so tests pass a fake and never
 touch the real service manager.
 """
 
+import asyncio
 import os
 import plistlib
 import re
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -25,6 +31,9 @@ from local_agent.config import Home
 LABEL = 'com.local-agent.daemon'  # launchd
 UNIT = 'local-agent.service'  # systemd
 LOG_FILE = 'daemon.log'
+LOG_MAX_BYTES = 5_000_000  # rotated past this
+LOG_KEEP = 3  # daemon.log.1 (newest) to .3
+LOG_ROTATE_EVERY_SECONDS = 60
 
 Runner = Callable[[list[str]], subprocess.CompletedProcess]
 
@@ -46,6 +55,39 @@ class Status:
 
 def log_path(home: Home) -> Path:
     return home.root / 'logs' / LOG_FILE
+
+
+def rotated_log_paths(home: Home, keep: int = LOG_KEEP) -> list[Path]:
+    """daemon.log.1 (the newest) to .<keep>."""
+    path = log_path(home)
+    return [path.with_name(f'{LOG_FILE}.{number}') for number in range(1, keep + 1)]
+
+
+def rotate_log(home: Home, max_bytes: int | None = None, keep: int = LOG_KEEP) -> bool:
+    """Past max_bytes (LOG_MAX_BYTES), the log is copied to .1 (the older ones shift, the oldest goes) and emptied.
+    True if it was."""
+    max_bytes = LOG_MAX_BYTES if max_bytes is None else max_bytes
+    path = log_path(home)
+    try:
+        if path.stat().st_size < max_bytes:
+            return False
+    except FileNotFoundError:
+        return False
+    older = rotated_log_paths(home, keep)
+    for source, target in reversed(list(zip(older, older[1:], strict=False))):
+        if source.exists():
+            os.replace(source, target)
+    # Copy, then empty in place: launchd and systemd keep the file open in append mode, so it must stay the same file
+    descriptor = os.open(older[0], os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with open(path, 'rb') as current, os.fdopen(descriptor, 'wb') as copy:
+        shutil.copyfileobj(current, copy)
+    os.truncate(path, 0)
+    return True
+
+
+async def rotate_log_job(rt) -> None:
+    """The periodic job (daemon/jobs.py)."""
+    await asyncio.to_thread(rotate_log, rt.home)
 
 
 def daemon_command() -> list[str]:

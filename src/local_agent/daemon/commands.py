@@ -11,6 +11,7 @@
 `start` installs the service first if it isn't installed yet, so one command is enough.
 """
 
+import os
 import sys
 import time
 
@@ -51,6 +52,18 @@ def web_link(home: Home) -> str:
     return f'http://127.0.0.1:{port(home)}/#token={load_or_create_token(home.root)}'
 
 
+def remote_links(home: Home) -> list[str]:
+    """The web UI through tailscale serve, one per [remote] allowed_hosts name (docs/remote-access.md)."""
+    from local_agent.daemon.security import remote_hosts
+
+    try:
+        hosts = remote_hosts(load_config(home))
+    except ConfigError:
+        return []
+    token = web_link(home).partition('#')[2]
+    return [f'https://{host.removesuffix(":443")}/#{token}' for host in hosts]
+
+
 def status(home: Home, service, transport=None, say=print) -> int:
     state = service.status()
     if not state.installed:
@@ -63,9 +76,22 @@ def status(home: Home, service, transport=None, say=print) -> int:
     if answer:
         say(f'Daemon: answering on port {port(home)} (version {answer.get("version", "?")})')
         say(f'Web UI: {web_link(home)}')
+        for link in remote_links(home):
+            say(f'From your tailnet: {link}')
     else:
         say(f'Daemon: not answering on port {port(home)}' + (' (local-agent daemon logs)' if state.installed else ''))
     return 0 if answer else 1
+
+
+def _last_lines(home: Home, lines: int) -> list[str]:
+    """The log's last lines, reaching into the rotated files (daemon.log.1, .2...) when the current one is short."""
+    found: list[str] = []
+    for path in [service_module.log_path(home), *service_module.rotated_log_paths(home)]:
+        if len(found) >= lines:
+            break
+        if path.exists():
+            found = path.read_text(errors='replace').splitlines() + found
+    return found[-lines:] if lines > 0 else []
 
 
 def logs(home: Home, lines: int, follow: bool, say=print, sleep=time.sleep) -> int:
@@ -74,13 +100,16 @@ def logs(home: Home, lines: int, follow: bool, say=print, sleep=time.sleep) -> i
         say(f'No log yet ({path}). The background service writes it once it runs.')
         return 0
     with path.open(errors='replace') as log:
-        for line in log.readlines()[-lines:] if lines > 0 else []:
-            say(line.rstrip('\n'))
+        for line in _last_lines(home, lines):
+            say(line)
+        log.seek(0, os.SEEK_END)
         while follow:
             line = log.readline()
             if line:
                 say(line.rstrip('\n'))
             else:
+                if os.stat(path).st_size < log.tell():  # rotated: emptied in place, so read it from the start
+                    log.seek(0)
                 sleep(0.5)
     return 0
 

@@ -56,6 +56,8 @@ def jobs(rt) -> list[Job]:
     # >>> capabilities
     # <<< capabilities
     # >>> reach
+    from local_agent.daemon import service
+    found.append(Job('log-rotate', service.LOG_ROTATE_EVERY_SECONDS, service.rotate_log_job))
     # <<< reach
     # >>> evals
     # <<< evals
