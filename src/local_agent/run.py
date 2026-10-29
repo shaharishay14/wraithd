@@ -300,7 +300,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
 
         own += browser.run_tools(rt, log, owner, stack)  # closed when the run ends (stack)
         own += delegate.delegate_tools(rt, gate, log, callback=callback, owner=owner, mcp=mcp,
-                                       parent_run_id=parent_run_id, offered=[*tools, *app_tools, *own],
+                                       parent_run_id=parent_run_id, tools=tools, app_tools=app_tools, own=own,
                                        allowed_tools=allowed_tools)
         # <<< capabilities
         # >>> reach

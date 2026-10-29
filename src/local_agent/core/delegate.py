@@ -52,7 +52,8 @@ def remaining(limit, used: int) -> int | None:
     return None if limit is None else max(limit - used, 0)
 
 
-def delegate_tools(rt, gate, log, *, callback, owner: bool, mcp, parent_run_id, offered, allowed_tools) -> list:
+def delegate_tools(rt, gate, log, *, callback, owner: bool, mcp, parent_run_id, tools, app_tools, own,
+                   allowed_tools) -> list:
     """[delegate] for the owner's top-level runs when [subagents] is on; [] for a child (depth 1)."""
     settings = rt.config.section('subagents')
     if parent_run_id is not None or not owner or not settings['enabled']:
@@ -60,8 +61,12 @@ def delegate_tools(rt, gate, log, *, callback, owner: bool, mcp, parent_run_id, 
     default_tokens = settings['default_tokens']
     from local_agent.run import run  # run.py builds this tool, so it's imported only once run.py has loaded
 
+    # The child gets the parent's tools as they are (built-ins already chosen for attended or not, plus a caller's),
+    # its own memory and skill tools on its own gate, and the same app connections. Never delegate.
+    tools, app_tools = list(tools), [tool for tool in app_tools if mcp is None or tool not in mcp.tools]
+
     def child_tools() -> set[str]:
-        names = {tool.name for tool in offered} - {DELEGATE}
+        names = {tool.name for tool in [*tools, *app_tools, *own, *(mcp.tools if mcp else [])]} - {DELEGATE}
         return names if allowed_tools is None else names & set(allowed_tools)
 
     async def delegate(task: str, budget_tokens=None) -> dict:
@@ -81,7 +86,7 @@ def delegate_tools(rt, gate, log, *, callback, owner: bool, mcp, parent_run_id, 
             budget['daily_tokens'] = rt.config.daily_tokens - used  # today's saved runs + this one so far
         tainted = bool(gate.untrusted_sources)
         result = await run(rt, CHILD_BRIEF + task, callback=forwarding(callback), source=SOURCE, owner=owner,
-                           mcp=mcp, untrusted_source=DELEGATED_TASK if tainted else '', parent_run_id=log.run_id,
+                           tools=tools, app_tools=app_tools, builtins=False, mcp=mcp, untrusted_source=DELEGATED_TASK if tainted else '', parent_run_id=log.run_id,
                            inherited_taint=list(gate.untrusted_texts), budget=budget, purpose='subagent',
                            allowed_tools=child_tools())
         child = rt.store.run_events(result.run_id)
