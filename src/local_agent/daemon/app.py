@@ -62,7 +62,8 @@ class Daemon:
         service.rotate_log(self.rt.home)  # a log that grew while the daemon was down
         await self._stack.__aenter__()
         # Owner-only, long-lived: every owner run in the daemon shares these sessions
-        self.mcp = await self._stack.enter_async_context(McpConnections(self.rt.config.mcp_servers, store=self.rt.store))
+        self.mcp = await self._stack.enter_async_context(
+            McpConnections(self.rt.config.mcp_servers, store=self.rt.store))
         self.scheduler.mcp = self.mcp
         token = get_key('telegram')
         if token:

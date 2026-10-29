@@ -435,7 +435,10 @@ def build_api(daemon, ui_dir: Path | None) -> Starlette:
             raise ApiError(409, 'conflict', f'{server.name} marks {tool} as destructive: it asks every time, so it '
                                                'can\'t be always allowed.')
         try:  # an always-allow holds only for the definition the owner saw (mcp/pinning.py)
-            (pinning.pin(rt.store, server.name, tool, by='api') if allow else pinning.unpin(rt.store, server.name, tool))
+            if allow:
+                pinning.pin(rt.store, server.name, tool, by='api')
+            else:
+                pinning.unpin(rt.store, server.name, tool)
         except pinning.PinError as e:
             raise ApiError(409, 'conflict', str(e)) from None
         names = [t for t in server.always_allow if t != tool] + ([tool] if allow else [])
