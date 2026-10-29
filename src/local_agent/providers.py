@@ -77,9 +77,11 @@ async def _with_cache_writes(stream):
         yield chunk
 
 
-# Anthropic cache breakpoints (LiteLLM puts cache_control on these messages): the end of the system prompt, which
-# caches the tool list and the system prompt; and the last message, so each turn reads the run so far from cache
-CACHE_POINTS = [{'location': 'message', 'role': 'system'}, {'location': 'message', 'index': -1}]
+# Anthropic cache breakpoints (LiteLLM puts cache_control on these messages): the system prompt (message 0, where
+# the SDK puts the instructions), which caches the tool list and the system prompt; and the last message, so each
+# turn reads the run so far from cache. Not by role: LiteLLM moves later system messages (the time note, a final-
+# answer instruction) into Anthropic's system blocks too, and marking those would cache on a changing block.
+CACHE_POINTS = [{'location': 'message', 'index': 0}, {'location': 'message', 'index': -1}]
 
 
 def model_settings(config: Config) -> ModelSettings:

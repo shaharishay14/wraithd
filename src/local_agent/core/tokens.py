@@ -224,6 +224,8 @@ class TokenMeter(Model):
 LABELS = {TOOLS: 'tool list', SYSTEM: 'system prompt', AGENTS_MD: 'AGENTS.md', SKILLS: 'skills list',
           PROFILE: 'profile + memory map', HISTORY: 'history', TOOL_RESULTS: 'tool results',
           NOTES: 'time + reminders', 'framing': 'message framing (reported - measured)'}
+COLUMNS = {TOOLS: 'tools', SYSTEM: 'system', AGENTS_MD: 'AGENTS.md', SKILLS: 'skills', PROFILE: 'profile',
+           HISTORY: 'history', TOOL_RESULTS: 'results', NOTES: 'notes'}
 
 
 def breakdown(events) -> dict:
@@ -273,10 +275,10 @@ def render_text(run_id: str, found: dict) -> str:
     lines.append('  prefix: ' + ('the same on every call' if len(hashes) == 1 else
                                  f'{len(hashes)} different prefixes (the cache restarted)'))
     lines.append('')
-    lines.append('  call  ' + '  '.join(f'{LABELS[name][:10]:>10}' for name in PARTS) + '    reported  cached')
+    lines.append('  call' + ''.join(f'{COLUMNS[name]:>10}' for name in PARTS) + '  reported    cached')
     for number, call in enumerate(calls, 1):
-        lines.append(f'  {number:>4}  ' + '  '.join(f'{call["parts"][name]:>10,}' for name in PARTS)
-                     + f'  {call["reported"]:>10,}  {call["cache_read"]:>6,}')
+        lines.append(f'  {number:>4}' + ''.join(f'{call["parts"][name]:>10,}' for name in PARTS)
+                     + f'{call["reported"]:>10,}{call["cache_read"]:>10,}')
     return '\n'.join(lines)
 
 
