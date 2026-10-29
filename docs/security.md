@@ -30,6 +30,8 @@ a tool that can't be wrapped is dropped, never passed through):
   rules above are the defense.
 - **MCP tool descriptions are third-party text too.** Given to the model directly, they taint the run from its
   first step (`MCP tool descriptions`); in discovery, `describe_app_action` marks its result untrusted.
+- **The review queue.** What the agent would keep from a tainted run (a memory write, a fact distill can't trace to
+  the owner) waits for the owner's approval instead ([review queue](review-queue.md)).
 - **Always ask** (`always_ask`): a write that is never pre-approved, whatever the config says, and never runs
   unattended. MCP tools the server annotates `destructiveHint` get it ([MCP](mcp.md)).
 
