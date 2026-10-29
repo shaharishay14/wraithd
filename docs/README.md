@@ -55,6 +55,9 @@ says what changed for running on one person's laptop.
 | [One loop, not a team](one-loop.md) | Why there's one agent, and when a sub-agent would be worth it. |
 | [Proof](proof.md) | Unit tests, scripted runs through the real SDK, and replay of recorded runs. |
 | [Evals](evals.md) | Ten golden tasks in a fake world of MCP servers, graded by checks and a judge, cost-capped. |
+| [Seams](seams.md) | The extension points Phase 9 workers plug into: model per purpose, run options, marked blocks, module migrations, periodic jobs, tool-result hooks. |
+| [Review queue](review-queue.md) | Items waiting for the owner (third-party memory writes, later skills and changed MCP tools): `local-agent review`, the API, one short notice. |
+| [Memory provenance](memory-provenance.md) | Where each memory note came from, and why a tainted run's memory writes wait for review. |
 
 ## Where the ideas come from
 

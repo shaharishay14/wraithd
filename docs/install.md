@@ -68,5 +68,5 @@ stops it, and a schedule that came due meanwhile fires once when it wakes (see [
   turn that on, since it changes a system setting.
 - launchd needs a GUI session: installing over SSH fails with launchctl's error, and `local-agent daemon` in a
   terminal (or tmux) is the fallback.
-- The log isn't rotated. It's small (warnings only), but it grows.
+- The log rotates at 5 MB, keeping 3 old files ([the daemon](daemon.md#the-log)).
 - Windows has no service; `local-agent daemon` works in a terminal.

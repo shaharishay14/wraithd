@@ -6,6 +6,7 @@ times.
 """
 
 import json
+import os
 import sqlite3
 import threading
 import uuid
@@ -112,6 +113,9 @@ class SQLiteStore:
     def __init__(self, path: str | Path = ':memory:', migrations: Sequence[modules.Migration] | None = None):
         if str(path) != ':memory:':
             Path(path).parent.mkdir(parents=True, exist_ok=True)
+            # The store holds conversations and third-party text: owner-only, like the folder it sits in
+            os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
+            os.chmod(path, 0o600)
         # One connection shared by the process, guarded by a lock: the daemon's API, scheduler and runs are
         # all in one process, and approvals are decided from a different task than the one waiting.
         self._db = sqlite3.connect(str(path), check_same_thread=False)
@@ -127,6 +131,10 @@ class SQLiteStore:
                     self._db.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
             self._db.commit()
             self._apply_module_migrations(modules.MIGRATIONS if migrations is None else migrations)
+        if str(path) != ':memory:':
+            for side in ('-wal', '-shm'):  # created with the db's mode; older homes may have 644 ones
+                if os.path.exists(f'{path}{side}'):
+                    os.chmod(f'{path}{side}', 0o600)
 
     def _apply_module_migrations(self, migrations: Sequence[modules.Migration]) -> None:
         """Each module migration not applied yet, in order, in its own transaction with its record."""

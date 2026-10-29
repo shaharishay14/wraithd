@@ -152,3 +152,12 @@ def test_an_older_database_gets_the_new_columns(tmp_path):
     assert (message.content, message.run_id) == ('from before', None)
     assert store.add_message('c1', 'assistant', 'now', run_id='r1').run_id == 'r1'
     store.close()
+
+
+def test_the_db_file_and_its_side_files_are_owner_only(tmp_path):
+    path = tmp_path / 'state.db'
+    path.touch(mode=0o644)
+    SQLiteStore(path)
+    for name in ('state.db', 'state.db-wal', 'state.db-shm'):
+        if (tmp_path / name).exists():
+            assert (tmp_path / name).stat().st_mode & 0o777 == 0o600, name
