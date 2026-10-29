@@ -174,6 +174,59 @@ def _context_pressure(situation: Situation) -> str | None:
     return f'The conversation is using most of the context window. {advice}'
 
 
+SEARCH_WORDS = re.compile(r'SEARCH|FIND|QUERY', re.IGNORECASE)
+FETCH_WORD = re.compile(r'FETCH', re.IGNORECASE)
+QUERY_ARGUMENTS = ('query', 'q', 'search', 'from', 'filter')
+SEARCH_TOOLS = ('memory_search', 'web_search')
+NOTHING_FOUND = re.compile(r'^\W*(no (results?|matches|emails?|messages?|notes?|items?)\b|nothing (found|matched)|'
+                           r'0 results\b)', re.IGNORECASE)
+
+
+def _last_arguments(events, tool: str) -> dict:
+    for event in reversed(events):
+        if event.type == ev.TOOL_CALL and event.payload.get('tool') == tool:
+            return event.payload.get('arguments') or {}
+    return {}
+
+
+def _search_like(tool: str, arguments: dict) -> bool:
+    """A search, not a listing: an empty schedule_list or files_list is a real answer, not a missed search."""
+    if tool in SEARCH_TOOLS or SEARCH_WORDS.search(tool):
+        return True
+    return bool(FETCH_WORD.search(tool)) and any(arguments.get(name) for name in QUERY_ARGUMENTS)
+
+
+def found_nothing(output) -> bool:
+    """True for an empty result: [], a dict whose lists are all empty ({"messages": []}), or "No results"."""
+    if isinstance(output, str):
+        try:
+            return found_nothing(json.loads(output))
+        except ValueError:
+            return bool(NOTHING_FOUND.match(output))
+    if isinstance(output, list):
+        return not output
+    if isinstance(output, dict):
+        if output.get('error'):
+            return False  # a failure, which tool_errors covers
+        if isinstance(output.get('text'), str):  # an MCP text block
+            return found_nothing(output['text'])
+        if output.get('results_count') == 0:
+            return True
+        lists = [value for value in output.values() if isinstance(value, list)]
+        return bool(lists) and not any(lists)
+    return False
+
+
+def _empty_result(situation: Situation) -> str | None:
+    """A search that found nothing: the query may be too narrow (a wrong domain, an exact filter)."""
+    if not situation.tool or not _search_like(situation.tool, _last_arguments(situation.events, situation.tool)):
+        return None
+    if not found_nothing(situation.tool_output):
+        return None
+    return ('That search found nothing. Before you tell the user it doesn\'t exist, try once more with a broader '
+            'query: fewer words, no exact sender, domain or other filter.')
+
+
 REFERS_BACK = re.compile(r'\b(earlier|before|last time|you said|you told|we (talked|discussed|agreed)|remember|'
                          r'previously|that (one|email|file|doc)|again)\b', re.IGNORECASE)
 
@@ -216,6 +269,7 @@ REMINDERS = [
     Reminder('untrusted_content', ANY_TOOL, _untrusted_content, priority=10),
     Reminder('tool_errors', ANY_TOOL, _tool_errors, priority=20),
     Reminder('repeated_call', ANY_TOOL, _repeated_call, priority=20),
+    Reminder('empty_result', ANY_TOOL, _empty_result, priority=25),
     Reminder('context_pressure', ANY_TOOL, _context_pressure, priority=30),
     Reminder('history_summarized', RUN_START, _history_summarized, priority=30),
     Reminder('skill_match', RUN_START, _skill_match, priority=40),
