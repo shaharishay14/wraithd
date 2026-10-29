@@ -12,6 +12,7 @@ import contextlib
 import difflib
 import json
 import logging
+import re
 
 from agents import FunctionTool
 
@@ -41,6 +42,29 @@ def read_paths(events) -> set[str]:
             with contextlib.suppress(ValueError):
                 paths.add(vault.normalize_path(event.payload.get('arguments', {}).get('path', '')))
     return paths
+
+
+_WORD = re.compile(r"[a-z0-9@._'-]+")
+_SHORT = 3  # words this short ("a", "is", "to") carry no fact of their own
+
+
+def _words(text: str) -> set[str]:
+    found = set()
+    for word in _WORD.findall(text.lower()):
+        word = word.strip(".'-_")
+        if len(word) >= _SHORT:
+            found.add(word.removesuffix('s'))  # "prefer" and "prefers" are the same word
+    return found
+
+
+def owner_said(text: str, owner_message: str) -> bool:
+    """
+    Whether every word that matters in text is in the owner's own message: "Prefers short replies" after "remember I
+    prefer short replies". A memory the owner dictated saves directly even after the run read third-party content; one
+    that adds anything the owner didn't say (an address from an email) still waits for review.
+    """
+    wanted = _words(text)
+    return bool(wanted) and wanted <= _words(owner_message)
 
 
 def memory_tools(memory: Vault, gate, log: ev.EventLog, notifier=None) -> list[FunctionTool]:
@@ -90,9 +114,16 @@ def memory_tools(memory: Vault, gate, log: ev.EventLog, notifier=None) -> list[F
             'untrusted': note.trust == vault.LOW,
         })
 
+    def owner_message() -> str:
+        start = next((e for e in log.events if e.type == ev.RUN_START), None)
+        return (start.payload.get('message') or '') if start else ''
+
     async def _save(path, title, body, append):
-        """Saves the write, or queues it for the owner once the run has read third-party content."""
-        if review.goes_to_review(gate):
+        """
+        Saves the write, or queues it for the owner once the run has read third-party content, unless the owner's
+        own message of this run says it all (owner_said).
+        """
+        if review.goes_to_review(gate) and not owner_said(f'{title or ""} {body}', owner_message()):
             if log.store is None:  # nowhere to queue it: never write it instead
                 return _error('This can\'t be saved: the run read third-party content and there is no review queue.')
             item = review.queue_write(log.store, op=review.APPEND if append else review.WRITE, path=path, title=title,

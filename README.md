@@ -88,6 +88,9 @@ local-agent mcp allow gmail send_email   # stop asking for this one
 - Secrets go to the OS keychain and only to their own server.
 - Read-only tools run freely. Anything else asks first (a y/N in the terminal, a card in the web UI, buttons
   in Telegram), until you mark it "always allow". Tools a server marks destructive ask every time.
+- "Always allow" holds only for the tool as you saw it: if a server changes a tool's description, inputs or
+  read-only/destructive marks, it asks again and the change waits in `local-agent review list`.
+  **Upgrading:** tools you always-allowed before this version ask once more; allow them again to pin them.
 - Skills follow what's connected: `--provides email` makes the morning brief and inbox triage appear.
 - Tools are discovered rather than listed, so the prompt doesn't grow with every server you add.
 

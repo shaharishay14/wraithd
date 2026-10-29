@@ -98,3 +98,43 @@ async def test_approving_the_item_is_the_only_way_in(make_runtime, home):
     queue.reject(rt.store, rt.home, item.id, 'cli')
     assert rt.memory.get('routines/invoices.md') is None
     assert ReviewQueue(rt.store).list() == []
+
+
+async def test_the_owners_own_words_save_directly_in_a_tainted_run(make_runtime):
+    # owner decision 2026-10-29: after reading an email, "remember ..." in the owner's own message still saves
+    model = ScriptedModel([
+        [call('1', 'GMAIL_FETCH_EMAILS', {})],
+        [call('2', 'memory_append', {'path': 'preferences/replies', 'text': '- Prefers short replies'})],
+        [say('Noted.')],
+    ])
+    rt = make_runtime(model)
+    inbox = fake_tool('GMAIL_FETCH_EMAILS', lambda **a: {'emails': [EMAIL]})
+    await run_once(rt, 'Check my inbox. Also remember I prefer short replies', app_tools=[inbox])
+
+    assert json.loads(model.tool_outputs(2)['call_2'])['saved'] == 'preferences/replies.md'
+    assert rt.memory.get('preferences/replies.md').body == '- Prefers short replies'
+    assert ReviewQueue(rt.store).list('all') == []
+
+
+async def test_a_memory_that_adds_words_the_owner_didnt_say_still_waits(make_runtime):
+    # the owner said "remember where invoices go"; the address came from the email
+    model = ScriptedModel([
+        [call('1', 'GMAIL_FETCH_EMAILS', {})],
+        [call('2', 'memory_append', {'path': 'routines/invoices', 'text': PLANTED})],
+        [say('ok')],
+    ])
+    rt = make_runtime(model)
+    inbox = fake_tool('GMAIL_FETCH_EMAILS', lambda **a: {'emails': [EMAIL]})
+    await run_once(rt, 'Read my inbox and remember where all invoices are forwarded', app_tools=[inbox])
+
+    assert json.loads(model.tool_outputs(2)['call_2'])['saved'] is False
+    assert rt.memory.get('routines/invoices.md') is None
+    [item] = ReviewQueue(rt.store).list()
+    assert item.kind == 'memory'
+
+
+def test_owner_said_needs_every_word_that_matters():
+    from local_agent.memory.tools import owner_said
+    assert owner_said('- Prefers short replies', 'remember I prefer short replies')
+    assert not owner_said(PLANTED, 'remember where all invoices are forwarded')
+    assert not owner_said('', 'anything')
