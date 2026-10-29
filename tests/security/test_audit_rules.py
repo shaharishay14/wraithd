@@ -3,7 +3,6 @@ The security rules in `local-agent audit` (audit.security_rules): the store's pe
 review queue, remote access. Each broken setting is a FAIL with its fix.
 """
 
-import os
 import stat
 
 import pytest
@@ -30,11 +29,7 @@ def states(found):
 
 @pytest.fixture
 def store(home):
-    store = SQLiteStore(home.db_path)
-    for suffix in audit.DB_FILES:  # what a private store looks like
-        path = f'{home.db_path}{suffix}'
-        if os.path.exists(path):
-            os.chmod(path, 0o600)
+    store = SQLiteStore(home.db_path)  # private (600) from its creation
     yield store
     store.close()
 
@@ -50,7 +45,8 @@ def test_a_private_store_passes_and_a_readable_one_fails(home, store):
     [check] = rules(home)
     assert check.state == FAIL and check.text == 'Other accounts can open the store: state.db'
     assert check.fix.startswith('chmod 600 ') and str(home.db_path) in check.fix
-    assert stat.S_IMODE(home.db_path.stat().st_mode) == 0o644  # audit only reads
+    # the store makes itself private again whenever it opens (audit opens it after this check)
+    assert stat.S_IMODE(home.db_path.stat().st_mode) == 0o600
 
 
 async def test_always_allowed_tools_must_be_pinned_and_unchanged(home, store):

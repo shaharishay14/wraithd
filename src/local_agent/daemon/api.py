@@ -33,6 +33,7 @@ from local_agent.tools import builtin_tools, search_provider
 
 # Workers import their route modules inside their own block
 # >>> security
+from local_agent.review import api as review_api  # isort: skip
 # <<< security
 # >>> efficiency
 # <<< efficiency
@@ -501,7 +502,7 @@ def build_api(daemon, ui_dir: Path | None) -> Starlette:
         Route('/api/telegram/pairing', handler(telegram_pairing), methods=['POST']),
         # New routes, before the catch-all: each worker adds `*its_routes(daemon, handler),` inside its block only
         # >>> security
-        *__import__('local_agent.review.api', fromlist=['routes']).routes(daemon, handler),
+        *review_api.routes(daemon, handler),
         # <<< security
         # >>> efficiency
         # <<< efficiency

@@ -1,6 +1,6 @@
 # MCP: your apps
 
-**Files:** `mcp/config.py`, `mcp/client.py`, `mcp/commands.py`, `core/gate.py`, `core/disclosure.py`
+**Files:** `mcp/config.py`, `mcp/client.py`, `mcp/commands.py`, `mcp/pinning.py`, `core/gate.py`, `core/disclosure.py`
 
 ## One-liner
 
@@ -37,6 +37,33 @@
 - **Skills follow what's connected:** `--provides email` (or `calendar`, or any word) declares what a server gives.
   Skills declare what they need (`requires: [email]`), so the morning brief appears once a connected server
   provides email, and disappears when it's gone or fails to start.
+
+## Pinning: a tool is what it was when you trusted it
+
+A server can change a tool after the owner trusted it: the always-allowed "add a label" becomes "forward the inbox"
+under the same name, or a send starts calling itself read-only. So every connect hashes each tool's name,
+description, input schema and annotations, and compares the hash with what the owner accepted (`mcp/pinning.py`,
+table `security_mcp_tools`):
+
+- **Always allow is pinned.** `mcp allow` connects, checks the tool and stores its hash. The allow holds only while
+  the tool stays exactly that. If the server doesn't connect, the allow is refused: there's nothing to pin.
+- **A changed tool** loses its pre-approval and asks again. The event `mcp_tool_changed` says what changed
+  (description, schema, annotations). Its tier is the stricter of the old and the new annotations, so a read-only
+  flip or a dropped `destructiveHint` doesn't loosen the gate. This holds for every tool, always-allowed or not. The
+  change goes to the [review queue](review-queue.md) with both definitions; approving accepts the new one (and keeps
+  an allow it had), rejecting keeps it held and doesn't ask again about that same definition.
+- **A new tool** on a server that's already known asks, even if it says it's read-only, until the owner reviews it
+  (`mcp_tool_new`).
+- **The first connect is the baseline**: a server's tools are accepted as they are the first time it connects
+  (trust on first use). `mcp remove` forgets them.
+- **Re-allow needed after the upgrade.** A tool always-allowed before pinning existed has no pin, so it asks until
+  the owner runs `local-agent mcp allow <server> <tool>` once more. `mcp tools` shows `re-allow needed`, and
+  `local-agent audit` fails on it.
+- `mcp tools` marks each tool: `changed: asks until you review it (review #N)`, `new: ...`, `re-allow needed`.
+- Pinning needs the store: every connection given one checks (the daemon, the terminal, runs, the `mcp` commands).
+
+The two picks are one line each in `mcp/pinning.py`: `FIRST_CONNECT_IS_BASELINE`, and the rule that an unpinned
+allow asks.
 
 ## Secrets
 
