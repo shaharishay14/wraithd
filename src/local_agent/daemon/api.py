@@ -31,6 +31,20 @@ from local_agent.skills import registry
 from local_agent.store import base as store_base
 from local_agent.tools import builtin_tools, search_provider
 
+# Workers import their route modules inside their own block
+# >>> security
+# <<< security
+# >>> efficiency
+# <<< efficiency
+# >>> capabilities
+# <<< capabilities
+# >>> reach
+# <<< reach
+# >>> evals
+# <<< evals
+# >>> sandbox
+# <<< sandbox
+
 logger = logging.getLogger(__name__)
 
 MAX_RUNS = 200

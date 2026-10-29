@@ -11,7 +11,7 @@ from tests.scripted import ScriptedModel
 
 
 def test_distill_is_a_periodic_job(make_runtime):
-    [distill] = jobs.jobs(make_runtime(ScriptedModel([])))
+    distill = next(job for job in jobs.jobs(make_runtime(ScriptedModel([]))) if job.name == 'distill')
     assert (distill.name, distill.every_seconds, distill.run) == ('distill', 3600, jobs.distill_all)
 
 
