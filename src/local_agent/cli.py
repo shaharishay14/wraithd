@@ -81,6 +81,9 @@ def build_parser() -> argparse.ArgumentParser:
     key_set.add_argument('provider', choices=KEY_NAMES)
     # New commands: each worker adds its subparser to `commands` inside its own block only
     # >>> security
+    from local_agent.review import cli as review_cli
+
+    review_cli.add_arguments(commands)
     # <<< security
     # >>> efficiency
     # <<< efficiency
@@ -264,6 +267,10 @@ def main(argv: list[str] | None = None) -> int:
         return key_set(args.provider)
     # New commands: each worker dispatches its own inside its block only
     # >>> security
+    if args.command == 'review':
+        from local_agent.review import cli as review_cli
+
+        return review_cli.main(home, args)
     # <<< security
     # >>> efficiency
     # <<< efficiency

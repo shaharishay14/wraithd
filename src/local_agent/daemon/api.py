@@ -487,6 +487,7 @@ def build_api(daemon, ui_dir: Path | None) -> Starlette:
         Route('/api/telegram/pairing', handler(telegram_pairing), methods=['POST']),
         # New routes, before the catch-all: each worker adds `*its_routes(daemon, handler),` inside its block only
         # >>> security
+        *__import__('local_agent.review.api', fromlist=['routes']).routes(daemon, handler),
         # <<< security
         # >>> efficiency
         # <<< efficiency
