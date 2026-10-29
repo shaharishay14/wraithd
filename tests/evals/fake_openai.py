@@ -18,6 +18,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
+from local_agent.core.delegate import CHILD_BRIEF
 from local_agent.evals.scripted import SCRIPTS, say
 from local_agent.evals.tasks import TASKS
 
@@ -25,11 +26,23 @@ REMINDER = '<system-reminder>'
 USAGE = {'prompt_tokens': 1000, 'completion_tokens': 100, 'total_tokens': 1100}
 
 
+CHILD, HEARTBEAT = 'subagent', 'heartbeat'  # runs that don't start from a task's message
+
+
 def scripts_by_message() -> dict[str, list]:
-    """The owner's message -> the turns that answer it. A task with a 'before' message plays up to its first answer."""
+    """
+    The owner's message -> the turns that answer it. A task with a 'before' message plays up to its first answer.
+    A subagent's child (its message is the child brief) and a heartbeat (the heartbeat prompt) get their own key.
+    """
     found = {}
     for task in TASKS:
         turns = SCRIPTS[task['id']]
+        if task['id'] == 'subagent-taint':  # parent: delegate, then (child: two turns), then parent again
+            found[CHILD] = turns[1:3]
+            turns = [turns[0], *turns[3:]]
+        if task.get('kind') == 'heartbeat':
+            found[HEARTBEAT] = turns
+            continue
         if task.get('before'):
             first_answer = next(i for i, turn in enumerate(turns) if isinstance(turn[-1], ResponseOutputMessage))
             found.setdefault(task['before'], turns[:first_answer + 1])
@@ -75,7 +88,9 @@ class FakeOpenAI:
         if not owner:
             return [say('(no message)')]
         last = owner[-1]
-        turns = self.scripts.get(_text(messages[last].get('content')), [])
+        text = _text(messages[last].get('content'))
+        key = CHILD if text.startswith(CHILD_BRIEF) else HEARTBEAT if text.startswith('Heartbeat check') else text
+        turns = self.scripts.get(key, [])
         played = sum(m.get('role') == 'assistant' for m in messages[last + 1:])
         return turns[played] if played < len(turns) else [say('(the script ran out)')]
 

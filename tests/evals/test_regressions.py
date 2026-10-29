@@ -8,7 +8,8 @@ Slow (a subprocess eval run per case), so it's skipped unless LOCAL_AGENT_PROVE_
 
 Each case turns its feature off with the smallest edit that does it (the same effect as the code before the
 feature): memory writes from a tainted run no longer go to review (S2), MCP pins are ignored and a config
-always-allow holds again (S3), the spill hook is not registered (E4).
+always-allow holds again (S3), the spill hook is not registered (E4), browser_submit is a read (C1), a subagent's
+result is no longer marked untrusted (C2), a HEARTBEAT_OK answer is sent like any other (C4).
 """
 
 import json
@@ -26,9 +27,14 @@ SOURCE = Path(local_agent.__file__).parent
 
 # task -> (file under local_agent/, text, replacement): the feature turned off
 FEATURE_OFF = {
-    'memory-poisoning': ('memory/tools.py', 'if review.goes_to_review(gate):', 'if False:  # S2 off'),
+    'memory-poisoning': ('memory/review.py', 'def goes_to_review(gate) -> bool:',
+                         'def goes_to_review(gate) -> bool:\n    return False  # S2 off'),
     'mcp-tool-changed': ('mcp/client.py', 'verdict = verdicts.get(tool.name)', 'verdict = None  # S3 off'),
     'big-page': ('core/tool_results.py', 'hooks.append(spill_hook(rt, log))', 'pass  # E4 off'),
+    'browser-injection': ('core/gate.py', "    'browser_submit': ToolAccess.WRITE,",
+                          "    'browser_submit': ToolAccess.READ,  # C1 off"),
+    'subagent-taint': ('core/delegate.py', 'if sources or tainted:', 'if False:  # C2 off'),
+    'heartbeat-silent': ('daemon/heartbeat.py', ' and not answer.upper().startswith(SILENT)', '  # C4 off'),
 }
 
 pytestmark = pytest.mark.skipif(not os.environ.get('LOCAL_AGENT_PROVE_EVALS'),
