@@ -31,6 +31,10 @@ DISTILL = 'distill'  # new chat messages were turned into memory notes (between 
 TELEGRAM_IGNORED = 'telegram_ignored'  # a chat that isn't the owner's wrote to the bot (at most hourly per chat)
 # New event types: each worker inside its own block only
 # >>> security
+REVIEW_QUEUED = 'review_queued'  # something from third-party text waits for the owner (review/queue.py); no content
+REVIEW_APPROVED = 'review_approved'  # the owner approved a queued item, and it was applied
+REVIEW_REJECTED = 'review_rejected'  # the owner rejected one: nothing of it was applied
+REVIEW_NOTIFIED = 'review_notified'  # the owner was told how many items wait (counts only)
 # <<< security
 # >>> efficiency
 # <<< efficiency
@@ -47,6 +51,7 @@ TELEGRAM_IGNORED = 'telegram_ignored'  # a chat that isn't the owner's wrote to 
 BETWEEN_RUNS = (
     COMPACTION, DISTILL, TELEGRAM_IGNORED,
     # >>> security
+    REVIEW_QUEUED, REVIEW_APPROVED, REVIEW_REJECTED, REVIEW_NOTIFIED,
     # <<< security
     # >>> efficiency
     # <<< efficiency

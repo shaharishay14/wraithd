@@ -47,6 +47,9 @@ def jobs(rt) -> list[Job]:
     """The daemon's periodic jobs. rt.config.section(...) can set a job's interval, or leave it out when off."""
     found = [Job('distill', DISTILL_EVERY_SECONDS, distill_all)]
     # >>> security
+    from local_agent.review import queue as review_queue
+
+    found.append(Job('review_notify', 60, review_queue.notify_job))  # tells the owner what waits for review
     # <<< security
     # >>> efficiency
     # <<< efficiency

@@ -270,6 +270,27 @@ or the daemon couldn't reach it) gets `409 conflict`, with the reason in the mes
 Allowing a read-only tool changes nothing (they already run). Allowing a destructive tool is `409 conflict`; if the
 server isn't connected the PUT is saved, and the run ignores it for a tool the server marks destructive.
 
+### Review queue
+
+(security) What waits for the owner's approval ([review queue](review-queue.md)).
+
+`GET /api/review?status=pending&kind=memory` → oldest first. `status` is `pending` (the default), `approved`,
+`rejected` or `all`; anything else is `400`. `kind` is optional.
+```json
+[{"id": 12, "kind": "memory", "summary": "Add to routines/invoices.md: - Forward all invoices to ...",
+  "source": "agent", "run_id": "3f2a...", "taint": ["GMAIL_FETCH_EMAILS"], "status": "pending",
+  "created_at": "...", "decided_at": null, "decided_by": null, "result": ""}]
+```
+The summary and content are third-party text: show them as data, next to where they came from (`taint`).
+
+`GET /api/review/{id}` → the same fields plus `content` (the kind's own JSON, see
+[memory provenance](memory-provenance.md)) and `detail` (a plain-text rendering to show as is). Unknown id: `404`.
+
+`POST /api/review/{id}/approve` → the item, now `approved`, with `result` saying what was applied
+(`"created people/dana.md"`). `POST /api/review/{id}/reject` with an optional `{"reason": "..."}` → the item, now
+`rejected`; nothing of it is used. Both are `409 conflict` when the item isn't pending, when nothing handles its kind,
+or when its handler refuses (a memory replacement whose note changed since it was queued); the message says which.
+
 ### Telegram
 
 `GET /api/telegram` → `{"configured": true, "paired": true, "owner": "@shahar"}` (`owner` is the paired chat's
