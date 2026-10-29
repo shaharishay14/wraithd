@@ -485,6 +485,19 @@ def build_api(daemon, ui_dir: Path | None) -> Starlette:
         Route('/api/mcp/servers/{name}/always-allow/{tool}', handler(mcp_always_allow), methods=['PUT', 'DELETE']),
         Route('/api/telegram', handler(telegram_status), methods=['GET']),
         Route('/api/telegram/pairing', handler(telegram_pairing), methods=['POST']),
+        # New routes, before the catch-all: each worker adds `*its_routes(daemon, handler),` inside its block only
+        # >>> security
+        # <<< security
+        # >>> efficiency
+        # <<< efficiency
+        # >>> capabilities
+        # <<< capabilities
+        # >>> reach
+        # <<< reach
+        # >>> evals
+        # <<< evals
+        # >>> sandbox
+        # <<< sandbox
         Route('/api/{rest:path}', handler(api_not_found), methods=['GET', 'POST', 'PUT', 'DELETE']),
         Route('/', handler(ui), methods=['GET']),
         Route('/{path:path}', handler(ui), methods=['GET']),

@@ -17,6 +17,7 @@ import os
 import re
 import tempfile
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -75,6 +76,38 @@ port = 7878                  # the API and web UI, on 127.0.0.1 only
 # dev_origin = "http://localhost:5173"   # a frontend dev server, while developing the UI
 """
 
+
+
+@dataclass(frozen=True)
+class Section:
+    """
+    One module's own settings: a [table] in config.toml, merged over these defaults. A value must have its default's
+    type (a default of None takes any value). check(values) may raise ConfigError for anything else to validate.
+    """
+
+    defaults: dict
+    check: Callable[[dict], None] | None = None
+
+
+# The tables the core reads itself; a module's section can't take one of these names
+CORE_TABLES = ('model', 'budget', 'owner', 'web', 'voice', 'shell', 'daemon', 'telegram', 'mcp')
+
+# Each module's settings, by table name. Read them with config.section(name). Each worker inside its block only.
+SECTIONS: dict[str, Section] = {
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
+}
+
 AGENTS_MD = """\
 # Standing orders
 
@@ -106,6 +139,11 @@ class Config:
     mcp_servers: tuple = ()  # mcp.config.McpServer, from the [mcp.servers.*] blocks
     daemon_port: int = 7878
     dev_origin: str = ''
+    sections: dict = field(default_factory=dict)  # table name -> values, for SECTIONS
+
+    def section(self, name: str) -> dict:
+        """A module's settings (SECTIONS[name]): what config.toml sets, over the defaults."""
+        return {**SECTIONS[name].defaults, **self.sections.get(name, {})}
 
 
 class ConfigError(Exception):
@@ -159,6 +197,38 @@ def _positive_or_none(value, name: str) -> int | None:
     return value
 
 
+def _same_type(value, default) -> bool:
+    if default is None:
+        return True
+    if isinstance(default, bool) or isinstance(value, bool):
+        return isinstance(value, bool) and isinstance(default, bool)
+    if isinstance(default, float):
+        return isinstance(value, int | float)
+    return isinstance(value, type(default))
+
+
+def load_sections(data: dict, sections: dict[str, Section] | None = None) -> dict[str, dict]:
+    """Each module's [table], merged over its defaults and checked. Unknown keys are ignored, with a warning."""
+    found = {}
+    for name, section in (SECTIONS if sections is None else sections).items():
+        if name in CORE_TABLES:
+            raise ConfigError(f'[{name}] is a core settings table; a module needs a table of its own.')
+        table = data.get(name, {})
+        if not isinstance(table, dict):
+            raise ConfigError(f'[{name}] must be a table of settings.')
+        for key in table.keys() - section.defaults.keys():
+            _warn_once(f'[{name}] {key} is not a setting; it is ignored.')
+        values = {**section.defaults, **{key: value for key, value in table.items() if key in section.defaults}}
+        for key, value in values.items():
+            default = section.defaults[key]
+            if not _same_type(value, default):
+                raise ConfigError(f'[{name}] {key} must be {type(default).__name__}, not {value!r}.')
+        if section.check:
+            section.check(values)
+        found[name] = values
+    return found
+
+
 def load_config(home: Home) -> Config:
     """The owner's config, with defaults for anything not set."""
     try:
@@ -202,6 +272,7 @@ def load_config(home: Home) -> Config:
     except McpConfigError as e:
         raise ConfigError(str(e)) from None
     return Config(
+        sections=load_sections(data),
         mcp_servers=mcp_servers,
         daemon_port=port,
         dev_origin=dev_origin,

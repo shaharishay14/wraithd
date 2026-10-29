@@ -138,6 +138,19 @@ def checks(home: Home, service=None, transport=None, port_free=port_free) -> lis
         free = port_free(port)
         add(OK if free else FAIL, f'Port {port}: ' + ('free' if free else 'in use by another program'),
             f'stop that program, or set another port in {home.config_path} ([daemon] port)')
+    # New checks: each worker adds `found += its_checks(home, config)` (a list of Check) inside its block only
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
     return found
 
 
