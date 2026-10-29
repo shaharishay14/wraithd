@@ -208,8 +208,11 @@ class PlaywrightDriver:
             else:
                 await route.continue_()
 
+        async def no_sockets(socket):
+            await socket.close()
+
         await self._context.route('**/*', handle)
-        await self._context.route_web_socket('**/*', lambda ws: ws.close())
+        await self._context.route_web_socket('**/*', no_sockets)
         self.page = await self._context.new_page()
 
     async def open(self, url: str) -> None:
