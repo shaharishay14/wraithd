@@ -54,6 +54,21 @@ CREATE TABLE security_review_items (
 );
 CREATE INDEX security_review_items_status ON security_review_items (status, kind);
 '''),
+    # MCP tool pinning (mcp/pinning.py): per tool, the definition the owner accepted, the one last seen, the pin
+    Migration('security_002', '''
+CREATE TABLE security_mcp_tools (
+    server TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    reviewed_hash TEXT,
+    reviewed_definition TEXT,
+    seen_hash TEXT NOT NULL,
+    seen_definition TEXT NOT NULL,
+    seen_at TEXT NOT NULL,
+    allowed_hash TEXT,
+    rejected_hash TEXT,
+    PRIMARY KEY (server, tool)
+);
+'''),
     # <<< security
     # >>> efficiency
     # <<< efficiency

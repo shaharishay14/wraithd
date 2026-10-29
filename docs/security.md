@@ -32,6 +32,8 @@ a tool that can't be wrapped is dropped, never passed through):
   first step (`MCP tool descriptions`); in discovery, `describe_app_action` marks its result untrusted.
 - **The review queue.** What the agent would keep from a tainted run (a memory write, a fact distill can't trace to
   the owner) waits for the owner's approval instead ([review queue](review-queue.md)).
+- **MCP tools are pinned.** An always-allow holds for the exact definition it was given to; a changed tool asks
+  again and keeps its stricter tier until the owner reviews it ([MCP](mcp.md)).
 - **Always ask** (`always_ask`): a write that is never pre-approved, whatever the config says, and never runs
   unattended. MCP tools the server annotates `destructiveHint` get it ([MCP](mcp.md)).
 
@@ -64,8 +66,10 @@ only ([api](api.md)).
 ## Checking the setup
 
 `local-agent audit` checks the live setup against these rules: the state folder private and nothing in it
-writable by others, the API bound to loopback with a long, private token, the shell off or gated, no keys in
-`config.toml`. It lists standing permissions (always-allowed tools, schedules) as info, and
+writable by others, the store (`state.db`, which holds the review queue and the pins) readable by the owner alone,
+the API bound to loopback with a long, private token, every remote-access host a tailnet name (`*.ts.net`), the shell
+off or gated, every always-allowed MCP tool pinned and unchanged ([MCP](mcp.md)), no keys in
+`config.toml`. Pending review items are an info line. It lists standing permissions (always-allowed tools, schedules) as info, and
 exits 1 on a failure. `doctor` reports it in one line. Why each rule exists is in [From EC2 to
 laptop](ec2-to-laptop.md).
 

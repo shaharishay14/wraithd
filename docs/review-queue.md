@@ -10,7 +10,7 @@
 
 ## How it works
 
-- **An item** is a row in `security_review_items` (state.db): its kind (`memory`, later `mcp_tool` and `skill`),
+- **An item** is a row in `security_review_items` (state.db): its kind (`memory`, `mcp_tool`, later `skill`),
   the content as JSON, a one-line summary, what queued it (`agent`, `distill`...), the run, the third-party sources
   the run had read (`taint`), and its status: `pending`, then `approved` or `rejected`. Content and summary are
   redacted (`core/secrets.py`) before they're stored.
@@ -44,6 +44,13 @@ refused if the note changed after it was queued (`base` is the note's fingerprin
 
 Two picks decide this, each one line in `memory/review.py`: `goes_to_review` (today: every write in a run that read
 third-party content, including the owner's own "remember X" in that run) and `APPROVED_TRUST` (today: high).
+
+## MCP tool items
+
+A tool that changed, or appeared on a known server, is queued as `mcp_tool` with its old and new definitions
+(`review show` prints both). Approving accepts the new definition from the next connect, and keeps an always-allow
+the tool had. Approving is refused if the server changed it again since (the newer item is the one to review).
+Rejecting keeps the tool at its stricter tier and doesn't queue that same definition again ([MCP](mcp.md)).
 
 ## On a laptop
 
