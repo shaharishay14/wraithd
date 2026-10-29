@@ -172,7 +172,21 @@ UNTRUSTED_OUTPUT_BUILTINS = {
 # Read tools whose argument is a URL the model chooses. Opening a URL is a request the site's owner sees.
 # Once the owner's private data is in the context, an attacker could have the agent open links in an order
 # that spells it out, so only links the user wrote may be opened freely.
-URL_FETCH_TOOLS = {'read_website': 'url'}
+URL_FETCH_TOOLS = {
+    'read_website': 'url',
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
+}
 URL_PATTERN = re.compile(r'https?://[^\s<>"\'`)\]}]+')
 
 # Argument names that say where an action goes: recipient_email, extra_recipients, to_email, cc, bcc,
