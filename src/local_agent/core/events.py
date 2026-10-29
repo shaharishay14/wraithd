@@ -54,6 +54,9 @@ HEARTBEAT_SILENT = 'heartbeat_silent'  # ...and found nothing worth a message, s
 # >>> evals
 # <<< evals
 # >>> sandbox
+SANDBOX_RUN = 'sandbox_run'  # an approved command ran in the sandbox: image, network, mounts, exit (sandbox/)
+SANDBOX_REFUSED = 'sandbox_refused'  # the sandbox settings are broken, so the command didn't run at all
+SANDBOX_MCP_START = 'sandbox_mcp_start'  # a sandboxed stdio MCP server started in docker (between runs)
 # <<< sandbox
 
 # Events that belong to no run. A worker adds its own between-runs types inside its block.
@@ -73,6 +76,7 @@ BETWEEN_RUNS = (
     # >>> evals
     # <<< evals
     # >>> sandbox
+    SANDBOX_MCP_START,
     # <<< sandbox
 )
 
