@@ -132,8 +132,9 @@ async def test_the_message_after_a_skill_run_gets_the_follow_up_nudge(make_runti
     _, second = await run_once(make_runtime(model), 'too long, keep it to 5 bullets', tools=[web_search()])
     [nudge] = reminder_messages(model.inputs[0])
     assert 'research-report skill' in nudge and 'skill_adjust' in nudge and 'ignore this' in nudge
-    # it comes right after the user's message
-    assert model.inputs[0][-2]['content'] == 'too long, keep it to 5 bullets'
+    # it comes after the user's message (and the time note)
+    contents = [item.get('content') for item in model.inputs[0] if isinstance(item, dict)]
+    assert contents.index('too long, keep it to 5 bullets') < contents.index(nudge)
     # first run: the request matched the skill, then it loaded; second run: the follow-up
     logged = [e.payload['name'] for e in first + second if e.type == ev.REMINDER]
     assert logged == ['skill_match', 'skill_loaded', 'skill_follow_up']

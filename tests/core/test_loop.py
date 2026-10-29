@@ -46,8 +46,8 @@ async def test_a_run_leaves_a_full_event_timeline(make_runtime):
 
     assert [e.type for e in events] == [
         ev.RUN_START, ev.CONTEXT_BUILT,
-        ev.TURN_START, ev.MODEL_OUTPUT, ev.TOOL_CALL, ev.TOOL_RESULT,
-        ev.TURN_START, ev.MODEL_OUTPUT,
+        ev.TURN_START, ev.CONTEXT_TOKENS, ev.MODEL_OUTPUT, ev.TOOL_CALL, ev.TOOL_RESULT,
+        ev.TURN_START, ev.CONTEXT_TOKENS, ev.MODEL_OUTPUT,
         ev.RUN_END,
     ]
     by_type = {e.type: e.payload for e in events}
@@ -143,7 +143,7 @@ async def test_big_tool_result_is_capped_and_marked(make_runtime):
     model = ScriptedModel([[call('1', 'web_search', {'query': 'x'})], [say('done')]])
     await run_once(make_runtime(model), 'search', tools=[fake_tool('web_search', lambda **a: 'x' * 100_000)])
     content = model.tool_outputs(1)['call_1']
-    assert 'TRUNCATED' in content and len(content) < render.MAX_TOOL_RESULT_CHARS + 1200
+    assert 'SPILLED' in content and len(content) < render.MAX_TOOL_RESULT_CHARS + 1200  # the rest is on disk
     assert content.startswith('<untrusted_tool_output tool="web_search">')
 
 
