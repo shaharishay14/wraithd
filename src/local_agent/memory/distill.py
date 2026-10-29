@@ -3,8 +3,9 @@ Distill: turns a conversation's new messages into memory notes, after the fact, 
 remember to save anything. The folder schema (vault.FOLDERS) tells the model what to extract.
 
 Every extracted fact must quote the owner's own words as evidence. A fact whose quote is really in one of the
-owner's messages is high trust; anything else (a fact taken from an email the assistant summarized, or a
-made-up quote) is stored as low trust. The profile is in every prompt, so it only ever takes high-trust facts.
+owner's messages is high trust and saved. Anything else (a fact taken from an email the assistant summarized, or a
+made-up quote) is someone else's word: it waits in the review queue for the owner (memory/review.py) and reaches
+no note, and so no prompt, until they approve it.
 
 It runs when a terminal conversation ends (and, from Phase 5, in the background for long-lived ones).
 """
@@ -15,9 +16,8 @@ import re
 from typing import Any
 
 from local_agent.core import events as ev
-from local_agent.core.secrets import redact_text
 from local_agent.memory import notes as note_files
-from local_agent.memory import vault
+from local_agent.memory import review, vault
 from local_agent.memory.notes import Note, Vault
 
 logger = logging.getLogger(__name__)
@@ -64,12 +64,15 @@ def parse_facts(reply: str) -> list[dict[str, Any]]:
     return [fact for fact in facts if isinstance(fact, dict)][:MAX_FACTS]
 
 
-def apply_facts(memory: Vault, facts, messages, detail: str) -> list[str]:
-    """Appends each fact to its note. Returns the paths written."""
+def apply_facts(memory: Vault, facts, messages, detail: str, store=None) -> tuple[list[str], list[int]]:
+    """
+    Appends each fact the owner said to its note, and queues the others for review (dropped without a store).
+    Returns the paths written and the review items queued.
+    """
     user_text = _normalized(' '.join(m.content for m in messages if m.role == 'user'))
-    written = []
+    written, queued = [], []
     for fact in facts:
-        text = redact_text((fact.get('text') or '').strip())
+        text = (fact.get('text') or '').strip()
         try:
             path = vault.normalize_path(fact.get('path', ''))
         except ValueError:
@@ -78,23 +81,21 @@ def apply_facts(memory: Vault, facts, messages, detail: str) -> list[str]:
         if not text:
             continue
         evidence = _normalized(fact.get('evidence'))
-        trust = vault.HIGH if len(evidence) >= 8 and evidence in user_text else vault.LOW
-        if trust == vault.LOW and path == vault.PROFILE_PATH:
-            logger.info('Distill kept an unverified fact out of the profile')
-            continue
-
-        note = memory.get(path)
-        created = note is None
-        if created:
-            note = Note(path=path, title=fact.get('title') or note_files._default_title(path))
-        note.body = text if created else (note.body.rstrip() + '\n' + text).strip()
-        note.source = note_files.SOURCE_DISTILL
-        note.source_detail = detail if trust == vault.HIGH else f'{detail}; quote not found in the user\'s messages'
-        if created or trust == vault.LOW:
-            note.trust = trust
-        memory.save(note)
-        written.append(path)
-    return written
+        if len(evidence) >= 8 and evidence in user_text:
+            # a new note gets the fact's title; an existing one keeps its own
+            title = fact.get('title') if memory.get(path) is None else None
+            review.write_note(memory, path, title, text, append=True, trust=vault.HIGH,
+                              source=note_files.SOURCE_DISTILL, detail=detail, separator='\n')
+            written.append(path)
+        elif store is not None:
+            item = review.queue_write(store, op=review.APPEND, path=path, title=fact.get('title'), text=text,
+                                      base='', source=note_files.SOURCE_DISTILL,
+                                      detail=f'{detail}; quote not found in the user\'s messages', run_id=None,
+                                      taint=['conversation text the user did not write'])
+            queued.append(item.id)
+        else:
+            logger.info('Distill dropped an unverified fact: there is no review queue to hold it')
+    return written, queued
 
 
 async def distill_conversation(store, memory: Vault, complete, conversation_id: str,
@@ -110,9 +111,9 @@ async def distill_conversation(store, memory: Vault, complete, conversation_id: 
 
     facts = parse_facts(await complete(build_prompt(messages, memory.load())))
     detail = f'distill of {len(messages)} messages up to {messages[-1].created_at:%Y-%m-%d %H:%M}'
-    written = apply_facts(memory, facts, messages, detail)
+    written, queued = apply_facts(memory, facts, messages, detail, store)
 
     store.update_conversation(conversation_id, distilled_until=messages[-1].id)
     ev.record_event(store, ev.DISTILL, conversation=conversation_id, messages=len(messages), facts=len(facts),
-                    notes=written)
-    return {'status': 'distilled', 'new_messages': len(messages), 'notes': written}
+                    notes=written, queued=queued)
+    return {'status': 'distilled', 'new_messages': len(messages), 'notes': written, 'queued': queued}

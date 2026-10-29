@@ -3,26 +3,30 @@ The agent's memory tools: memory_search (L2), memory_read (L3), memory_append an
 
 They go through the permission gate like every tool. Two rules are enforced here, in code:
 - memory_write replaces a note, so the note must have been read in this run first
-- anything written after third-party content entered the run is stored as low trust, and is shown back to the
-  model as third-party data, never as instructions
+- anything written after third-party content entered the run waits in the review queue for the owner instead of
+  reaching the vault (memory/review.py); a low-trust note already in the vault is shown back to the model as
+  third-party data, never as instructions
 """
 
 import contextlib
 import difflib
 import json
+import logging
 
 from agents import FunctionTool
 
 from local_agent.core import events as ev
 from local_agent.core.gate import parse_arguments
-from local_agent.core.secrets import redact_text
 from local_agent.memory import notes as note_files
-from local_agent.memory import vault
-from local_agent.memory.notes import Note, Vault
+from local_agent.memory import review, vault
+from local_agent.memory.notes import Vault
+from local_agent.review import queue
 
 SEARCH, READ, APPEND, WRITE = 'memory_search', 'memory_read', 'memory_append', 'memory_write'
 NAMES = (SEARCH, READ, APPEND, WRITE)
 READ_CHARS = 8000
+
+logger = logging.getLogger(__name__)
 
 
 def _error(message: str, hint: str = '', **extra) -> str:
@@ -39,15 +43,18 @@ def read_paths(events) -> set[str]:
     return paths
 
 
-def memory_tools(memory: Vault, gate, log: ev.EventLog) -> list[FunctionTool]:
-    """The four tools for one run. gate tells whether third-party content has entered the run."""
+def memory_tools(memory: Vault, gate, log: ev.EventLog, notifier=None) -> list[FunctionTool]:
+    """
+    The four tools for one run. gate tells whether third-party content has entered the run; notifier (the run's
+    notify_owner channel) tells the owner when a write waits for review.
+    """
 
     def provenance():
-        """Trust and source of a write made now: low as soon as the run has read third-party content."""
+        """Source detail of a write made now: which run, and what third-party content it had read."""
         detail = f'run {log.run_id}'
         if gate.untrusted_sources:
-            return vault.LOW, f'{detail}, after reading {", ".join(gate.untrusted_sources)}'
-        return vault.HIGH, detail
+            return f'{detail}, after reading {", ".join(gate.untrusted_sources)}'
+        return detail
 
     async def search(ctx, input_json: str) -> str:
         results = vault.search(memory.load(), parse_arguments(input_json).get('query', ''))
@@ -83,23 +90,30 @@ def memory_tools(memory: Vault, gate, log: ev.EventLog) -> list[FunctionTool]:
             'untrusted': note.trust == vault.LOW,
         })
 
-    def _save(path, title, body, append):
-        trust, detail = provenance()
-        note = memory.get(path)
-        created = note is None
-        if created:
-            note = Note(path=path, title=title or note_files._default_title(path))
-        body = redact_text(body)  # a secret the agent saw doesn't become a permanent note
-        note.body = (note.body.rstrip() + '\n\n' + body.strip()).strip() if append and not created else body.strip()
-        if title:
-            note.title = title
-        note.source, note.source_detail = note_files.SOURCE_AGENT, detail
-        # A new or replaced note takes this write's trust. Appending low-trust text makes the whole note low trust
-        # (the text can't be told apart afterwards); appending trusted text doesn't clean a low one.
-        if created or not append or trust == vault.LOW:
-            note.trust = trust
-        memory.save(note)
-        return note, created
+    async def _save(path, title, body, append):
+        """Saves the write, or queues it for the owner once the run has read third-party content."""
+        if review.goes_to_review(gate):
+            if log.store is None:  # nowhere to queue it: never write it instead
+                return _error('This can\'t be saved: the run read third-party content and there is no review queue.')
+            item = review.queue_write(log.store, op=review.APPEND if append else review.WRITE, path=path, title=title,
+                                      text=body, base=review.fingerprint(memory.get(path)),
+                                      source=note_files.SOURCE_AGENT, detail=provenance(), run_id=log.run_id,
+                                      taint=list(gate.untrusted_sources))
+            if notifier is not None:
+                try:
+                    await queue.notify_pending(log.store, notifier)
+                except Exception as e:  # the daemon's job tells the owner later
+                    logger.warning(f'Could not tell the owner about review item #{item.id}: {type(e).__name__}')
+            return json.dumps({
+                'saved': False, 'queued_for_review': item.id,
+                'message': (f'Not saved yet. This run read content someone else wrote '
+                            f'({", ".join(gate.untrusted_sources)}), so this memory waits for the user\'s approval. '
+                            'Tell the user it is waiting for them, and that they can approve it with: '
+                            'local-agent review list (then local-agent review approve <id>).'),
+            })
+        note, created = review.write_note(memory, path, title, body, append, vault.HIGH, note_files.SOURCE_AGENT,
+                                          provenance())
+        return json.dumps({'saved': note.path, 'created': created, 'trust': note.trust})
 
     async def append(ctx, input_json: str) -> str:
         arguments = parse_arguments(input_json)
@@ -110,8 +124,7 @@ def memory_tools(memory: Vault, gate, log: ev.EventLog) -> list[FunctionTool]:
             return _error(str(e))
         if not text:
             return _error('Nothing to save: "text" is empty.')
-        note, created = _save(path, arguments.get('title'), text, append=True)
-        return json.dumps({'saved': note.path, 'created': created, 'trust': note.trust})
+        return await _save(path, arguments.get('title'), text, append=True)
 
     async def write(ctx, input_json: str) -> str:
         arguments = parse_arguments(input_json)
@@ -122,8 +135,7 @@ def memory_tools(memory: Vault, gate, log: ev.EventLog) -> list[FunctionTool]:
         if memory.get(path) is not None and path not in read_paths(log.events):
             return _error(f'{path} was not read in this run, so it can\'t be replaced.',
                           f'Call {READ} on it first, then write the full new version (or use {APPEND} to add to it).')
-        note, created = _save(path, arguments.get('title'), arguments.get('body') or '', append=False)
-        return json.dumps({'saved': note.path, 'created': created, 'trust': note.trust})
+        return await _save(path, arguments.get('title'), arguments.get('body') or '', append=False)
 
     path_description = f'folder/name, folder one of {", ".join(vault.FOLDERS)}, e.g. "people/dana.md"'
     return [
