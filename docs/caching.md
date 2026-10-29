@@ -43,7 +43,8 @@ calls with the same hash could share a cache entry. `runs tokens` says whether t
 
   The first point is by index, not by role, because LiteLLM moves later system messages (the time note, a
   final-answer instruction) into Anthropic's system blocks. Marking by role would mark them too, and would cache
-  on a block that changes. Two breakpoints (Anthropic allows 4). Below the model's minimum cacheable size, nothing
+  on a block that changes. (The contract note had marked by role; index 0 was approved instead.) Two breakpoints
+  (Anthropic allows 4). Below the model's minimum cacheable size, nothing
   is cached and nothing fails.
 - **OpenAI** caches a stable prefix of 1,024+ tokens by itself. Nothing is marked.
 - **Ollama and OpenAI-compatible endpoints** get no settings (nothing to mark).

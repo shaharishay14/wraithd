@@ -203,7 +203,7 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
     """
     async with AsyncExitStack() as stack:
         if owner and mcp is None and rt.config.mcp_servers:
-            mcp = await stack.enter_async_context(McpConnections(rt.config.mcp_servers))
+            mcp = await stack.enter_async_context(McpConnections(rt.config.mcp_servers, store=rt.store))
         return await _run(rt, message, history=history, callback=callback, source=source, owner=owner, tools=tools,
                           app_tools=app_tools, app_guides=app_guides, builtins=builtins,
                           mcp=mcp if owner else None, untrusted_source=untrusted_source, images=images,
@@ -284,7 +284,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
             situation.tool, situation.tool_output = tool_name, result_text
             return reminders.inject(log, tool_name, reminders.due(reminders.REMINDERS, tool_name, situation))
 
-        own = memory_tools.memory_tools(rt.memory, gate, log) if owner else []
+        own = memory_tools.memory_tools(rt.memory, gate, log, notifier=rt.notifier) if owner else []
         (load_tool, propose_tool, adjust_tool), prechecks = skill_tools(rt.skills, skills, gate, log)
         own += [load_tool] if skills else []
         own += [propose_tool, adjust_tool] if owner else []
