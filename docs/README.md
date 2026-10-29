@@ -65,6 +65,10 @@ says what changed for running on one person's laptop.
 | [Channels](channels.md) | The interface Telegram is built on: owner and pairing, receive, send, approvals. |
 | [WhatsApp options](whatsapp.md) | The Cloud API, a Web bridge or a bridge process: setup, ban risk, and the pick. Not built yet. |
 | [Remote access](remote-access.md) | `tailscale serve` in front of the API on an always-on box; `[remote] allowed_hosts`; the token still required. |
+| [The browser](browser.md) | Headless Chromium behind the egress guard: reads taint, clicks and submits ask, a fresh profile per run. Off by default. |
+| [Subagents](subagents.md) | `delegate`: a child run with its own context, the parent's budget and taint both ways, depth 1. Off by default. |
+| [Skill proposals](skill-proposals.md) | Skills the agent proposes wait in the review queue; tainted ones are flagged. |
+| [Heartbeat](heartbeat.md) | A periodic, read-only check that messages the owner only when something is worth it. Off by default. |
 
 ## Where the ideas come from
 
