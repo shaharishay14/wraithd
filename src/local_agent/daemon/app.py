@@ -8,7 +8,6 @@ channel use the same Runtime, so they share the store, memory and skills.
 """
 
 import asyncio
-import logging
 import os
 from contextlib import AsyncExitStack
 from datetime import UTC, datetime
@@ -24,8 +23,6 @@ from local_agent.daemon.jobs import DISTILL_EVERY_SECONDS, distill_all  # noqa: 
 from local_agent.daemon.scheduler import Scheduler
 from local_agent.daemon.security import Guard, load_or_create_token
 from local_agent.mcp.client import McpConnections
-
-logger = logging.getLogger(__name__)
 
 HOST = '127.0.0.1'  # never 0.0.0.0: nothing else on the network may reach the agent
 UI_ENV = 'LOCAL_AGENT_UI_DIR'
