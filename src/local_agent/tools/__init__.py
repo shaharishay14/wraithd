@@ -76,4 +76,17 @@ def builtin_tools(rt, owner: bool, attended: bool) -> list:
         tools.append(notify_tool(rt.notifier))
         if attended and rt.config.shell_enabled:
             tools.append(shell_tool(rt.home.files_dir, rt.config.shell_timeout, enabled=True))
+    # New built-in tools: each worker inside its own block only (and in the gate's tables, core/gate.py)
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
     return tools

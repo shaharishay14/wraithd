@@ -137,6 +137,19 @@ def checks(home: Home) -> list[Check]:
         if active:
             add(INFO, f'{active} schedule{"s" if active > 1 else ""} run{"" if active > 1 else "s"} unattended: '
                       'local-agent schedules list')
+    # New rules: each worker adds `found += its_rules(home, config)` (a list of Check) inside its block only
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
     return found
 
 

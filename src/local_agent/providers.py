@@ -61,6 +61,23 @@ def build_models(config: Config) -> dict[str, Model]:
     return models
 
 
+# What each model call is for. Every place the harness calls a model asks model_for(purpose), so a purpose can get
+# its own model later ([models] config) without touching the call sites. Today each one uses the model it always has.
+PURPOSES = ('chat', 'strong', 'distill', 'compaction', 'heartbeat', 'subagent')
+PURPOSE_MODEL = {'chat': 'default', 'strong': 'strong', 'distill': 'default', 'compaction': 'default',
+                 'heartbeat': 'default', 'subagent': 'default'}  # purpose -> key in build_models()
+
+
+def model_for(models: dict[str, Model], purpose: str) -> Model:
+    """
+    The model for one purpose, from build_models(). A purpose whose model isn't configured gets the default one
+    (no strong model: model_for('strong') is the default model, so there's nothing to switch to).
+    """
+    if purpose not in PURPOSE_MODEL:
+        raise ValueError(f'Unknown model purpose {purpose!r}; one of {", ".join(PURPOSES)}')
+    return models.get(PURPOSE_MODEL[purpose]) or models['default']
+
+
 def can_see_images(config: Config) -> bool:
     """
     Whether the default model takes image input, from LiteLLM's model list. A model the list doesn't know is

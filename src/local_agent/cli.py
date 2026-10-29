@@ -79,6 +79,19 @@ def build_parser() -> argparse.ArgumentParser:
                                                                                            required=True)
     key_set = key.add_parser('set', help='store a key (asked for without echo)')
     key_set.add_argument('provider', choices=KEY_NAMES)
+    # New commands: each worker adds its subparser to `commands` inside its own block only
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
     return parser
 
 
@@ -249,6 +262,19 @@ def main(argv: list[str] | None = None) -> int:
         return mcp_commands.main(home, args)
     if args.command == 'key':
         return key_set(args.provider)
+    # New commands: each worker dispatches its own inside its block only
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
     parser.print_help()
     return 0
 

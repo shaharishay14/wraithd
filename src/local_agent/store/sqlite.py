@@ -9,12 +9,14 @@ import json
 import sqlite3
 import threading
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from local_agent.core.events import RUN_END, RUN_START, Event
+from local_agent.store import modules
 from local_agent.store.base import (
     APPROVAL_STATUSES,
     PENDING,
@@ -82,6 +84,11 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    id TEXT PRIMARY KEY,      -- a module's migration (store/modules.py), e.g. security_001
+    applied_at TEXT NOT NULL
+);
 """
 
 # Columns added after a table first shipped: (table, column, definition). Added on open when missing, so an older
@@ -102,7 +109,7 @@ def _parse(text: str | None) -> datetime | None:
 
 
 class SQLiteStore:
-    def __init__(self, path: str | Path = ':memory:'):
+    def __init__(self, path: str | Path = ':memory:', migrations: Sequence[modules.Migration] | None = None):
         if str(path) != ':memory:':
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         # One connection shared by the process, guarded by a lock: the daemon's API, scheduler and runs are
@@ -119,6 +126,30 @@ class SQLiteStore:
                 if column not in columns:
                     self._db.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
             self._db.commit()
+            self._apply_module_migrations(modules.MIGRATIONS if migrations is None else migrations)
+
+    def _apply_module_migrations(self, migrations: Sequence[modules.Migration]) -> None:
+        """Each module migration not applied yet, in order, in its own transaction with its record."""
+        modules.check(migrations)
+        applied = {row['id'] for row in self._db.execute('SELECT id FROM schema_migrations')}
+        for migration in migrations:
+            if migration.id in applied:
+                continue
+            # The id is checked against modules.ID (letters, digits, _), so it's safe in the script
+            script = (f'BEGIN;\n{migration.sql}\n;\nINSERT INTO schema_migrations (id, applied_at) '
+                      f"VALUES ('{migration.id}', '{_stamp(datetime.now(UTC))}');\nCOMMIT;")
+            try:
+                self._db.executescript(script)
+            except sqlite3.Error:
+                self._db.rollback()
+                raise
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """The connection, under the store's lock; committed if the block succeeds, rolled back if it raises. For
+        a module's own tables (store/modules.py)."""
+        with self._lock, self._db:
+            yield self._db
 
     def close(self) -> None:
         self._db.close()

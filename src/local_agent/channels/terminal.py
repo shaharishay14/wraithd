@@ -93,7 +93,7 @@ async def _session(rt: Runtime, terminal: Terminal, mcp) -> str:
             if not message.strip():
                 continue
             rt.store.add_message(conversation.id, 'user', message)
-            history = await compaction.history_for(rt.store, conversation.id, rt.complete)
+            history = await compaction.history_for(rt.store, conversation.id, rt.completer('compaction'))
             state = {'streamed': False}
             result = await run(rt, message, history=history, callback=make_callback(rt, terminal, state),
                                source='chat', mcp=mcp)
@@ -102,8 +102,8 @@ async def _session(rt: Runtime, terminal: Terminal, mcp) -> str:
             rt.store.add_message(conversation.id, 'assistant', result.answer, run_id=result.run_id)
     finally:
         try:
-            outcome = await distill.distill_conversation(rt.store, rt.memory, rt.complete, conversation.id,
-                                                         min_messages=DISTILL_MIN_MESSAGES)
+            outcome = await distill.distill_conversation(rt.store, rt.memory, rt.completer('distill'),
+                                                         conversation.id, min_messages=DISTILL_MIN_MESSAGES)
             if outcome.get('notes'):
                 terminal.say(f'Remembered: {", ".join(outcome["notes"])}')
         except Exception as e:

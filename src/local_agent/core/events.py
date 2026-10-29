@@ -29,7 +29,36 @@ RUN_END = 'run_end'
 COMPACTION = 'compaction'  # older chat messages were folded into the summary (between runs)
 DISTILL = 'distill'  # new chat messages were turned into memory notes (between runs)
 TELEGRAM_IGNORED = 'telegram_ignored'  # a chat that isn't the owner's wrote to the bot (at most hourly per chat)
-BETWEEN_RUNS = (COMPACTION, DISTILL, TELEGRAM_IGNORED)  # events that belong to no run
+# New event types: each worker inside its own block only
+# >>> security
+# <<< security
+# >>> efficiency
+# <<< efficiency
+# >>> capabilities
+# <<< capabilities
+# >>> reach
+# <<< reach
+# >>> evals
+# <<< evals
+# >>> sandbox
+# <<< sandbox
+
+# Events that belong to no run. A worker adds its own between-runs types inside its block.
+BETWEEN_RUNS = (
+    COMPACTION, DISTILL, TELEGRAM_IGNORED,
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
+)
 
 # Payload strings longer than this are cut before they're stored (the model got its own rendering)
 MAX_PAYLOAD_TEXT = 2000
