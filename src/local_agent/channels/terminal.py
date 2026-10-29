@@ -76,7 +76,7 @@ def make_callback(rt: Runtime, terminal: Terminal, state: dict):
 async def chat(rt: Runtime, terminal: Terminal | None = None) -> str:
     """One session. Returns the conversation id."""
     terminal = terminal or Terminal()
-    async with McpConnections(rt.config.mcp_servers) as mcp:  # once per session, not once per message
+    async with McpConnections(rt.config.mcp_servers, store=rt.store) as mcp:  # once per session, not once per message
         for name, problem in mcp.errors.items():
             terminal.say(f'(MCP server {name} is not available this session: {problem})')
         return await _session(rt, terminal, mcp)

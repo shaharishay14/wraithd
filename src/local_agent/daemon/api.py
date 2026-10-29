@@ -23,6 +23,7 @@ from local_agent.core import events as ev
 from local_agent.core import inspector
 from local_agent.core.gate import approval_card
 from local_agent.mcp import config as mcp_config
+from local_agent.mcp import pinning
 from local_agent.memory import notes as note_files
 from local_agent.memory import vault
 from local_agent.memory.notes import Note
@@ -433,6 +434,10 @@ def build_api(daemon, ui_dir: Path | None) -> Starlette:
         if allow and daemon.mcp and daemon.mcp.marked_destructive(server.name, tool):
             raise ApiError(409, 'conflict', f'{server.name} marks {tool} as destructive: it asks every time, so it '
                                                'can\'t be always allowed.')
+        try:  # an always-allow holds only for the definition the owner saw (mcp/pinning.py)
+            (pinning.pin(rt.store, server.name, tool, by='api') if allow else pinning.unpin(rt.store, server.name, tool))
+        except pinning.PinError as e:
+            raise ApiError(409, 'conflict', str(e)) from None
         names = [t for t in server.always_allow if t != tool] + ([tool] if allow else [])
         mcp_config.write_server(rt.home.config_path, replace(server, always_allow=tuple(names)), server.name)
         rt.config = load_config(rt.home)
