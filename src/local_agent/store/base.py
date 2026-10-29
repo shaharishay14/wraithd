@@ -7,6 +7,7 @@ directly rather than paying for a thread hop.
 """
 
 from collections.abc import Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
@@ -176,3 +177,8 @@ class Store(Protocol):
 
     def set_setting(self, key: str, value: str | None) -> None:
         """None removes it."""
+
+    # --- a module's own tables (store/modules.py) -------------------------------------------------------
+
+    def transaction(self) -> AbstractContextManager[Any]:
+        """A context manager giving the DB connection under the store's lock, committed on success."""

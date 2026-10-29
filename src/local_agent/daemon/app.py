@@ -1,7 +1,7 @@
 """
 The daemon: one async process with the local API (and the web UI), the scheduler, Telegram long polling, open MCP
-connections and background distill. `local-agent daemon` runs it in the foreground; daemon/service.py runs that
-as a background service.
+connections and the periodic jobs (daemon/jobs.py: background distill, and any a module adds).
+`local-agent daemon` runs it in the foreground; daemon/service.py runs that as a background service.
 
 Everything is opened once in start() and shared: MCP sessions, the Telegram bot, the notifier. Runs from every
 channel use the same Runtime, so they share the store, memory and skills.
@@ -18,18 +18,18 @@ import uvicorn
 
 from local_agent.channels.telegram import TelegramBot, TelegramChannel, TelegramNotifier
 from local_agent.config import get_key
+from local_agent.daemon import jobs
 from local_agent.daemon.api import build_api
+from local_agent.daemon.jobs import DISTILL_EVERY_SECONDS, distill_all  # noqa: F401 (where they used to live)
 from local_agent.daemon.scheduler import Scheduler
 from local_agent.daemon.security import Guard, load_or_create_token
 from local_agent.mcp.client import McpConnections
-from local_agent.memory import distill
 
 logger = logging.getLogger(__name__)
 
 HOST = '127.0.0.1'  # never 0.0.0.0: nothing else on the network may reach the agent
 UI_ENV = 'LOCAL_AGENT_UI_DIR'
 PACKAGE_UI = Path(__file__).resolve().parent.parent / 'ui'  # where scripts/release.sh puts the build
-DISTILL_EVERY_SECONDS = 3600
 
 
 def ui_dir() -> Path | None:
@@ -38,22 +38,6 @@ def ui_dir() -> Path | None:
         if candidate and (Path(candidate) / 'index.html').is_file():
             return Path(candidate).resolve()
     return None
-
-
-async def distill_all(rt) -> list[str]:
-    """Background distill: every conversation with enough new messages, from any channel. Returns notes written."""
-    written = []
-    for conversation_id in rt.store.undistilled_conversations():
-        conversation = rt.store.get_conversation(conversation_id)
-        if conversation.source == 'notify':  # the agent's own notifications aren't the owner's words
-            continue
-        try:
-            result = await distill.distill_conversation(rt.store, rt.memory, rt.complete, conversation_id)
-        except Exception as e:
-            logger.warning(f'Distill of {conversation_id} failed: {type(e).__name__}')
-            continue
-        written += result.get('notes', [])
-    return written
 
 
 class Daemon:
@@ -99,17 +83,12 @@ class Daemon:
         return uvicorn.Config(self.asgi(), host=HOST, port=self.port, lifespan='off', log_level='warning',
                               server_header=False, date_header=False)
 
-    async def _distill_forever(self) -> None:
-        while True:
-            await asyncio.sleep(DISTILL_EVERY_SECONDS)
-            await distill_all(self.rt)
-
     async def serve(self, announce=lambda text: print(text, flush=True)) -> None:
         await self.start()
         try:
             server = uvicorn.Server(self.uvicorn_config())
             tasks = [asyncio.create_task(server.serve()), asyncio.create_task(self.scheduler.run_forever()),
-                     asyncio.create_task(self._distill_forever())]
+                     *(asyncio.create_task(jobs.run_forever(self.rt, job)) for job in jobs.jobs(self.rt))]
             if self.telegram:
                 tasks.append(asyncio.create_task(self.telegram.run_forever()))
             announce(f'Local Agent is running. Open {self.url}')
