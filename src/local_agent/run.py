@@ -222,9 +222,9 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
     log = ev.EventLog(rt.store)
     log.append(ev.RUN_START, source=source, message=message, history_messages=len(history), owner=owner,
                **({'images': len(images)} if images else {}),
-               untrusted_inputs=[untrusted_source] if untrusted_source else [], parent_run_id=parent_run_id,
-               **({'inherited_taint': [source for source, _ in inherited_taint]} if inherited_taint else {}),
-               **({'purpose': purpose} if purpose != 'chat' else {}))
+               untrusted_inputs=[*([untrusted_source] if untrusted_source else []),
+                                 *(source for source, _ in inherited_taint)],
+               parent_run_id=parent_run_id, **({'purpose': purpose} if purpose != 'chat' else {}))
     if callback:
         await callback('run_started', {'run_id': log.run_id})  # so a channel can link to the run while it goes
     gate = None
