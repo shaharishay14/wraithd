@@ -29,10 +29,12 @@ class ScriptedModel(Model):
         self.turns = list(turns)
         self.usage = usage
         self.calls = 0
+        self.inputs = []  # what each call was given, for tests that look at what the model saw
 
     async def get_response(self, system_instructions, input, model_settings, tools, output_schema, handoffs,
                            tracing, **kwargs):
         self.calls += 1
+        self.inputs.append(input)
         turn = self.turns.pop(0) if self.turns else [say('(the script ran out)')]
         if isinstance(turn, Exception):
             raise turn
