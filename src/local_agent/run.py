@@ -4,6 +4,10 @@ One run: build the context, run the loop, log every step, return the answer.
 This is agent-studio's 2,500-line agent_service.run() reduced to what the harness needs: the owner's standing
 orders, memory (L0 + L1) and the skills list in the prompt; memory and skill tools behind the permission gate;
 reminders; the loop with its stop rules; and an event log that is saved even when the run fails.
+
+The system prompt and the tool list are a stable prefix: the same bytes on every turn and every run of a
+conversation, so providers can cache them (docs/caching.md). Anything that changes per run or per turn (the time,
+reminders) goes after the owner's message or in tool results.
 """
 
 import asyncio
@@ -13,10 +17,10 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from agents import Agent, Model, ModelSettings, Runner, set_tracing_disabled
+from agents import Agent, Model, Runner, set_tracing_disabled
 
 from local_agent.config import Config, Home, load_config
-from local_agent.core import compaction, disclosure, reminders, tool_results, views
+from local_agent.core import compaction, disclosure, reminders, tokens, tool_results, views
 from local_agent.core import events as ev
 from local_agent.core.gate import PermissionGate, guard_function_tools
 from local_agent.core.loop import RunAlreadyStartedError, run_with_step_limit
@@ -25,7 +29,7 @@ from local_agent.mcp.client import Connected, McpConnections
 from local_agent.memory import tools as memory_tools
 from local_agent.memory import vault
 from local_agent.memory.notes import Vault
-from local_agent.providers import build_models, model_for
+from local_agent.providers import build_models, model_for, model_settings
 from local_agent.skills import registry
 from local_agent.skills.tools import skill_tools
 from local_agent.store import SQLiteStore, Store
@@ -42,8 +46,9 @@ MCP_DESCRIPTIONS = 'MCP tool descriptions'  # the taint source when MCP tools ar
 BASE_INSTRUCTIONS = (
     'You are Local Agent, a personal assistant that runs on the user\'s own computer. Be direct and useful. '
     'Use your tools when they help; never claim you did something a tool didn\'t do.\n'
-    'Now: {now}.\n'
 )
+# The time changes every minute, so it goes after the owner's message, never in the cached prefix
+NOW_NOTE = 'Now: {now}.'
 
 
 @dataclass
@@ -139,7 +144,7 @@ def standing_orders(home: Home) -> str:
     return text[:INSTRUCTIONS_CHARS]
 
 
-def _strong_upgrade(rt: Runtime, skills: list[registry.SkillSpec]):
+def _strong_upgrade(rt: Runtime, skills: list[registry.SkillSpec], metered=lambda model: model):
     """The loop's upgrade check: once a `model: strong` skill has loaded, switch to the strong model."""
     strong = {skill.name for skill in skills if skill.model == 'strong'}
     if rt.model_for('strong') is rt.model_for('chat') or not strong:
@@ -147,7 +152,7 @@ def _strong_upgrade(rt: Runtime, skills: list[registry.SkillSpec]):
 
     def upgrade(events):
         loaded = next((name for name in views.skills_loaded(events) if name in strong), None)
-        return (rt.model_for('strong'), loaded) if loaded else None
+        return (metered(rt.model_for('strong')), loaded) if loaded else None
 
     return upgrade
 
@@ -198,7 +203,7 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
     """
     async with AsyncExitStack() as stack:
         if owner and mcp is None and rt.config.mcp_servers:
-            mcp = await stack.enter_async_context(McpConnections(rt.config.mcp_servers))
+            mcp = await stack.enter_async_context(McpConnections(rt.config.mcp_servers, store=rt.store))
         return await _run(rt, message, history=history, callback=callback, source=source, owner=owner, tools=tools,
                           app_tools=app_tools, app_guides=app_guides, builtins=builtins,
                           mcp=mcp if owner else None, untrusted_source=untrusted_source, images=images,
@@ -279,7 +284,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
             situation.tool, situation.tool_output = tool_name, result_text
             return reminders.inject(log, tool_name, reminders.due(reminders.REMINDERS, tool_name, situation))
 
-        own = memory_tools.memory_tools(rt.memory, gate, log) if owner else []
+        own = memory_tools.memory_tools(rt.memory, gate, log, notifier=rt.notifier) if owner else []
         (load_tool, propose_tool, adjust_tool), prechecks = skill_tools(rt.skills, skills, gate, log)
         own += [load_tool] if skills else []
         own += [propose_tool, adjust_tool] if owner else []
@@ -319,17 +324,17 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
                     [tool.description or '' for tool in mcp.tools] + list(mcp.guides.values())), private=False)
                 untrusted_context.append(MCP_DESCRIPTIONS)
 
-        now = datetime.now().astimezone()
-        instructions = BASE_INSTRUCTIONS.format(now=f'{now:%A %d %B %Y, %H:%M} ({now.tzname()})')
-        if orders:
-            instructions += f'\nSTANDING ORDERS (from the user, in every conversation):\n{orders}\n'
-        if owner:
-            instructions += vault.memory_context(notes)  # L0 (profile) and L1 (keyword map); the rest on demand
-        instructions += registry.registry_prompt(skills, can_adjust=owner)
-        instructions += reminders.PREAMBLE
+        # The stable prefix, most stable first: it must be byte-identical on every turn and every run of a
+        # conversation (docs/caching.md). Memory comes last: distill changes it more often than the rest.
+        sections = {tokens.AGENTS_MD: f'\nSTANDING ORDERS (from the user, in every conversation):\n{orders}\n'
+                                      if orders else '',
+                    tokens.SKILLS: registry.registry_prompt(skills, can_adjust=owner),
+                    tokens.PROFILE: vault.memory_context(notes) if owner else ''}  # L0 + L1; the rest on demand
+        instructions = BASE_INSTRUCTIONS + reminders.PREAMBLE + sections[tokens.AGENTS_MD] + sections[tokens.SKILLS]
         if use_discovery:
             instructions += disclosure.discovery_instructions(sorted({disclosure.app_of(t.name) for t in app_tools}),
                                                               len(app_tools))
+        instructions += sections[tokens.PROFILE]
 
         model = rt.model_for(purpose)
         # What the model starts with: the size of this is what progressive disclosure shrinks
@@ -338,21 +343,28 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
                    tools_offered=[tool.name for tool in guarded], tool_schema_chars=disclosure.schema_chars(guarded),
                    memory_notes=len(notes) if owner else None, skills_offered=[skill.name for skill in skills],
                    instructions_chars=len(instructions), untrusted_context=untrusted_context,
+                   prefix_hash=tokens.prefix_hash(instructions, guarded),
+                   section_chars={name: len(text) for name, text in sections.items()},
                    **({'mcp_servers': sorted({server for server, _ in mcp.origin.values()}),
                        'mcp_errors': mcp.errors} if mcp else {}))
 
-        chat = history + [{'role': 'user', 'content': user_content(message, images)}]
-        # Reminders for this moment go right after the owner's message
+        # After the owner's message, outside the cached prefix: the time (the harness's words, so role system), then
+        # the reminders for this moment
+        now = datetime.now().astimezone()
+        time_note = NOW_NOTE.format(now=f'{now:%A %d %B %Y, %H:%M} ({now.tzname()})')
+        chat = history + [{'role': 'user', 'content': user_content(message, images)},
+                          {'role': 'system', 'content': time_note}]
         start_block = reminders.inject(log, reminders.RUN_START,
                                        reminders.due(reminders.REMINDERS, reminders.RUN_START, situation))
         if start_block:
             chat.append({'role': 'user', 'content': start_block})
 
-        # include_usage: streaming through LiteLLM (Anthropic) reports token usage only when asked, and the budgets
-        # count what's reported
-        agent = Agent(name='Local Agent', instructions=instructions, tools=guarded, model=model,
-                      model_settings=ModelSettings(include_usage=True))
-        result = await _run_loop(agent, chat, callback, log, policy, _strong_upgrade(rt, skills))
+        def metered(chosen):
+            return tokens.TokenMeter(chosen, log, sections)
+
+        agent = Agent(name='Local Agent', instructions=instructions, tools=guarded, model=metered(model),
+                      model_settings=model_settings(rt.config))
+        result = await _run_loop(agent, chat, callback, log, policy, _strong_upgrade(rt, skills, metered))
         answer = str(result.final_output or '')
         end('answered')
         return RunResult(answer, log.run_id, 'answered')

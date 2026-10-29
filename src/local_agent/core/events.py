@@ -40,6 +40,9 @@ MCP_TOOL_NEW = 'mcp_tool_new'  # a tool appeared on a known server: it asks unti
 MCP_TOOL_PINNED = 'mcp_tool_pinned'  # always-allow was pinned to a tool's exact definition
 # <<< security
 # >>> efficiency
+CONTEXT_TOKENS = 'context_tokens'  # one model call's input, measured part by part, and the usage reported (tokens.py)
+SPILLED = 'spilled'  # a big tool result was saved to workspace/files/.spill/; the model got a preview (spill/)
+SPILL_CLEANED = 'spill_cleaned'  # old spill folders were deleted (between runs)
 # <<< efficiency
 # >>> capabilities
 # <<< capabilities
@@ -57,6 +60,7 @@ BETWEEN_RUNS = (
     REVIEW_QUEUED, REVIEW_APPROVED, REVIEW_REJECTED, REVIEW_NOTIFIED, MCP_TOOL_CHANGED, MCP_TOOL_NEW, MCP_TOOL_PINNED,
     # <<< security
     # >>> efficiency
+    SPILL_CLEANED,
     # <<< efficiency
     # >>> capabilities
     # <<< capabilities

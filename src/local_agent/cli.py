@@ -86,6 +86,10 @@ def build_parser() -> argparse.ArgumentParser:
     review_cli.add_arguments(commands)
     # <<< security
     # >>> efficiency
+    tokens = runs.add_parser('tokens', help="where one run's input tokens went, part by part")
+    tokens.add_argument('run_id', help='the run id, or a unique prefix of it')
+    tokens.add_argument('--json', action='store_true')
+    tokens.set_defaults(command='runs_tokens')  # handled in main's efficiency block
     # <<< efficiency
     # >>> capabilities
     # <<< capabilities
@@ -273,6 +277,9 @@ def main(argv: list[str] | None = None) -> int:
         return review_cli.main(home, args)
     # <<< security
     # >>> efficiency
+    if args.command == 'runs_tokens':
+        from local_agent.core import tokens
+        return tokens.main(home, args.run_id, args.json)
     # <<< efficiency
     # >>> capabilities
     # <<< capabilities

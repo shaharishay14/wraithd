@@ -52,7 +52,8 @@ async def test_the_conversation_carries_over_between_turns(make_runtime):
     await terminal.chat(make_runtime(model), ScriptedTerminal('I am Dana', 'who am I?', 'exit'))
     second_input = model.inputs[1]
     assert [item['content'] for item in second_input if isinstance(item, dict) and 'role' in item
-            and '<system-reminder>' not in str(item['content'])] == ['I am Dana', 'Hi Dana.', 'who am I?']
+            and '<system-reminder>' not in str(item['content'])
+            and item.get('role') != 'system'] == ['I am Dana', 'Hi Dana.', 'who am I?']  # not the time note
 
 
 async def test_a_write_asks_y_or_n_and_no_means_no(make_runtime, monkeypatch):

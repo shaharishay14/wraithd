@@ -28,8 +28,9 @@ def test_hooks_run_in_order_and_a_failing_one_is_skipped(caplog):
     assert "'not_text' returned NoneType" in caplog.text
 
 
-def test_no_hooks_are_registered_yet(make_runtime):
-    assert tool_results.result_hooks(make_runtime(ScriptedModel([])), None) == []
+def test_every_hook_passes_text_through_unchanged_when_it_does_not_apply(make_runtime):
+    hooks = tool_results.result_hooks(make_runtime(ScriptedModel([])), None)
+    assert tool_results.apply(hooks, 'get_weather', '{"temp": 21}', untrusted=False) == '{"temp": 21}'
 
 
 async def test_the_model_gets_the_hooks_text_and_taint_is_kept(store):

@@ -52,6 +52,9 @@ def jobs(rt) -> list[Job]:
     found.append(Job('review_notify', 60, review_queue.notify_job))  # tells the owner what waits for review
     # <<< security
     # >>> efficiency
+    from local_agent import spill
+
+    found.append(Job('spill_cleanup', spill.CLEANUP_EVERY_SECONDS, spill.cleanup_job))
     # <<< efficiency
     # >>> capabilities
     # <<< capabilities

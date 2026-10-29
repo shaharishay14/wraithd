@@ -1,0 +1,109 @@
+{
+ "events": [
+  {
+   "seq": 0,
+   "type": "run_start",
+   "payload": {
+    "source": "chat",
+    "message": "What did I ask you about?",
+    "history_messages": 2,
+    "owner": true,
+    "untrusted_inputs": [],
+    "parent_run_id": null
+   }
+  },
+  {
+   "seq": 1,
+   "type": "context_built",
+   "payload": {
+    "model": "scripted",
+    "disclosure": "direct",
+    "app_actions": 0,
+    "tools_offered": [
+     "read_website",
+     "files_list",
+     "files_read",
+     "files_write",
+     "files_edit",
+     "schedule_create",
+     "schedule_list",
+     "schedule_cancel",
+     "notify_owner",
+     "memory_search",
+     "memory_read",
+     "memory_append",
+     "memory_write",
+     "skill_load",
+     "skill_propose",
+     "skill_adjust"
+    ],
+    "tool_schema_chars": 7337,
+    "memory_notes": 1,
+    "skills_offered": [
+     "skill-writer",
+     "weekly-review"
+    ],
+    "instructions_chars": 2091,
+    "untrusted_context": [],
+    "prefix_hash": "802e4a55f4f8",
+    "section_chars": {
+     "agents_md": 152,
+     "skills": 743,
+     "profile": 742
+    }
+   }
+  },
+  {
+   "seq": 2,
+   "type": "turn_start",
+   "payload": {
+    "turn": 1,
+    "input_items": 4
+   }
+  },
+  {
+   "seq": 3,
+   "type": "context_tokens",
+   "payload": {
+    "model": "scripted",
+    "tokenizer": "o200k_base",
+    "parts": {
+     "tools": 2102,
+     "system": 95,
+     "agents_md": 32,
+     "skills": 177,
+     "profile": 161,
+     "history": 29,
+     "tool_results": 0,
+     "notes": 17
+    },
+    "measured": 2613,
+    "prefix_hash": "802e4a55f4f8",
+    "input_tokens": 2761,
+    "cache_read": 0,
+    "cache_write": 0
+   }
+  },
+  {
+   "seq": 4,
+   "type": "model_output",
+   "payload": {
+    "input_tokens": 2761,
+    "output_tokens": 5,
+    "tool_calls": [],
+    "text_chars": 23
+   }
+  },
+  {
+   "seq": 5,
+   "type": "run_end",
+   "payload": {
+    "outcome": "answered",
+    "duration_ms": 5,
+    "turns": 1,
+    "tokens": 2766,
+    "stop_reason": null
+   }
+  }
+ ]
+}

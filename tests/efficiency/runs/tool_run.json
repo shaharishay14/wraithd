@@ -1,0 +1,177 @@
+{
+ "events": [
+  {
+   "seq": 0,
+   "type": "run_start",
+   "payload": {
+    "source": "chat",
+    "message": "What is the weather in Lisbon today?",
+    "history_messages": 0,
+    "owner": true,
+    "untrusted_inputs": [],
+    "parent_run_id": null
+   }
+  },
+  {
+   "seq": 1,
+   "type": "context_built",
+   "payload": {
+    "model": "scripted",
+    "disclosure": "direct",
+    "app_actions": 0,
+    "tools_offered": [
+     "read_website",
+     "files_list",
+     "files_read",
+     "files_write",
+     "files_edit",
+     "schedule_create",
+     "schedule_list",
+     "schedule_cancel",
+     "notify_owner",
+     "get_weather",
+     "memory_search",
+     "memory_read",
+     "memory_append",
+     "memory_write",
+     "skill_load",
+     "skill_propose",
+     "skill_adjust"
+    ],
+    "tool_schema_chars": 7396,
+    "memory_notes": 1,
+    "skills_offered": [
+     "skill-writer",
+     "weekly-review"
+    ],
+    "instructions_chars": 2091,
+    "untrusted_context": [],
+    "prefix_hash": "16ed17f76faf",
+    "section_chars": {
+     "agents_md": 152,
+     "skills": 743,
+     "profile": 742
+    }
+   }
+  },
+  {
+   "seq": 2,
+   "type": "turn_start",
+   "payload": {
+    "turn": 1,
+    "input_items": 2
+   }
+  },
+  {
+   "seq": 3,
+   "type": "context_tokens",
+   "payload": {
+    "model": "scripted",
+    "tokenizer": "o200k_base",
+    "parts": {
+     "tools": 2132,
+     "system": 95,
+     "agents_md": 32,
+     "skills": 177,
+     "profile": 161,
+     "history": 8,
+     "tool_results": 0,
+     "notes": 17
+    },
+    "measured": 2622,
+    "prefix_hash": "16ed17f76faf",
+    "input_tokens": 2770,
+    "cache_read": 0,
+    "cache_write": 0
+   }
+  },
+  {
+   "seq": 4,
+   "type": "model_output",
+   "payload": {
+    "input_tokens": 2770,
+    "output_tokens": 5,
+    "tool_calls": [
+     "get_weather"
+    ],
+    "text_chars": 0
+   }
+  },
+  {
+   "seq": 5,
+   "type": "tool_call",
+   "payload": {
+    "tool": "get_weather",
+    "arguments": {
+     "location": "Lisbon"
+    },
+    "access": "read",
+    "allowed": true
+   }
+  },
+  {
+   "seq": 6,
+   "type": "tool_result",
+   "payload": {
+    "tool": "get_weather",
+    "outcome": "ok",
+    "chars": 1927,
+    "truncated": false,
+    "untrusted": false,
+    "preview": "{\"report\": \"Lisbon weather report. Sunny spells, a light breeze from the north west, 22C at noon. Sunny spells, a light breeze from the north west, 22C at noon. Sunny spells, a light breeze from the north west, 22C at noon. Sunny spells, a light breeze from the north west, 22C at noon. Sunny spells, a light breeze from the north west, 22C at noon. Sunny spells, a light breeze from the north west, 22C at noon. Sunny spells, a light breeze from the north west, 22C at noon. Sunny spells, a light br"
+   }
+  },
+  {
+   "seq": 7,
+   "type": "turn_start",
+   "payload": {
+    "turn": 2,
+    "input_items": 4
+   }
+  },
+  {
+   "seq": 8,
+   "type": "context_tokens",
+   "payload": {
+    "model": "scripted",
+    "tokenizer": "o200k_base",
+    "parts": {
+     "tools": 2132,
+     "system": 95,
+     "agents_md": 32,
+     "skills": 177,
+     "profile": 161,
+     "history": 17,
+     "tool_results": 520,
+     "notes": 17
+    },
+    "measured": 3151,
+    "prefix_hash": "16ed17f76faf",
+    "input_tokens": 3307,
+    "cache_read": 0,
+    "cache_write": 0
+   }
+  },
+  {
+   "seq": 9,
+   "type": "model_output",
+   "payload": {
+    "input_tokens": 3307,
+    "output_tokens": 5,
+    "tool_calls": [],
+    "text_chars": 11
+   }
+  },
+  {
+   "seq": 10,
+   "type": "run_end",
+   "payload": {
+    "outcome": "answered",
+    "duration_ms": 197,
+    "turns": 2,
+    "tokens": 6087,
+    "stop_reason": null
+   }
+  }
+ ]
+}
