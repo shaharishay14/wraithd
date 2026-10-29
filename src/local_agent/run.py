@@ -308,6 +308,9 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         # >>> evals
         # <<< evals
         # >>> sandbox
+        from local_agent import sandbox
+
+        sandbox.bind_log(log, stack)
         # <<< sandbox
         if allowed_tools is not None:
             own = [tool for tool in own if tool.name in allowed_tools]

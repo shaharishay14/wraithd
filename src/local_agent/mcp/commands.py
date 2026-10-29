@@ -41,6 +41,8 @@ def add_arguments(subparsers) -> None:
     # The command after -- isn't an argparse positional: cli.main splits it off before parsing (split_command), since
     # Python 3.12.3's argparse (Ubuntu's) rejects a -- that comes after options once NAME has been read.
     # dest isn't "command": that's the top-level subcommand
+    add.add_argument('--sandbox', action='store_true',
+                     help='run this local server inside docker ([sandbox] image; see docs/sandbox.md)')
     add.set_defaults(server_command=[])
     mcp.add_parser('list', help='the configured servers')
     tools = mcp.add_parser('tools', help='connect to a server and show its tools and their tiers')
@@ -91,7 +93,10 @@ def add(home: Home, args, ask=None) -> int:
         server = mcp_config.validated(McpServer(
             name=args.name, transport='http' if args.url else 'stdio', command=command[0] if command else '',
             args=tuple(command[1:]), env=tuple(env), url=args.url, headers=tuple(headers),
-            provides=tuple(p.strip().lower() for p in args.provides.split(',') if p.strip())))
+            provides=tuple(p.strip().lower() for p in args.provides.split(',') if p.strip()),
+            sandbox=bool(getattr(args, 'sandbox', False))))
+        if args.url and server.sandbox:
+            raise McpConfigError('--sandbox is for local servers (a command after --), not --url.')
         if args.url and env or command and headers:
             raise McpConfigError('--env is for local servers and --header for remote ones.')
         previous = _server(home, args.name)

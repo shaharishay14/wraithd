@@ -115,6 +115,8 @@ SECTIONS: dict[str, Section] = {
     # >>> evals
     # <<< evals
     # >>> sandbox
+    # The shell's (and opted-in MCP servers') sandbox: none | docker. Broken values load, and the audit names them
+    'sandbox': Section({'backend': 'none', 'image': 'debian:bookworm-slim', 'network': 'none'}),
     # <<< sandbox
 }
 

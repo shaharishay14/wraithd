@@ -88,5 +88,8 @@ def builtin_tools(rt, owner: bool, attended: bool) -> list:
     # >>> evals
     # <<< evals
     # >>> sandbox
+    from local_agent import sandbox
+
+    tools = sandbox.sandboxed(tools, rt)
     # <<< sandbox
     return tools

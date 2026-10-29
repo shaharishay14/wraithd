@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from agents import FunctionTool
 from agents.mcp import MCPServerStdio, MCPServerStreamableHttp
 
+from local_agent.core import events as ev
+from local_agent.core.events import record_event
 from local_agent.core.gate import ToolAccess, parse_arguments
 from local_agent.mcp import pinning
 from local_agent.mcp.config import McpConfigError, McpServer, get_secrets
@@ -35,6 +37,9 @@ CALL_TIMEOUT_SECONDS = 60
 DESCRIPTION_CHARS = 1000
 INSTRUCTIONS_CHARS = 2000
 MAX_NAME = 64  # what model APIs accept for a tool name
+# A sandboxed server that doesn't start is most often an image without its runtime (npx needs node, uvx python)
+SANDBOX_HINT = (' (it runs sandboxed: does the [sandbox] image have its command? The default image has no node or '
+                'python; set [sandbox] image in config.toml, e.g. "node:22-slim")')
 
 
 def neutralize(text: str, limit: int) -> str:
@@ -96,7 +101,12 @@ def sdk_server(server: McpServer):
     if server.transport == 'stdio':
         # The SDK starts the process with a minimal environment (PATH, HOME...) plus this env, never the
         # owner's whole environment: other servers' tokens and the model keys stay out
-        return MCPServerStdio({'command': server.command, 'args': list(server.args), 'env': env}, name=server.name,
+        params = {'command': server.command, 'args': list(server.args), 'env': env}
+        if server.sandbox:
+            from local_agent import sandbox
+
+            params = sandbox.mcp_launch(server, env, sandbox.mcp_values())
+        return MCPServerStdio(params, name=server.name,
                               client_session_timeout_seconds=CALL_TIMEOUT_SECONDS)
     return MCPServerStreamableHttp({'url': server.url, 'headers': headers}, name=server.name,
                                    client_session_timeout_seconds=CALL_TIMEOUT_SECONDS)
@@ -140,8 +150,12 @@ class McpConnections:
                 listed = await asyncio.wait_for(sdk.list_tools(), timeout=CONNECT_TIMEOUT_SECONDS)
             except Exception as e:  # a broken server must not take the run down with it
                 connected.errors[server.name] = str(e) if isinstance(e, McpConfigError) else type(e).__name__
+                if server.sandbox and not isinstance(e, McpConfigError):
+                    connected.errors[server.name] += SANDBOX_HINT
                 logger.warning(f'MCP server {server.name} did not connect: {connected.errors[server.name]}')
                 continue
+            if server.sandbox and self.store is not None:
+                record_event(self.store, ev.SANDBOX_MCP_START, server=server.name, command=server.command)
             instructions = getattr(getattr(sdk, 'session', None), 'instructions', None)
             if instructions:
                 connected.guides[server.name.upper()] = neutralize(instructions, INSTRUCTIONS_CHARS)
