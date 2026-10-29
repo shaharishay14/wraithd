@@ -39,6 +39,7 @@ from local_agent.review import api as review_api  # isort: skip
 # >>> efficiency
 # <<< efficiency
 # >>> capabilities
+from local_agent.skills import review as skill_review  # isort: skip
 # <<< capabilities
 # >>> reach
 # <<< reach
@@ -362,11 +363,14 @@ def build_api(daemon, ui_dir: Path | None) -> Starlette:
             folder.rmdir()
         else:
             folder.rename(target)
+        skill_review.settle(rt.store, rt.home, folder.name, approved=True)  # its review item, if any
         found = all_skills()[folder.name]
         return JSONResponse(skill_json(found, capabilities(), with_instructions=True))
 
     async def delete_proposal(request):
-        shutil.rmtree(proposal_folder(request))
+        folder = proposal_folder(request)
+        shutil.rmtree(folder)
+        skill_review.settle(rt.store, rt.home, folder.name, approved=False)
         return Response(status_code=204)
 
     # --- schedules ---------------------------------------------------------------------------------------

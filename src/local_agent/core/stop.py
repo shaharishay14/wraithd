@@ -64,7 +64,7 @@ class StopPolicy:
         if self.max_tool_calls is not None and calls >= self.max_tool_calls:
             return StopReason('tool_calls', f'The run made {calls} tool calls, its limit.')
 
-        used = views.tokens_used(events)
+        used = views.tokens_used(events) + views.delegated_tokens(events)  # a subagent spends this run's budget
         if self.token_budget is not None and used >= self.token_budget:
             return StopReason('token_budget', f'The run used {used} tokens, over its budget of {self.token_budget}.')
         if self.over_daily_budget(used):

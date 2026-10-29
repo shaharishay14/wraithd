@@ -1,8 +1,9 @@
 """
 The agent's skill tools:
 - skill_load: view a skill (with the owner's adjustments), or one of its files
-- skill_propose: draft a new skill from a run that went well. Stored as a proposal: only the owner can turn it
-  on, so a run that read something malicious can't teach the agent new standing instructions.
+- skill_propose: draft a new skill from a run that went well. Stored as a proposal and queued for the owner's
+  review (skills/review.py): only the owner can turn it on, so a run that read something malicious can't teach the
+  agent new standing instructions. A draft from such a run is flagged.
 - skill_adjust: save one rule to the owner's version of a skill. It's a write, so the permission gate asks the
   owner first (the y/N prompt in the terminal), and it never runs unattended.
 """
@@ -17,6 +18,7 @@ from local_agent.core import events as ev
 from local_agent.core.gate import parse_arguments
 from local_agent.core.views import SKILL_LOAD as LOAD
 from local_agent.skills import registry
+from local_agent.skills import review as skill_review
 
 PROPOSE, ADJUST = 'skill_propose', 'skill_adjust'
 MAX_ADJUSTMENTS = 15  # per skill: past this, the owner should tidy them in your-way.md
@@ -62,9 +64,13 @@ def skill_tools(folder: registry.SkillFolder, skills: list[registry.SkillSpec], 
                                         'name.'})
         requires = [str(item) for item in arguments.get('requires') or []]
         saved = folder.propose(name, description.strip(), instructions, requires, detail())
-        return json.dumps({'proposed': name, 'status': 'waiting for the user',
-                           'hint': f'Tell the user you drafted this skill in {saved}, and that moving the folder '
-                                   f'into {folder.root} turns it on.'})
+        item = skill_review.queue_proposal(gate.store, folder.root, name=name, description=description.strip(),
+                                           instructions=instructions, requires=requires, detail=detail(),
+                                           run_id=log.run_id, taint=gate.untrusted_sources)
+        return json.dumps({'proposed': name, 'status': 'waiting for the user', 'review_item': item.id,
+                           'hint': f'Tell the user you drafted this skill in {saved} and it waits for their review: '
+                                   f'`local-agent review approve {item.id}` (or moving the folder into '
+                                   f'{folder.root}) turns it on.'})
 
     def _adjust_arguments(arguments):
         return (arguments.get('skill') or '').strip().lower(), ' '.join((arguments.get('rule') or '').split())
