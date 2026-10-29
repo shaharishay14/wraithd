@@ -32,7 +32,8 @@ agent into their own terminal, with no log and no timeout.
 
 ## On a laptop
 
-There is no sandbox: an approved command runs as the owner, with everything their account can reach. The working
-folder is a default, not a boundary (`cd ..` works). The safety is the approval, the log of every command
-(`local-agent runs show`), and the rule that nothing runs while nobody is there. A Docker sandbox is listed under
-"Not now" in the plan.
+By default there is no sandbox: an approved command runs as the owner, with everything their account can reach. The
+working folder is a default, not a boundary (`cd ..` works). The safety is the approval, the log of every command
+(`local-agent runs show`), and the rule that nothing runs while nobody is there. With `[sandbox] backend = "docker"`
+the same approved command runs in a container that sees only workspace/files/ and has no network
+([sandbox](sandbox.md)); it still asks every time and still never runs unattended.

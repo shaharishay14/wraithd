@@ -53,6 +53,7 @@ It's a pattern scan, so it's best effort.
 
 - **Files** are confined to `workspace/files/` by a real-path check ([files](files.md)).
 - **The shell** is off by default; on, every command needs a "y", and it never runs unattended ([shell](shell.md)).
+  An optional Docker sandbox runs it with only workspace/files/ and no network ([sandbox](sandbox.md)).
 - **Schedules** are approved one by one, since each is a standing instruction ([schedules](schedules.md)).
 - File contents, command output, pages and search snippets are all third-party content: wrapped, and they taint
   the run.
