@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 DELEGATE = 'delegate'
 SOURCE = 'subagent'
 DELEGATED_TASK = 'delegated task'  # the taint source for a task written after the parent read third-party text
-DEFAULT_TOKENS = 50_000
 MIN_TOKENS = 2_000
 SUMMARY_CHARS = 4_000
 # What of the child's callback reaches the parent's channel: approvals only, never streamed text
@@ -54,9 +53,11 @@ def remaining(limit, used: int) -> int | None:
 
 
 def delegate_tools(rt, gate, log, *, callback, owner: bool, mcp, parent_run_id, offered, allowed_tools) -> list:
-    """[delegate] for a top-level run; [] for a child (depth 1)."""
-    if parent_run_id is not None:
+    """[delegate] for the owner's top-level runs when [subagents] is on; [] for a child (depth 1)."""
+    settings = rt.config.section('subagents')
+    if parent_run_id is not None or not owner or not settings['enabled']:
         return []
+    default_tokens = settings['default_tokens']
     from local_agent.run import run  # run.py builds this tool, so it's imported only once run.py has loaded
 
     def child_tools() -> set[str]:
@@ -74,7 +75,7 @@ def delegate_tools(rt, gate, log, *, callback, owner: bool, mcp, parent_run_id, 
         if left < MIN_TOKENS:
             return tool_error('There is not enough of the token budget left for a subagent.',
                               'Finish the task yourself with what you have.')
-        tokens = clamp_int(budget_tokens, MIN_TOKENS, left, min(DEFAULT_TOKENS, left))
+        tokens = clamp_int(budget_tokens, MIN_TOKENS, left, min(default_tokens, left))
         budget = {'run_tokens': tokens}
         if daily_left is not None:
             budget['daily_tokens'] = rt.config.daily_tokens - used  # today's saved runs + this one so far
@@ -104,6 +105,6 @@ def delegate_tools(rt, gate, log, *, callback, owner: bool, mcp, parent_run_id, 
         {'properties': {
             'task': {'type': 'string', 'description': 'The task, with everything the subagent needs to know'},
             'budget_tokens': {'type': 'integer',
-                              'description': f'Optional token limit for the subagent (default {DEFAULT_TOKENS})'}},
+                              'description': f'Optional token limit for the subagent (default {default_tokens})'}},
          'required': ['task']},
         delegate)]

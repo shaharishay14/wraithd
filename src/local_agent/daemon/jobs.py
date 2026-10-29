@@ -57,6 +57,13 @@ def jobs(rt) -> list[Job]:
     found.append(Job('spill_cleanup', spill.CLEANUP_EVERY_SECONDS, spill.cleanup_job))
     # <<< efficiency
     # >>> capabilities
+    from local_agent.daemon import heartbeat
+    from local_agent.skills import review as skill_review
+
+    # drafts the owner moved or deleted by hand
+    found.append(Job('skill_settle', skill_review.SETTLE_EVERY_SECONDS, skill_review.settle_job))
+    if rt.config.section('heartbeat')['enabled']:
+        found.append(Job('heartbeat', heartbeat.TICK_SECONDS, heartbeat.heartbeat_job))  # due() keeps the interval
     # <<< capabilities
     # >>> reach
     from local_agent.daemon import service

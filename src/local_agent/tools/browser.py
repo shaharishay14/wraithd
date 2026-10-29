@@ -20,6 +20,7 @@ sits behind BrowserDriver, so tests drive the same tools and router with a fake.
 import asyncio
 import contextlib
 import importlib.util
+import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -252,6 +253,74 @@ class PlaywrightDriver:
         self._playwright = self._browser = self._context = self.page = None
 
 
+class JsonSiteDriver:
+    """
+    A browser without Chromium, for tests and evals: each page is a JSON document fetched through the router like any
+    page, {"title", "text", "elements": [{"ref", "tag", "label", "type", "href", "form_action"}], "requests":
+    [{"method", "url"}]}. "requests" stand for what the page's scripts fetch when it loads: each one goes through the
+    router too. Serve the documents with an httpx.MockTransport as rt.web_transport, and set
+    rt.browser_driver = JsonSiteDriver. Nothing else changes: same tools, same router, same egress checks.
+    """
+
+    def __init__(self):
+        self.router: EgressRouter | None = None
+        self.page = Snapshot('about:blank', '', '')
+        self.typed: dict[int, str] = {}
+        self.script_requests: list[tuple[str, str, bool]] = []  # (method, url, allowed), for tests
+
+    async def start(self, router: EgressRouter) -> None:
+        self.router = router
+
+    async def _load(self, method: str, url: str, body: bytes | None = None) -> None:
+        decision = await self.router.decide(method, url, {'accept': 'text/html'}, body, 'document')
+        if isinstance(decision, Blocked):
+            raise BrowserBlocked(decision.reason)
+        if isinstance(decision, Fulfill) and 300 <= decision.status < 400 and decision.headers.get('location'):
+            return await self._load('GET', decision.headers['location'])
+        body = decision.body if isinstance(decision, Fulfill) else b''
+        try:
+            data = json.loads(body or b'{}')
+        except ValueError:
+            data = {'text': body.decode(errors='replace')}  # not a JSON page: its text as is
+        self.page = Snapshot(url, str(data.get('title', '')), str(data.get('text', '')),
+                             tuple(Element(**element) for element in data.get('elements', [])))
+        self.typed = {}
+        for request in data.get('requests', []):
+            target = urljoin(url, request['url'])
+            outcome = await self.router.decide(request.get('method', 'GET'), target, {}, None, 'fetch')
+            self.script_requests.append((request.get('method', 'GET'), target, not isinstance(outcome, Blocked)))
+
+    async def open(self, url: str) -> None:
+        await self._load('GET', url)
+
+    async def snapshot(self) -> Snapshot:
+        return self.page
+
+    async def screenshot(self) -> bytes:
+        return b'\x89PNG\r\n\x1a\n'
+
+    def _element(self, ref: int) -> Element:
+        return next(e for e in self.page.elements if e.ref == int(ref))
+
+    async def click(self, ref: int) -> None:
+        element = self._element(ref)
+        if element.href:
+            await self._load('GET', urljoin(self.page.url, element.href))
+        elif element.form_action:
+            await self.submit(ref)
+
+    async def type(self, ref: int, text: str) -> None:
+        self.typed[int(ref)] = text
+
+    async def submit(self, ref: int) -> None:
+        element = self._element(ref)
+        body = json.dumps({str(key): value for key, value in self.typed.items()}).encode()
+        await self._load('POST', urljoin(self.page.url, element.form_action or self.page.url), body)
+
+    async def close(self) -> None:
+        self.router = None
+
+
 def playwright_installed() -> bool:
     return importlib.util.find_spec('playwright') is not None
 
@@ -397,9 +466,9 @@ def browser_tools(session: BrowserSession, shots_dir: Path, run_id: str) -> list
     ]
 
 
-def run_tools(rt, log, owner: bool) -> list:
+def run_tools(rt, log, owner: bool, stack=None) -> list:
     """This run's browser tools: for the owner, when [browser] is on and Playwright is installed (or a test driver
-    is set on the Runtime as rt.browser_driver)."""
+    is set on the Runtime as rt.browser_driver). The browser closes when the run ends (stack), or when idle."""
     settings = rt.config.section('browser')
     make_driver = getattr(rt, 'browser_driver', None)
     if not owner or not settings['enabled'] or (make_driver is None and not playwright_installed()):
@@ -408,4 +477,6 @@ def run_tools(rt, log, owner: bool) -> list:
         def make_driver():
             return PlaywrightDriver(settings['timeout_seconds'])
     session = BrowserSession(make_driver, EgressRouter(rt.web_transport), settings['idle_seconds'])
+    if stack is not None:
+        stack.push_async_callback(session.close)
     return browser_tools(session, rt.home.files_dir / 'browser', log.run_id)

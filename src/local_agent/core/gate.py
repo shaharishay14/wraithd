@@ -76,6 +76,16 @@ BUILTIN_TOOL_ACCESS = {
     # >>> efficiency
     # <<< efficiency
     # >>> capabilities
+    # The browser (tools/browser.py): opening and reading pages are reads; acting on a page is a write, and its
+    # to_site argument is checked like a recipient
+    'browser_open': ToolAccess.READ,
+    'browser_read': ToolAccess.READ,
+    'browser_screenshot': ToolAccess.READ,
+    'browser_click': ToolAccess.WRITE,
+    'browser_type': ToolAccess.WRITE,
+    'browser_submit': ToolAccess.WRITE,
+    # A subagent (core/delegate.py): its own gate checks every tool it calls
+    'delegate': ToolAccess.READ,
     # <<< capabilities
     # >>> reach
     # <<< reach
@@ -121,6 +131,9 @@ APPROVAL_REASONS = {
     # >>> efficiency
     # <<< efficiency
     # >>> capabilities
+    'browser_click': 'Your agent clicks this on the page, as you would: it can buy, send or change things there.',
+    'browser_type': 'Your agent types this into the page. The site sees it, even before anything is submitted.',
+    'browser_submit': 'Your agent submits this form to the site named here. Check the site and what was typed.',
     # <<< capabilities
     # >>> reach
     # <<< reach
@@ -141,6 +154,7 @@ PRIVATE_OUTPUT_BUILTINS = {
     # >>> efficiency
     # <<< efficiency
     # >>> capabilities
+    'delegate',  # a subagent may have read the owner's mail or files
     # <<< capabilities
     # >>> reach
     # <<< reach
@@ -160,6 +174,7 @@ UNTRUSTED_OUTPUT_BUILTINS = {
     # >>> efficiency
     # <<< efficiency
     # >>> capabilities
+    'browser_open', 'browser_read', 'browser_screenshot', 'browser_click', 'browser_type', 'browser_submit',
     # <<< capabilities
     # >>> reach
     # <<< reach
@@ -179,6 +194,7 @@ URL_FETCH_TOOLS = {
     # >>> efficiency
     # <<< efficiency
     # >>> capabilities
+    'browser_open': 'url',
     # <<< capabilities
     # >>> reach
     # <<< reach
