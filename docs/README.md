@@ -58,6 +58,13 @@ says what changed for running on one person's laptop.
 | [Seams](seams.md) | The extension points Phase 9 workers plug into: model per purpose, run options, marked blocks, module migrations, periodic jobs, tool-result hooks. |
 | [Review queue](review-queue.md) | Items waiting for the owner (third-party memory writes, later skills and changed MCP tools): `local-agent review`, the API, one short notice. |
 | [Memory provenance](memory-provenance.md) | Where each memory note came from, and why a tainted run's memory writes wait for review. |
+| [Token breakdown](tokens.md) | `local-agent runs tokens <id>`: where a run's input tokens go, part by part. |
+| [Prompt caching](caching.md) | A byte-identical prefix first, everything that changes after it; cache tokens in events and budgets. |
+| [Model per purpose](models.md) | `[models]`: a cheaper model for distill, compaction, heartbeat or subagents; unset means today's model. |
+| [Spilling big output](spill.md) | Big tool results go to a redacted file; the model gets today's preview plus the path. |
+| [Channels](channels.md) | The interface Telegram is built on: owner and pairing, receive, send, approvals. |
+| [WhatsApp options](whatsapp.md) | The Cloud API, a Web bridge or a bridge process: setup, ban risk, and the pick. Not built yet. |
+| [Remote access](remote-access.md) | `tailscale serve` in front of the API on an always-on box; `[remote] allowed_hosts`; the token still required. |
 
 ## Where the ideas come from
 
