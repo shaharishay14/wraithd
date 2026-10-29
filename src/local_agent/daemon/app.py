@@ -21,7 +21,7 @@ from local_agent.daemon import jobs
 from local_agent.daemon.api import build_api
 from local_agent.daemon.jobs import DISTILL_EVERY_SECONDS, distill_all  # noqa: F401 (where they used to live)
 from local_agent.daemon.scheduler import Scheduler
-from local_agent.daemon.security import Guard, load_or_create_token
+from local_agent.daemon.security import Guard, load_or_create_token, remote_hosts
 from local_agent.mcp.client import McpConnections
 
 HOST = '127.0.0.1'  # never 0.0.0.0: nothing else on the network may reach the agent
@@ -53,6 +53,11 @@ class Daemon:
     def url(self) -> str:
         return f'http://{HOST}:{self.port}/#token={self.token}'
 
+    @property
+    def remote_urls(self) -> list[str]:
+        """The same UI through tailscale serve, one per [remote] allowed_hosts name (docs/remote-access.md)."""
+        return [f'https://{host.removesuffix(":443")}/#token={self.token}' for host in remote_hosts(self.rt.config)]
+
     async def start(self) -> None:
         await self._stack.__aenter__()
         # Owner-only, long-lived: every owner run in the daemon shares these sessions
@@ -74,7 +79,8 @@ class Daemon:
 
     def asgi(self):
         """The API and UI behind the Host, Origin and token checks."""
-        return Guard(build_api(self, ui_dir()), self.token, self.port, self.rt.config.dev_origin)
+        return Guard(build_api(self, ui_dir()), self.token, self.port, self.rt.config.dev_origin,
+                     remote_hosts(self.rt.config))
 
     def uvicorn_config(self) -> uvicorn.Config:
         return uvicorn.Config(self.asgi(), host=HOST, port=self.port, lifespan='off', log_level='warning',
@@ -89,6 +95,8 @@ class Daemon:
             if self.telegram:
                 tasks.append(asyncio.create_task(self.telegram.run_forever()))
             announce(f'Local Agent is running. Open {self.url}')
+            for url in self.remote_urls:
+                announce(f'From your tailnet (through tailscale serve): {url}')
             for name, problem in (self.mcp.errors if self.mcp else {}).items():
                 announce(f'(MCP server {name} is not available: {problem})')
             announce('Telegram: ' + ('on' if self.telegram else 'off (local-agent key set telegram)'))

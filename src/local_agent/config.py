@@ -101,6 +101,8 @@ SECTIONS: dict[str, Section] = {
     # >>> capabilities
     # <<< capabilities
     # >>> reach
+    'remote': Section({'allowed_hosts': []},
+                      lambda values: __import__('local_agent.daemon.security', fromlist=['_']).check_remote(values)),
     # <<< reach
     # >>> evals
     # <<< evals
