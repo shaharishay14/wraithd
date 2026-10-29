@@ -86,7 +86,8 @@ def delegate_tools(rt, gate, log, *, callback, owner: bool, mcp, parent_run_id, 
             budget['daily_tokens'] = rt.config.daily_tokens - used  # today's saved runs + this one so far
         tainted = bool(gate.untrusted_sources)
         result = await run(rt, CHILD_BRIEF + task, callback=forwarding(callback), source=SOURCE, owner=owner,
-                           tools=tools, app_tools=app_tools, builtins=False, mcp=mcp, untrusted_source=DELEGATED_TASK if tainted else '', parent_run_id=log.run_id,
+                           tools=tools, app_tools=app_tools, builtins=False, mcp=mcp,
+                           untrusted_source=DELEGATED_TASK if tainted else '', parent_run_id=log.run_id,
                            inherited_taint=list(gate.untrusted_texts), budget=budget, purpose='subagent',
                            allowed_tools=child_tools())
         child = rt.store.run_events(result.run_id)

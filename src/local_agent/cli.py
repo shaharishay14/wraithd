@@ -130,7 +130,7 @@ def runs_show(home: Home, prefix: str, as_json: bool) -> int:
         print(json.dumps({'run_id': matches[0], 'summary': inspector.summarize(events),
                           'events': inspector.timeline(events)}, indent=1, default=str))
     else:
-        print(inspector.render_text(matches[0], events))
+        print(inspector.render_text(matches[0], events, children=store.run_events))  # subagents nested
     return 0
 
 
