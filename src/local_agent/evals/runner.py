@@ -150,7 +150,7 @@ async def run_task(task: dict, model: Model, folder: Path) -> tuple[Run, RunResu
             if event_type == 'approval_required':
                 rt.store.decide_approval(data['approval_id'], store_base.DENIED)
 
-        async with McpConnections(rt.config.mcp_servers) as mcp:
+        async with McpConnections(rt.config.mcp_servers, store=rt.store) as mcp:
             if mcp.errors:
                 raise RuntimeError(f'world servers did not start: {mcp.errors}')
             conversation = rt.store.start_conversation('eval')
