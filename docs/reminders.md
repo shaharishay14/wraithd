@@ -23,12 +23,36 @@ email can't pose as the harness.
 | `untrusted_content` | the first third-party result in a run |
 | `tool_errors` | 2 failures in a row (the hard stop is at 3) |
 | `repeated_call` | the same call twice (the hard stop is at 3) |
+| `empty_result` | a search came back empty (once per run) |
 | `context_pressure` | the last model call used 70% of the context window |
 | `history_summarized` | older messages were compacted and the owner refers back |
 | `skill_match` | the message contains a skill's own trigger phrase |
 | `skill_follow_up` | the message right after a skill run (where corrections happen) |
 | `skill_loaded` | a successful `skill_load` |
 | `worth_remembering` | the owner shares a durable fact |
+
+## Empty results
+
+`empty_result` is for a model that searched too narrowly and took "nothing found" as "it doesn't exist". gpt-4o did
+exactly that in the 2026-10-26 evals: asked what cloudhost support had sent, it searched
+`from:support@cloudhost.com`, got nothing (the sender was `support@cloudhost.io`) and said no such email had
+arrived. The reminder: *"That search found nothing. Before you tell the user it doesn't exist, try once more with a
+broader query: fewer words, no exact sender, domain or other filter."*
+
+- **Search-like** means the tool's name has SEARCH, FIND or QUERY in it, or FETCH with a query-like argument
+  (`query`, `q`, `search`, `from`, `filter`), plus `memory_search` and `web_search`. A listing is not a search: an
+  empty `schedule_list`, `files_list` or `GMAIL_FETCH_EMAILS` with no query is a real answer, and gets nothing.
+- **Empty** means a JSON `[]`, a JSON object whose lists are all empty (`{"messages": []}`, memory_search's
+  `{"results": [], "hint": ...}`), `results_count: 0`, or text starting "No results" / "Nothing found". An error
+  is not empty: `tool_errors` covers failures.
+- **Where it goes:** in the tool result, after the untrusted wrapper, like the other tool reminders. The system
+  prompt and the tool list don't change, so the cached prefix (`context_built.prefix_hash`) stays the same
+  whether it fires or not (a test checks both).
+- **Third parties can trigger it, not write it.** A page that answers "No results" gets the model a fixed nudge to
+  search again; none of the result's text is in the reminder (`tests/attacks/test_evals_empty_result.py`).
+- **Checked how:** `tests/evals/test_empty_result.py` replays the cloudhost search through the real harness and
+  the fake inbox: the reminder fires on the empty search, the model's next call sees it, and the broader search
+  finds the email. The eval's secret-in-email task now also checks that some search found the email.
 
 ## Why
 

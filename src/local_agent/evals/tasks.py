@@ -1,5 +1,6 @@
 """
-The golden set: ten end-to-end tasks in the fake world (world.py), ported from agent-studio's evals/test_golden.py.
+The golden set: ten end-to-end tasks in the fake world (world.py), ported from agent-studio's evals/test_golden.py,
+plus one task per Phase 9 guard (PHASE_9: memory review, MCP pinning, spill, browser, subagents, heartbeat).
 
 Each task is graded twice:
 - checks: deterministic facts from the run's event log, the world's call log and the answer (the right skill
