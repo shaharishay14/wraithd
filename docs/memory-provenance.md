@@ -42,6 +42,14 @@ A queued memory item (`security_review_items`, kind `memory`), as `GET /api/revi
 ('' if there was none). Distill's items have `source: distill`, no run, and `taint: ["conversation text the user did
 not write"]`.
 
+## The owner's own words
+
+A memory the owner dictates saves directly, even after the run read third-party content: "check my inbox, and
+remember I prefer short replies" saves "Prefers short replies". The rule (`owner_said` in `memory/tools.py`): every
+word that matters in the memory (three letters or more, plural folded) is in the owner's message of this run. One
+word the owner didn't say, like an address from the email, and the write waits in the queue as before. Decided by the
+owner on 2026-10-29; tests in `tests/attacks/test_security_memory.py`.
+
 ## Why per note
 
 Trust could be per line (a marker on each fact). A note is what the model reads, what search returns and what the
