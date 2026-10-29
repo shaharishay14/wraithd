@@ -27,6 +27,9 @@ local-agent = "local_agent.cli:main"
 whisper = [
     "faster-whisper>=1.1",
 ]
+browser = [
+    "playwright>=1.48",
+]
 
 [build-system]
 requires = ["hatchling>=1.27"]
