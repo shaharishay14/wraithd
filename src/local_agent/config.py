@@ -97,6 +97,10 @@ SECTIONS: dict[str, Section] = {
     # >>> security
     # <<< security
     # >>> efficiency
+    # A purpose's own model name (of the [model] provider); "" uses [model] default, as before
+    'models': Section({'distill': '', 'compaction': '', 'heartbeat': '', 'subagent': ''}),
+    # Tool output over over_chars goes to workspace/files/.spill/ (0 or less: off); kept keep_days (0 or less: kept)
+    'spill': Section({'over_chars': 4000, 'keep_days': 7}),
     # <<< efficiency
     # >>> capabilities
     # <<< capabilities
