@@ -8,8 +8,9 @@
     local-agent mcp disallow gmail send_email
     local-agent mcp remove gmail
 
-A secret given as NAME alone is asked for without echo, so it never lands in the shell history. A tool the server
-marks destructive can't be always-allowed: `allow` connects to check, and refuses it.
+A secret given as NAME alone is asked for without echo, so it never lands in the shell history. `allow` connects to
+check the tool and pins the allow to its exact definition (mcp/pinning.py): a tool the server marks destructive, or
+one that's new or changed and not reviewed yet, is refused, and so is any tool while the server doesn't connect.
 """
 
 import asyncio
@@ -19,8 +20,10 @@ from dataclasses import replace
 
 from local_agent.config import ConfigError, Home, load_config
 from local_agent.mcp import config as mcp_config
+from local_agent.mcp import pinning
 from local_agent.mcp.client import McpConnections
 from local_agent.mcp.config import McpConfigError, McpServer
+from local_agent.store import SQLiteStore
 
 
 def add_arguments(subparsers) -> None:
@@ -125,28 +128,38 @@ def list_servers(home: Home) -> int:
     return 0
 
 
-async def _tools(server: McpServer) -> int:
-    async with McpConnections([server]) as connected:
+def _tier(connected, name: str) -> str:
+    verdict = connected.pins.get(name)
+    if verdict is not None and verdict.state != pinning.OK:
+        label = pinning.LABELS[verdict.state]
+        return label + (f' (review #{verdict.review_id})' if verdict.review_id else '')
+    return ('read-only' if connected.access[name].value == 'read' else
+            'destructive (asks every time)' if name in connected.destructive else
+            'always allowed' if name in connected.always_allowed else 'asks')
+
+
+async def _tools(server: McpServer, store) -> int:
+    async with McpConnections([server], store=store) as connected:
         if server.name in connected.errors:
             print(f'{server.name} did not connect: {connected.errors[server.name]}', file=sys.stderr)
             return 1
         for tool in connected.tools:
             _, original = connected.origin[tool.name]
-            tier = ('read-only' if connected.access[tool.name].value == 'read' else
-                    'destructive (asks every time)' if tool.name in connected.destructive else
-                    'always allowed' if tool.name in connected.always_allowed else 'asks')
             summary = (tool.description or '').strip().splitlines()[0][:70] if (tool.description or '').strip() else ''
-            print(f'{original:<28} {tier:<15} {summary}')
+            print(f'{original:<28} {_tier(connected, tool.name):<15} {summary}')
     return 0
 
 
-async def _destructive(server: McpServer, tool: str) -> bool | None:
-    """Whether the server marks this tool destructive; None if the server doesn't connect."""
-    async with McpConnections([server]) as connected:
+async def _check(server: McpServer, tool: str, store) -> str | None:
+    """Connects (recording what the server shows now) and says why the tool can't be allowed, or None if it can."""
+    async with McpConnections([server], store=store) as connected:
         if server.name in connected.errors:
-            return None
-        return connected.marked_destructive(server.name, tool)
-    return 0
+            return (f'{server.name} did not connect ({connected.errors[server.name]}), so {tool} can\'t be checked '
+                    'and pinned. Try again once it starts.')
+        if connected.marked_destructive(server.name, tool):
+            return (f'{server.name} marks {tool} as destructive: it asks every time and never runs unattended, so '
+                    'it can\'t be always allowed.')
+    return None
 
 
 def tools(home: Home, name: str) -> int:
@@ -154,7 +167,11 @@ def tools(home: Home, name: str) -> int:
     if server is None:
         print(f'No MCP server named {name}.', file=sys.stderr)
         return 1
-    return asyncio.run(_tools(server))
+    store = SQLiteStore(home.db_path)
+    try:
+        return asyncio.run(_tools(server, store))
+    finally:
+        store.close()
 
 
 def set_allowed(home: Home, name: str, tool: str, allowed: bool) -> int:
@@ -162,18 +179,26 @@ def set_allowed(home: Home, name: str, tool: str, allowed: bool) -> int:
     if server is None:
         print(f'No MCP server named {name}.', file=sys.stderr)
         return 1
-    if allowed:
-        destructive = asyncio.run(_destructive(server, tool))
-        if destructive:
-            print(f'{name} marks {tool} as destructive: it asks every time and never runs unattended, so it can\'t '
-                  'be always allowed.', file=sys.stderr)
-            return 1
-        if destructive is None:
-            print(f'{name} did not connect, so {tool} could not be checked. If the server marks it destructive, it '
-                  'will still ask every time.', file=sys.stderr)
+    store = SQLiteStore(home.db_path)
+    try:
+        if allowed:
+            problem = asyncio.run(_check(server, tool, store))
+            if problem is None:
+                try:
+                    pinning.pin(store, name, tool)
+                except pinning.PinError as e:
+                    problem = str(e)
+            if problem:
+                print(problem, file=sys.stderr)
+                return 1
+        else:
+            pinning.unpin(store, name, tool)
+    finally:
+        store.close()
     current = [t for t in server.always_allow if t != tool] + ([tool] if allowed else [])
     mcp_config.write_server(home.config_path, replace(server, always_allow=tuple(current)), name)
-    print(f'{name} {tool}: ' + ('runs without asking (read-only tools always do).' if allowed else 'asks first.'))
+    print(f'{name} {tool}: ' + ('runs without asking while it stays as it is now (read-only tools always do).'
+                                if allowed else 'asks first.'))
     return 0
 
 
@@ -184,6 +209,11 @@ def remove(home: Home, name: str) -> int:
         return 1
     mcp_config.delete_secrets(server)
     mcp_config.write_server(home.config_path, None, name)
+    store = SQLiteStore(home.db_path)
+    try:
+        pinning.forget(store, name)
+    finally:
+        store.close()
     print(f'Removed {name} and its secrets.')
     return 0
 
