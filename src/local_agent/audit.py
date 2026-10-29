@@ -6,6 +6,7 @@ Like doctor it only reads (the config, file modes, the store) and never changes 
 reports one line for all of it.
 """
 
+import contextlib
 import ipaddress
 import os
 import stat
@@ -21,6 +22,8 @@ from local_agent.doctor import FAIL, INFO, OK, Check, render
 
 MIN_TOKEN_LENGTH = 32
 MAX_LISTED = 3  # offending paths named per rule
+DB_FILES = ('', '-wal', '-shm')  # state.db and SQLite's side files: the event log, the review queue, the pins
+TAILNET = '.ts.net'
 
 
 def _shown(home: Home, paths: list[Path]) -> str:
@@ -139,6 +142,7 @@ def checks(home: Home) -> list[Check]:
                       'local-agent schedules list')
     # New rules: each worker adds `found += its_rules(home, config)` (a list of Check) inside its block only
     # >>> security
+    found += security_rules(home, config)
     # <<< security
     # >>> efficiency
     # <<< efficiency
@@ -150,6 +154,81 @@ def checks(home: Home) -> list[Check]:
     # <<< evals
     # >>> sandbox
     # <<< sandbox
+    return found
+
+
+def remote_hosts(config) -> list[str]:
+    """The [remote] allowed_hosts entries (reach's daemon.security.remote_hosts; none until it exists)."""
+    from local_agent.daemon import security
+
+    found = getattr(security, 'remote_hosts', None)
+    return list(found(config)) if found else []
+
+
+def _remote_host_problem(host: str) -> str:
+    """Why a remote host isn't a tailnet name, or '' if it is one."""
+    name = host.strip().lower().rstrip('.')
+    with contextlib.suppress(ValueError):
+        ipaddress.ip_address(name.strip('[]'))
+        return 'is an IP address'
+    if name in ('localhost', '127.0.0.1') or name.endswith('.localhost'):
+        return 'is this machine'
+    if not name.endswith(TAILNET) or name == TAILNET.lstrip('.'):
+        return f'isn\'t a tailnet name (*{TAILNET})'
+    return ''
+
+
+def security_rules(home: Home, config) -> list[Check]:
+    """The review queue's and the pins' storage, pinned MCP tools, remote access (docs/security.md)."""
+    found = []
+
+    def add(state: str, text: str, fix: str = '') -> None:
+        found.append(Check(state, text, fix))
+
+    # --- state.db holds the review queue (third-party text) and the pins: the owner's alone ----------------------
+    exposed = [Path(f'{home.db_path}{suffix}') for suffix in DB_FILES]
+    exposed = [path for path in exposed if path.exists() and stat.S_IMODE(path.stat().st_mode) & 0o077]
+    add(OK if not exposed else FAIL, 'The store (review queue, pins, event log) is readable by you alone' if not exposed
+        else f'Other accounts can open the store: {_shown(home, exposed)}',
+        f'chmod 600 {" ".join(str(path) for path in exposed)}')
+
+    # --- always-allowed MCP tools are pinned to what they were when allowed --------------------------------------
+    allowed = [(server.name, tool) for server in config.mcp_servers for tool in server.always_allow]
+    rows = {}
+    if home.db_path.exists():
+        from local_agent.mcp.pinning import Pins
+        from local_agent.review.queue import ReviewQueue
+        from local_agent.store import SQLiteStore
+
+        store = SQLiteStore(home.db_path)
+        try:
+            rows = {(row['server'], row['tool']): row for row in Pins(store).rows()}
+            pending = ReviewQueue(store).pending_count()
+        finally:
+            store.close()
+        if pending:
+            add(INFO, f'{pending} item{"s" if pending > 1 else ""} wait{"" if pending > 1 else "s"} for your review: '
+                      'local-agent review list')
+    unpinned = [f'{server} {tool}' for server, tool in allowed
+                if not (rows.get((server, tool)) or {}).get('allowed_hash')]
+    changed = [f'{server} {tool}' for server, tool in allowed
+               if (row := rows.get((server, tool))) and row['allowed_hash'] and row['allowed_hash'] != row['seen_hash']]
+    if allowed:
+        add(OK if not unpinned else FAIL, 'Always-allowed MCP tools are pinned to what you allowed' if not unpinned
+            else f'Always allowed but not pinned, so they ask (re-allow needed): {", ".join(unpinned)}',
+            'local-agent mcp allow <server> <tool> for each (it checks the tool and pins it)')
+        add(OK if not changed else FAIL, 'No always-allowed MCP tool changed since you allowed it' if not changed
+            else f'Changed since you allowed them, so they ask until you review: {", ".join(changed)}',
+            'local-agent review list')
+
+    # --- remote access: only through the tailnet, and still with the token -------------------------------------
+    for host in remote_hosts(config):
+        problem = _remote_host_problem(host)
+        if problem:
+            add(FAIL, f'Remote access host {host} {problem}: anyone who can reach it could reach the API',
+                'use your tailnet name from `tailscale status`')
+        else:
+            add(INFO, f'Reachable remotely at https://{host.strip().rstrip(".")} (token still required)')
     return found
 
 
