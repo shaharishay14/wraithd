@@ -23,7 +23,7 @@ from typing import Any
 from agents import FunctionTool
 
 from local_agent.core import events as ev
-from local_agent.core import render, secrets
+from local_agent.core import render, secrets, tool_results
 from local_agent.store import base as store_base
 
 logger = logging.getLogger(__name__)
@@ -70,10 +70,37 @@ BUILTIN_TOOL_ACCESS = {
     'skill_propose': ToolAccess.READ,
     # Changes how the agent works from now on: the owner decides, on the approval card
     'skill_adjust': ToolAccess.WRITE,
+    # New tools: each worker inside its own block only
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
 }
 
 # Never run without someone there to say yes, whatever was pre-approved
-NEVER_UNATTENDED = {'shell_run'}
+NEVER_UNATTENDED = {
+    'shell_run',
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
+}
 
 # What the model is told when the owner declines, where the default ("ask what to change") is wrong
 DECLINE_MESSAGES = {
@@ -89,18 +116,58 @@ APPROVAL_REASONS = {
                  'you allow it.',
     'schedule_create': 'Your agent will run this on its own at these times, without asking you first. '
                        'See and remove schedules with `local-agent schedules`.',
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
 }
 # On the card for a tool in always_ask (an MCP tool its server marks destructive)
 ALWAYS_ASK_REASON = ('The app marks this action as destructive: it may delete or overwrite data. It is asked about '
                      'every time and never runs unattended.')
 
 # Built-in tools that read the owner's private data, like the connected apps do
-PRIVATE_OUTPUT_BUILTINS = {'memory_search', 'memory_read', 'files_list', 'files_read', 'shell_run'}
+PRIVATE_OUTPUT_BUILTINS = {
+    'memory_search', 'memory_read', 'files_list', 'files_read', 'shell_run',
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
+}
 
 # Built-in tools whose output is third-party text (web pages, search snippets, documents the owner saved,
 # whatever a command prints). Every connected-app tool counts as third-party too: emails, messages and docs are
 # written by other people.
-UNTRUSTED_OUTPUT_BUILTINS = {'web_search', 'read_website', 'files_read', 'shell_run'}
+UNTRUSTED_OUTPUT_BUILTINS = {
+    'web_search', 'read_website', 'files_read', 'shell_run',
+    # >>> security
+    # <<< security
+    # >>> efficiency
+    # <<< efficiency
+    # >>> capabilities
+    # <<< capabilities
+    # >>> reach
+    # <<< reach
+    # >>> evals
+    # <<< evals
+    # >>> sandbox
+    # <<< sandbox
+}
 
 # Read tools whose argument is a URL the model chooses. Opening a URL is a request the site's owner sees.
 # Once the owner's private data is in the context, an attacker could have the agent open links in an order
@@ -350,12 +417,16 @@ class PermissionGate:
         return [describe_action(action['tool'], action['arguments'])
                 for action in self.completed_actions if action['access'] == ToolAccess.WRITE]
 
-    def record_output(self, tool_name: str, content: str, untrusted: bool | None = None) -> str:
+    def record_output(self, tool_name: str, content: str, untrusted: bool | None = None, seen: str | None = None
+                      ) -> str:
         """
         Called with every tool result before the model sees it. Marks and tracks third-party content.
         untrusted overrides the per-tool rule, for results that say so themselves (a low-trust memory note).
+        seen: the full result, when content is a shortened form of it (a tool-result hook's): links and addresses
+        in it are tracked even though the model only gets content.
         """
-        for url in extract_urls(content):
+        seen = content if seen is None else seen
+        for url in extract_urls(seen):
             self.url_sources.setdefault(url, tool_name)
         if returns_private_data(tool_name) and tool_name not in self.private_data_sources:
             self.private_data_sources.append(tool_name)
@@ -363,7 +434,7 @@ class PermissionGate:
             return content
         if tool_name not in self.untrusted_sources:
             self.untrusted_sources.append(tool_name)
-        self.untrusted_texts.append((tool_name, content.lower()))
+        self.untrusted_texts.append((tool_name, seen.lower()))
         return wrap_untrusted(tool_name, content)
 
     def _written_by_user(self, value: str) -> bool:
@@ -585,7 +656,7 @@ def parse_arguments(input_json: str) -> dict[str, Any]:
 
 
 def guard_function_tools(tools: list[Any], gate: PermissionGate, log: ev.EventLog | None = None, after_result=None,
-                         prechecks=None) -> list[FunctionTool]:
+                         prechecks=None, result_hooks=()) -> list[FunctionTool]:
     """
     Wraps each Agents SDK FunctionTool so the gate runs before the real tool.
     Tools we can't wrap are dropped: a tool without a permission check must not reach the model.
@@ -593,6 +664,7 @@ def guard_function_tools(tools: list[Any], gate: PermissionGate, log: ev.EventLo
     after_result(tool_name, result_text) may return text to add after a result, outside its untrusted wrapper
     (the harness's tool-bound reminders). prechecks[tool_name](arguments) may answer a call before the gate
     runs: arguments that can't work never reach an approval card, so the owner isn't asked to approve a no-op.
+    result_hooks (tool_results.py) may change what the model gets of a result; the gate still tracks all of it.
     """
     def record(event_type, **payload):
         if log is not None:
@@ -635,7 +707,9 @@ def guard_function_tools(tools: list[Any], gate: PermissionGate, log: ev.EventLo
                 usage = render.search_usage(name, text)
                 record(ev.TOOL_RESULT, **render.for_log(name, text, render.outcome_of(text), untrusted=untrusted),
                        **({'redacted': redacted} if redacted else {}), **({'usage': usage} if usage else {}))
-                output = gate.record_output(name, render.cap_tool_result(text), untrusted=untrusted)
+                shown = tool_results.apply(result_hooks, name, text, untrusted) if result_hooks else text
+                output = gate.record_output(name, render.cap_tool_result(shown), untrusted=untrusted,
+                                            seen=text if shown is not text else None)
                 note = after_result(name, text) if after_result else None
                 return f'{output}\n{note}' if note else output
             return invoke
