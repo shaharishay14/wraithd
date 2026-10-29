@@ -208,7 +208,8 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
                           app_tools=app_tools, app_guides=app_guides, builtins=builtins,
                           mcp=mcp if owner else None, untrusted_source=untrusted_source, images=images,
                           parent_run_id=parent_run_id, inherited_taint=tuple(inherited_taint), budget=budget,
-                          purpose=purpose, allowed_tools=None if allowed_tools is None else set(allowed_tools))
+                          purpose=purpose, allowed_tools=None if allowed_tools is None else set(allowed_tools),
+                          stack=stack)
 
 
 def user_content(message: str, images=()):
@@ -221,7 +222,7 @@ def user_content(message: str, images=()):
 
 
 async def _run(rt, message, *, history, callback, source, owner, tools, app_tools, app_guides, builtins, mcp,
-               untrusted_source, images, parent_run_id, inherited_taint, budget, purpose, allowed_tools):
+               untrusted_source, images, parent_run_id, inherited_taint, budget, purpose, allowed_tools, stack):
     started = time.monotonic()
     history = list(history)
     log = ev.EventLog(rt.store)
@@ -294,6 +295,13 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         # >>> efficiency
         # <<< efficiency
         # >>> capabilities
+        from local_agent.core import delegate
+        from local_agent.tools import browser
+
+        own += browser.run_tools(rt, log, owner, stack)  # closed when the run ends (stack)
+        own += delegate.delegate_tools(rt, gate, log, callback=callback, owner=owner, mcp=mcp,
+                                       parent_run_id=parent_run_id, tools=tools, app_tools=app_tools, own=own,
+                                       allowed_tools=allowed_tools)
         # <<< capabilities
         # >>> reach
         # <<< reach

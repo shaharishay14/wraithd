@@ -103,6 +103,10 @@ SECTIONS: dict[str, Section] = {
     'spill': Section({'over_chars': 4000, 'keep_days': 7}),
     # <<< efficiency
     # >>> capabilities
+    'browser': Section({'enabled': False, 'timeout_seconds': 20, 'idle_seconds': 60}),
+    'subagents': Section({'enabled': False, 'default_tokens': 50_000}),
+    'heartbeat': Section({'enabled': False, 'every_minutes': 30, 'quiet_hours': '22:00-07:00', 'max_tokens': 20_000},
+                         lambda values: __import__('local_agent.daemon.heartbeat', fromlist=['_']).check(values)),
     # <<< capabilities
     # >>> reach
     'remote': Section({'allowed_hosts': []},

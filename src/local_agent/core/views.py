@@ -30,6 +30,12 @@ def tokens_used(events) -> int:
     return calls + searches
 
 
+def delegated_tokens(events) -> int:
+    """Tokens this run's subagents used (delegate.py). They count toward this run's budget; the daily budget counts
+    them once, from the child's own run_end, so tokens_used leaves them out."""
+    return sum(event.payload.get('tokens', 0) for event in _of_type(events, ev.SUBAGENT_RESULT))
+
+
 def consecutive_tool_errors(events) -> int:
     """Tool results that failed in a row, counting back from the latest. Any success resets it."""
     count = 0

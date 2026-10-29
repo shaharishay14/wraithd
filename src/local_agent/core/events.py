@@ -45,6 +45,9 @@ SPILLED = 'spilled'  # a big tool result was saved to workspace/files/.spill/; t
 SPILL_CLEANED = 'spill_cleaned'  # old spill folders were deleted (between runs)
 # <<< efficiency
 # >>> capabilities
+SUBAGENT_RESULT = 'subagent_result'  # a delegate call's child run ended: its id, outcome, tokens (delegate.py)
+HEARTBEAT_RUN = 'heartbeat_run'  # the heartbeat ran (daemon/heartbeat.py): its run, tokens, whether it said anything
+HEARTBEAT_SILENT = 'heartbeat_silent'  # ...and found nothing worth a message, so the owner heard nothing
 # <<< capabilities
 # >>> reach
 # <<< reach
@@ -63,6 +66,7 @@ BETWEEN_RUNS = (
     SPILL_CLEANED,
     # <<< efficiency
     # >>> capabilities
+    HEARTBEAT_RUN, HEARTBEAT_SILENT,
     # <<< capabilities
     # >>> reach
     # <<< reach
