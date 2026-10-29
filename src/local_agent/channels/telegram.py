@@ -17,20 +17,14 @@ Telegram, by long polling over httpx: no public URL, no webhook, no extra librar
 """
 
 import asyncio
-import base64
-import json
 import logging
-import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import httpx
 
-from local_agent import providers, voice
-from local_agent.channels.conversation import reply
+from local_agent import providers, voice  # noqa: F401 (used by channels/base.py; tests patch them through here)
+from local_agent.channels import base
 from local_agent.core import events as ev
-from local_agent.core.gate import approval_card
-from local_agent.store import base as store_base
-from local_agent.tools import files
 from local_agent.tools.notify import StoreNotifier
 
 logger = logging.getLogger(__name__)
@@ -38,38 +32,25 @@ logger = logging.getLogger(__name__)
 API = 'https://api.telegram.org'
 POLL_SECONDS = 30
 MESSAGE_CHARS = 4000  # Telegram's limit is 4096
-PAIRING_MINUTES = 10
-PAIRING_TRIES = 5
-IGNORED_LOG_EVERY = timedelta(hours=1)  # per stranger chat
 MAX_FILE_BYTES = 20_000_000  # the Bot API's own limit for downloads
-MAX_PHOTO_BYTES = 5_000_000  # what goes to the model as an image (Anthropic takes up to 5 MB)
-INBOX = 'inbox'  # in workspace/files/
+MAX_PHOTO_BYTES = base.MAX_PHOTO_BYTES
 FILE_KINDS = {'document': 'file', 'audio': 'audio', 'video': 'video.mp4', 'video_note': 'video-note.mp4',
               'animation': 'animation.mp4'}  # saved to the inbox; the value is the name when Telegram gives none
 OWNER_CHAT, OWNER_NAME, PAIRING, OFFSET = 'telegram.owner_chat', 'telegram.owner_name', 'telegram.pairing', \
     'telegram.offset'
 
 
-class TelegramError(Exception):
+class TelegramError(base.ChannelError):
     """A Bot API call failed. The message never includes the URL (it has the token in it)."""
 
 
-class FileTooLarge(TelegramError):
+class FileTooLarge(TelegramError, base.FileTooLarge):
     """A download is over its cap."""
-
-
-class Unusable(Exception):
-    """An attachment that won't reach a run. The message is the reply the owner gets."""
 
 
 def new_pairing(store, now: datetime | None = None) -> dict:
     """A fresh pairing code, replacing any earlier one."""
-    now = now or datetime.now(UTC)
-    pairing = {'code': f'{secrets.randbelow(1_000_000):06d}',
-               'expires_at': (now + timedelta(minutes=PAIRING_MINUTES)).isoformat(timespec='microseconds'),
-               'tries': 0}
-    store.set_setting(PAIRING, json.dumps(pairing))
-    return pairing
+    return base.new_pairing(store, 'telegram', now)
 
 
 def _chunks(text: str) -> list[str]:
@@ -127,18 +108,37 @@ class TelegramBot:
         await self._client.aclose()
 
 
-class TelegramChannel:
-    def __init__(self, rt, bot: TelegramBot, mcp=None, clock=lambda: datetime.now(UTC)):
-        self.rt, self.bot, self.mcp, self.clock = rt, bot, mcp, clock
-        self.tasks: set[asyncio.Task] = set()
-        self.cards: dict[str, tuple[int, int]] = {}  # approval id -> (chat, message) of its buttons
-        # stranger chat -> when it was last logged. In memory: a daemon restart logs each one again, which is fine
-        self.ignored_logged: dict[int, datetime] = {}
+class TelegramChannel(base.Channel):
+    """The channel interface (channels/base.py) over the Bot API: updates in, messages and inline buttons out."""
 
-    @property
-    def owner_chat(self) -> int | None:
-        value = self.rt.store.get_setting(OWNER_CHAT)
-        return int(value) if value else None
+    name, title, ignored_event = 'telegram', 'Telegram', ev.TELEGRAM_IGNORED
+    # read when used, so the module's limits can be changed (tests do)
+    max_file_bytes = property(lambda self: MAX_FILE_BYTES)
+    max_photo_bytes = property(lambda self: MAX_PHOTO_BYTES)
+
+    def __init__(self, rt, bot: TelegramBot, mcp=None, clock=lambda: datetime.now(UTC)):
+        super().__init__(rt, mcp=mcp, clock=clock)
+        self.bot = bot
+
+    def chat_from_setting(self, value: str) -> int:
+        return int(value)
+
+    # --- the transport -------------------------------------------------------------------------------------
+
+    async def send(self, chat, text: str, choices: list[base.Choice] | None = None) -> tuple[int, int | None]:
+        buttons = [[{'text': c.label, 'callback_data': c.data} for c in choices]] if choices else None
+        return chat, await self.bot.send(chat, text, buttons)
+
+    async def fetch(self, attachment: base.Attachment, limit: int) -> bytes:
+        return await self.bot.download(attachment.ref, limit)
+
+    async def acknowledge(self, decision: base.Decision, text: str) -> None:
+        await self.bot.call('answerCallbackQuery', callback_query_id=decision.ref, text=text)
+
+    async def close_prompt(self, where: tuple[int, int | None], status: str) -> None:
+        await self.bot.call('editMessageReplyMarkup', chat_id=where[0], message_id=where[1],
+                            reply_markup={'inline_keyboard': [[{'text': status.capitalize(),
+                                                                'callback_data': 'done'}]]})
 
     # --- polling -------------------------------------------------------------------------------------------
 
@@ -169,7 +169,7 @@ class TelegramChannel:
             message = update.get('message') or {}
             text, chat = (message.get('text') or '').strip(), message.get('chat') or {}
             if 'id' in chat and text.startswith('/pair'):
-                await self._pair(chat['id'], chat, text.removeprefix('/pair').strip())
+                await self.pair(chat['id'], chat, text.removeprefix('/pair').strip())
                 if self.owner_chat is not None:
                     return True
         return self.owner_chat is not None
@@ -182,185 +182,40 @@ class TelegramChannel:
                 logger.warning(str(e))
                 await asyncio.sleep(5)
 
-    async def settle(self) -> None:
-        """Waits for the messages being answered (tests, and a clean shutdown)."""
-        while self.tasks:
-            await asyncio.gather(*list(self.tasks), return_exceptions=True)
-
     # --- updates -------------------------------------------------------------------------------------------
 
     async def handle(self, update: dict) -> None:
         if 'callback_query' in update:
-            return await self._decide(update['callback_query'])
+            query = update['callback_query']
+            chat = ((query.get('message') or {}).get('chat') or {})
+            return await self.decide(base.Decision(chat=chat.get('id'), data=query.get('data') or '',
+                                                   ref=query['id'], who=query.get('from') or chat))
         message = update.get('message') or {}
-        text, chat = (message.get('text') or '').strip(), message.get('chat') or {}
+        chat = message.get('chat') or {}
         if 'id' not in chat:
             return
-        chat_id = chat['id']
-        if text.startswith('/pair'):
-            return await self._pair(chat_id, chat, text.removeprefix('/pair').strip())
-        if chat_id != self.owner_chat:
-            return self._ignore(chat_id, chat)
-        if not text and not _has_attachment(message):
-            return
-        if text == '/start':
-            return await self.bot.send(chat_id, 'Hi. This is a personal assistant. Its owner pairs it with '
-                                                '`local-agent telegram pair`.')
-        task = asyncio.create_task(self._answer(chat_id, message))  # so button presses keep being handled
-        self.tasks.add(task)
-        task.add_done_callback(self.tasks.discard)
+        await self.receive(base.Incoming(chat=chat['id'], who=chat, text=message.get('text') or '',
+                                         caption=message.get('caption') or '', attachment=_attachment(message)))
 
-    def _ignore(self, chat_id: int, chat: dict) -> None:
-        """A stranger's message: nothing is sent back and no model sees it, so it costs nothing and leaks nothing.
-        Logged by chat id and username only: the text is a stranger's, and the log is the owner's."""
-        now, last = self.clock(), self.ignored_logged.get(chat_id)
-        if last is not None and now - last < IGNORED_LOG_EVERY:
-            return
-        self.ignored_logged[chat_id] = now
-        ev.record_event(self.rt.store, ev.TELEGRAM_IGNORED, chat=chat_id, username=chat.get('username') or '')
 
-    async def _pair(self, chat_id: int, chat: dict, code: str) -> None:
-        pairing = json.loads(self.rt.store.get_setting(PAIRING) or 'null')
-        if not pairing or datetime.fromisoformat(pairing['expires_at']) < self.clock():
-            self.rt.store.set_setting(PAIRING, None)
-            return await self.bot.send(chat_id, 'There is no pairing code waiting. Make one with '
-                                                '`local-agent telegram pair`.')
-        if not secrets.compare_digest(code, pairing['code']):
-            pairing['tries'] += 1
-            self.rt.store.set_setting(PAIRING, json.dumps(pairing) if pairing['tries'] < PAIRING_TRIES else None)
-            return await self.bot.send(chat_id, 'That code is not right.')
-        self.rt.store.set_setting(PAIRING, None)
-        self.rt.store.set_setting(OWNER_CHAT, str(chat_id))
-        self.rt.store.set_setting(OWNER_NAME, chat.get('username') and f'@{chat["username"]}' or chat.get('first_name')
-                                  or str(chat_id))
-        await self.bot.send(chat_id, 'Paired: this chat is now the owner\'s.')
-
-    async def _answer(self, chat_id: int, message: dict) -> None:
-        """The owner's message (handle() never gets here for anyone else)."""
-        try:
-            text, images = await self._for_run(message)
-        except Unusable as e:
-            return await self.bot.send(chat_id, str(e))
-        conversation = (self.rt.store.find_conversation('telegram', str(chat_id))
-                        or self.rt.store.start_conversation('telegram', external=str(chat_id)))
-        result = await reply(self.rt, conversation.id, text, source='telegram',
-                             callback=self._callback(chat_id), mcp=self.mcp, images=images)
-        await self.bot.send(chat_id, result.answer)
-
-    # --- attachments ---------------------------------------------------------------------------------------
-
-    async def _for_run(self, message: dict) -> tuple[str, list[str]]:
-        """The run's message and images for one of the owner's messages, attachments downloaded. Raises Unusable."""
-        text = (message.get('text') or message.get('caption') or '').strip()
-        if message.get('photo'):
-            return await self._photo(message['photo'], text)
-        if message.get('voice'):
-            return await self._voice(message['voice'], text), []
-        kind = next((kind for kind in FILE_KINDS if message.get(kind)), None)
-        if kind:
-            return await self._file(message[kind], FILE_KINDS[kind], text), []
-        return text, []
-
-    async def _download(self, item: dict, limit: int) -> bytes:
-        too_large = f'That is too large for me to download from Telegram ({limit // 1_000_000} MB at most).'
-        if (item.get('file_size') or 0) > limit:
-            raise Unusable(too_large)
-        try:
-            return await self.bot.download(item['file_id'], limit)
-        except FileTooLarge:
-            raise Unusable(too_large) from None
-        except TelegramError as e:
-            logger.warning(str(e))
-            raise Unusable('I couldn\'t download that from Telegram. Please send it again.') from None
-
-    def _save(self, name: str, data: bytes) -> str:
-        try:
-            name = f'{self.clock().astimezone():%Y-%m-%d}-{files.safe_name(name)}'
-            return files.save_new(self.rt.home.files_dir, INBOX, name, data)
-        except (files.OutsideWorkspace, OSError) as e:
-            logger.warning(f'Saving a Telegram file failed: {e}')
-            raise Unusable('I couldn\'t save that file in your workspace.') from None
-
-    async def _photo(self, sizes: list, caption: str) -> tuple[str, list[str]]:
-        """The largest size under the cap, as image input; saved instead when the model can't see."""
+def _attachment(message: dict) -> base.Attachment | None:
+    """The message's photo (the largest size that fits the cap), voice note or file, as the channel sees it."""
+    if message.get('photo'):
+        sizes = message['photo']
         fitting = [size for size in sizes if (size.get('file_size') or 0) <= MAX_PHOTO_BYTES]
-        if not fitting:
-            raise Unusable(f'That photo is too large for me ({MAX_PHOTO_BYTES // 1_000_000} MB at most).')
-        best = max(fitting, key=lambda size: (size.get('width', 0) * size.get('height', 0), size.get('file_size', 0)))
-        data = await self._download(best, MAX_PHOTO_BYTES)
-        if not providers.can_see_images(self.rt.config):
-            saved = self._save('photo.jpg', data)
-            raise Unusable(f'Your model ({self.rt.config.model.default}) can\'t see images, so I saved the photo to '
-                           f'your workspace files as {saved}.')
-        image = 'data:image/jpeg;base64,' + base64.b64encode(data).decode()  # Telegram photos are always JPEG
-        return (f'[photo] {caption}' if caption else '[photo, no caption]'), [image]
-
-    async def _voice(self, note: dict, caption: str) -> str:
-        transcriber = voice.transcriber(self.rt.config, self.rt.voice_transport)
-        if transcriber is None:
-            why = voice.choose_transcriber(self.rt.config).why
-            raise Unusable(f'I can\'t listen to voice notes yet: transcription is {why}.')
-        data = await self._download(note, MAX_FILE_BYTES)
-        try:
-            words = await transcriber.transcribe(data, 'voice.ogg', note.get('mime_type') or 'audio/ogg')
-        except voice.TranscriptionFailed as e:
-            raise Unusable(f'I couldn\'t transcribe that voice note: {e}') from None
-        if not words:
-            raise Unusable('I couldn\'t hear any words in that voice note.')
-        return f'[voice note, transcribed] {words}' + (f'\n[caption] {caption}' if caption else '')
-
-    async def _file(self, item: dict, default_name: str, caption: str) -> str:
-        data = await self._download(item, MAX_FILE_BYTES)
-        saved = self._save(item.get('file_name') or default_name, data)
-        note = f'[The user sent a file, saved in the workspace files as {saved}. Read it with files_read if needed.]'
-        return f'{caption}\n{note}' if caption else note
-
-    # --- approvals as buttons ------------------------------------------------------------------------------
-
-    def _callback(self, chat_id: int):
-        async def callback(event_type: str, data: dict) -> None:
-            if event_type == 'approval_required':
-                lines = [f'Allow {data["tool"]}?']
-                lines += [f'  {key}: {value if isinstance(value, str) else json.dumps(value)}'
-                          for key, value in data['arguments'].items()]
-                if data['reason']:
-                    lines.append(data['reason'])
-                lines += [f'! {r["value"]} was not written by you (it came from {r["source"]})'
-                          for r in data['suspicious_recipients']]
-                if data['untrusted_sources'] and not data['suspicious_recipients']:
-                    lines.append(f'! This run read third-party content first: {", ".join(data["untrusted_sources"])}')
-                buttons = [[{'text': 'Allow', 'callback_data': f'a:{data["approval_id"]}'},
-                            {'text': 'Deny', 'callback_data': f'd:{data["approval_id"]}'}]]
-                message_id = await self.bot.send(chat_id, '\n'.join(lines), buttons)
-                self.cards[data['approval_id']] = (chat_id, message_id)
-            elif event_type == 'approval_resolved':
-                await self._close_card(data['approval_id'], data['status'])
-        return callback
-
-    async def _decide(self, query: dict) -> None:
-        chat_id = ((query.get('message') or {}).get('chat') or {}).get('id')
-        action, _, approval_id = (query.get('data') or '').partition(':')
-        if chat_id != self.owner_chat or action not in ('a', 'd'):
-            return await self.bot.call('answerCallbackQuery', callback_query_id=query['id'],
-                                       text='Only the owner can decide.')
-        decision = store_base.APPROVED if action == 'a' else store_base.DENIED
-        decided = self.rt.store.decide_approval(approval_id, decision)
-        approval = self.rt.store.get_approval(approval_id)
-        status = approval_card(approval)['status'] if approval else 'unknown'
-        await self.bot.call('answerCallbackQuery', callback_query_id=query['id'],
-                            text=status.capitalize() if decided else f'Already {status}.')
-        await self._close_card(approval_id, status)
-
-    async def _close_card(self, approval_id: str, status: str) -> None:
-        where = self.cards.pop(approval_id, None)
-        if where:
-            await self.bot.call('editMessageReplyMarkup', chat_id=where[0], message_id=where[1],
-                                reply_markup={'inline_keyboard': [[{'text': status.capitalize(),
-                                                                    'callback_data': 'done'}]]})
-
-
-def _has_attachment(message: dict) -> bool:
-    return any(message.get(kind) for kind in ('photo', 'voice', *FILE_KINDS))
+        best = max(fitting, key=lambda size: (size.get('width', 0) * size.get('height', 0),
+                                              size.get('file_size', 0))) if fitting else \
+            min(sizes, key=lambda size: size.get('file_size') or 0)  # none fits: too large, said without a download
+        return base.Attachment('photo', best['file_id'], best.get('file_size'), mime='image/jpeg')  # always JPEG
+    if message.get('voice'):
+        note = message['voice']
+        return base.Attachment('voice', note['file_id'], note.get('file_size'), mime=note.get('mime_type') or '')
+    kind = next((kind for kind in FILE_KINDS if message.get(kind)), None)
+    if kind:
+        item = message[kind]
+        return base.Attachment('file', item['file_id'], item.get('file_size'),
+                               name=item.get('file_name') or FILE_KINDS[kind], mime=item.get('mime_type') or '')
+    return None
 
 
 class TelegramNotifier:
