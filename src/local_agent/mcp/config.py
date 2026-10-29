@@ -10,6 +10,7 @@ the OS keychain under that server's name, so each one goes only to its own serve
     env = ["GMAIL_TOKEN"]            # names only
     provides = ["email"]             # what skills can count on once it's connected
     always_allow = ["send_email"]    # tools that run without asking (local-agent mcp allow)
+    sandbox = true                   # optional, stdio only: runs in docker (local-agent mcp add --sandbox)
 
 The blocks are generated, so the CLI rewrites a server's block whole; the rest of the file (and its comments) is
 left as it is.
@@ -49,6 +50,7 @@ class McpServer:
     headers: tuple[str, ...] = ()  # names of secret headers, values in the keychain
     provides: tuple[str, ...] = ()
     always_allow: tuple[str, ...] = field(default=())
+    sandbox: bool = False  # a stdio server that runs inside docker (docs/sandbox.md)
 
 
 def _strings(value, where: str) -> tuple[str, ...]:
@@ -75,7 +77,10 @@ def parse_servers(data: dict) -> tuple[McpServer, ...]:
                            url=str(table.get('url') or ''),
                            headers=_strings(table.get('headers'), f'{where} headers'),
                            provides=_strings(table.get('provides'), f'{where} provides'),
-                           always_allow=_strings(table.get('always_allow'), f'{where} always_allow'))
+                           always_allow=_strings(table.get('always_allow'), f'{where} always_allow'),
+                           sandbox=table.get('sandbox', False))
+        if not isinstance(server.sandbox, bool) or server.sandbox and transport != 'stdio':
+            raise McpConfigError(f'{where} sandbox must be true or false, and only a local (stdio) server has one.')
         if transport == 'stdio' and not server.command:
             raise McpConfigError(f'{where} needs a command.')
         if transport == 'http' and not server.url.startswith(('http://', 'https://')):
@@ -133,6 +138,8 @@ def render_block(server: McpServer) -> str:
             lines.append(f'headers = {_toml_list(server.headers)}    # names only: the values are in the keychain')
     lines.append(f'provides = {_toml_list(server.provides)}')
     lines.append(f'always_allow = {_toml_list(server.always_allow)}')
+    if server.sandbox:
+        lines.append('sandbox = true                   # runs inside docker ([sandbox] image and network)')
     return '\n'.join(lines) + '\n'
 
 
