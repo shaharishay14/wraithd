@@ -142,6 +142,9 @@ def checks(home: Home, service=None, transport=None, port_free=port_free) -> lis
     # >>> security
     # <<< security
     # >>> efficiency
+    from local_agent.providers import doctor_checks
+
+    found += doctor_checks(home, config, transport)
     # <<< efficiency
     # >>> capabilities
     # <<< capabilities

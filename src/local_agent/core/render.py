@@ -16,12 +16,19 @@ MAX_TOOL_RESULT_CHARS = 4000
 LOG_PREVIEW_CHARS = 500
 
 
+class Bounded(str):
+    """
+    A result a tool-result hook already cut to size, with a note after the cut (spill/: a preview, then where the
+    full text is). cap_tool_result leaves it as it is, so the note isn't cut off.
+    """
+
+
 def cap_tool_result(content: str, max_chars: int = MAX_TOOL_RESULT_CHARS) -> str:
     """
     Limits a tool result before it goes into the model's context.
     Keeps the start and tells the model it was cut, so it can ask for less.
     """
-    if len(content) <= max_chars:
+    if len(content) <= max_chars or isinstance(content, Bounded):
         return content
 
     logger.warning(f'Tool result truncated from {len(content)} to {max_chars} chars')

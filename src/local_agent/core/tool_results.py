@@ -26,6 +26,9 @@ def result_hooks(rt, log) -> list[Hook]:
     # >>> security
     # <<< security
     # >>> efficiency
+    from local_agent.spill import spill_hook
+
+    hooks.append(spill_hook(rt, log))
     # <<< efficiency
     # >>> capabilities
     # <<< capabilities
