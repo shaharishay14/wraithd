@@ -44,8 +44,10 @@ enough to read and undo, and they explain why the agent does what it does.
 
 ## Skills the agent writes
 
-`skill_propose` saves a draft in `workspace/skills/_proposed/<name>/`: off until the owner moves the folder
-into `workspace/skills/`, and it can't overwrite an active skill. Adjustments need the owner's "y"; unattended
+`skill_propose` saves a draft in `workspace/skills/_proposed/<name>/` and queues it for the owner's review: off
+until they approve it (`local-agent review approve ID`, the Skills page, or moving the folder into
+`workspace/skills/`), and it can't overwrite an active skill. A draft from a run that read third-party content is
+flagged ([skill proposals](skill-proposals.md)). Adjustments need the owner's "y"; unattended
 runs can't change a skill at all. So a run that read a malicious email can't give the agent new standing
 instructions.
 

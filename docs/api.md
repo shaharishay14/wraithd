@@ -315,6 +315,19 @@ No new routes; existing responses carry new event types, and nothing existing ch
 
 See [tokens](tokens.md), [caching](caching.md) and [spill](spill.md).
 
+### Capabilities
+
+(capabilities) No new routes. What changed in existing ones:
+
+- **Skill proposals** also become review items of kind `skill` ([skill proposals](skill-proposals.md)), so they show
+  in `GET /api/review` with `content` `{"name", "description", "instructions", "requires", "detail", "flagged",
+  "fingerprint"}`. The `/api/skills/proposals` routes keep their shapes; approving or deleting there settles the
+  review item (`approved` / `rejected`, `decided_by: "api"`), and approving the item takes the proposal off that list.
+- **Run detail** (`GET /api/runs/{id}`): `summary` gains `parent_run_id` (a subagent's parent, else `null`),
+  `subagents` (child run ids) and `subagent_tokens`. Events gain `subagent_result` ([subagents](subagents.md)).
+- **Between runs** (`GET /api/events`): `heartbeat_run` and `heartbeat_silent` ([heartbeat](heartbeat.md)), and every
+  between-runs event, the review queue's and MCP pinning's included, has a one-line `summary`.
+
 ### Telegram
 
 `GET /api/telegram` → `{"configured": true, "paired": true, "owner": "@shahar"}` (`owner` is the paired chat's
