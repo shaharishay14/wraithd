@@ -35,6 +35,9 @@ REVIEW_QUEUED = 'review_queued'  # something from third-party text waits for the
 REVIEW_APPROVED = 'review_approved'  # the owner approved a queued item, and it was applied
 REVIEW_REJECTED = 'review_rejected'  # the owner rejected one: nothing of it was applied
 REVIEW_NOTIFIED = 'review_notified'  # the owner was told how many items wait (counts only)
+MCP_TOOL_CHANGED = 'mcp_tool_changed'  # a tool's definition differs from what the owner accepted (mcp/pinning.py)
+MCP_TOOL_NEW = 'mcp_tool_new'  # a tool appeared on a known server: it asks until reviewed
+MCP_TOOL_PINNED = 'mcp_tool_pinned'  # always-allow was pinned to a tool's exact definition
 # <<< security
 # >>> efficiency
 # <<< efficiency
@@ -51,7 +54,7 @@ REVIEW_NOTIFIED = 'review_notified'  # the owner was told how many items wait (c
 BETWEEN_RUNS = (
     COMPACTION, DISTILL, TELEGRAM_IGNORED,
     # >>> security
-    REVIEW_QUEUED, REVIEW_APPROVED, REVIEW_REJECTED, REVIEW_NOTIFIED,
+    REVIEW_QUEUED, REVIEW_APPROVED, REVIEW_REJECTED, REVIEW_NOTIFIED, MCP_TOOL_CHANGED, MCP_TOOL_NEW, MCP_TOOL_PINNED,
     # <<< security
     # >>> efficiency
     # <<< efficiency

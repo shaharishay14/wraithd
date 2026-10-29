@@ -7,6 +7,9 @@ disclosure catalog groups them by server, and each tool gets its gate tier:
 - annotated destructive (destructiveHint): a write that asks every time, can't be always-allowed, never unattended
 - anything else: a write, asked about each time, unless the owner marked it "always allow"
 
+Given the store, every connect also checks each tool against what the owner accepted (mcp/pinning.py): a changed or
+new tool loses any pre-approval and keeps the stricter tier until the owner reviews it.
+
 What a server says about itself (tool descriptions, its instructions) is third-party text: it's capped and the
 harness's own tags are neutralized before it reaches the model, like any tool output.
 """
@@ -22,6 +25,7 @@ from agents import FunctionTool
 from agents.mcp import MCPServerStdio, MCPServerStreamableHttp
 
 from local_agent.core.gate import ToolAccess, parse_arguments
+from local_agent.mcp import pinning
 from local_agent.mcp.config import McpConfigError, McpServer, get_secrets
 
 logger = logging.getLogger(__name__)
@@ -79,6 +83,7 @@ class Connected:
     provides: set[str] = field(default_factory=set)  # capabilities of the servers that connected
     errors: dict[str, str] = field(default_factory=dict)  # server -> why it didn't connect
     origin: dict[str, tuple[str, str]] = field(default_factory=dict)  # registered name -> (server, tool)
+    pins: dict[str, pinning.Verdict] = field(default_factory=dict)  # registered name -> what pinning decided
 
     def marked_destructive(self, server: str, tool: str) -> bool:
         """The server marks its tool (by the server's own name for it) destructive."""
@@ -119,8 +124,9 @@ class McpConnections:
     A server that fails to connect is left out (and reported in connected.errors), never fatal for the run.
     """
 
-    def __init__(self, servers, factory=sdk_server):
-        self.servers, self.factory = list(servers), factory
+    def __init__(self, servers, factory=sdk_server, store=None):
+        # store: where pins live; without it, tools are tiered by their annotations alone (no pinning)
+        self.servers, self.factory, self.store = list(servers), factory, store
         self._stack = AsyncExitStack()
 
     async def __aenter__(self) -> Connected:
@@ -140,15 +146,22 @@ class McpConnections:
             if instructions:
                 connected.guides[server.name.upper()] = neutralize(instructions, INSTRUCTIONS_CHARS)
             connected.provides |= set(server.provides)
+            verdicts = pinning.check(self.store, server, listed) if self.store is not None else {}
             for tool in listed:
                 registered = tool_name(server.name, tool.name)
                 while registered in connected.access:  # two tool names that clean up the same
                     registered = registered[:MAX_NAME - 2] + '_2'
-                read_only = bool(getattr(tool.annotations, 'read_only_hint', False))
+                verdict = verdicts.get(tool.name)
+                if verdict is None:
+                    read_only = bool(getattr(tool.annotations, 'read_only_hint', False))
+                    destructive, allowed = is_destructive(tool), tool.name in server.always_allow
+                else:
+                    read_only, destructive, allowed = verdict.read_only, verdict.destructive, verdict.allowed
+                    connected.pins[registered] = verdict
                 connected.access[registered] = ToolAccess.READ if read_only else ToolAccess.WRITE
-                if not read_only and is_destructive(tool):
+                if not read_only and destructive:
                     connected.destructive.add(registered)
-                elif tool.name in server.always_allow and not read_only:
+                elif allowed and not read_only:
                     connected.always_allowed.add(registered)
                 connected.origin[registered] = (server.name, tool.name)
                 connected.tools.append(_wrap(sdk, server, tool, registered))

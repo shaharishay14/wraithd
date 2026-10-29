@@ -35,7 +35,7 @@ SUMMARY_CHARS = 300
 
 # Modules whose import registers a kind's handlers. A missing one is skipped (skills/review.py is the capabilities
 # worker's, for skill proposals).
-HANDLER_MODULES = ('local_agent.memory.review', 'local_agent.skills.review')
+HANDLER_MODULES = ('local_agent.memory.review', 'local_agent.mcp.pinning', 'local_agent.skills.review')
 
 
 class ReviewError(Exception):
