@@ -146,7 +146,7 @@ def scripted_model(task_id: str, usage: Usage | None = None) -> ScriptedModel:
     return ScriptedModel(SCRIPTS[task_id], usage=usage or SCRIPTED_USAGE)
 
 
-def scripted_judge(usage: Usage | None = None) -> ScriptedModel:
+def scripted_judge(name: str = 'judge', usage: Usage | None = None) -> ScriptedModel:
     """A judge that passes everything: enough to exercise the plumbing offline."""
     return ScriptedModel([[say('{"pass": true, "reason": "scripted judge"}')]] * 1000, usage=usage,
-                         name='scripted-judge')
+                         name=f'scripted-{name}')
