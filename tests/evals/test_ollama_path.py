@@ -9,7 +9,8 @@ import json
 import re
 
 from local_agent.evals import __main__ as cli
-from local_agent.evals.tasks import TASK_IDS
+from local_agent.evals.runner import available
+from local_agent.evals.tasks import TASKS
 from tests.evals.fake_openai import FakeOpenAI
 
 
@@ -20,9 +21,11 @@ def test_an_openai_compatible_local_model_runs_the_whole_set(tmp_path, capsys):
     printed = capsys.readouterr().out
     assert code == 0, printed
     assert '| task | ollama:fake-qwen |' in printed
-    assert re.search(r'\| \*\*total\*\* \| 10/10 · [\d.]+k tok · \$0\.000 \|', printed), printed
+    runnable = [task['id'] for task in TASKS if not available(task)]
+    assert re.search(rf'\| \*\*total\*\* \| {len(runnable)}/{len(runnable)} · [\d.]+k tok · \$0\.000 \|', printed), \
+        printed
     report = json.loads((tmp_path / 'report.json').read_text())
-    assert [r['task'] for r in report['results'] if r['passed']] == TASK_IDS
+    assert [r['task'] for r in report['results'] if r['passed']] == runnable
 
     # it really went over HTTP as Chat Completions, with the harness's tools, and named the model
     assert server.requests and all(body['model'] == 'fake-qwen' for body in server.requests)

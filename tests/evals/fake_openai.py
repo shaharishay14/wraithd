@@ -82,7 +82,10 @@ class FakeOpenAI:
     async def complete(self, request: Request):
         body = await request.json()
         self.requests.append(body)
-        message, finish = _message(self.turn_for(body.get('messages', [])), self.model)
+        turn = self.turn_for(body.get('messages', []))
+        if callable(turn):  # a turn that reads what it was given (the spill path in big-page)
+            turn = turn(body.get('messages', []))
+        message, finish = _message(turn, self.model)
         created = int(time.time())
         if not body.get('stream'):
             return JSONResponse({'id': 'chatcmpl-fake', 'object': 'chat.completion', 'created': created,

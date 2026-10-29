@@ -14,7 +14,16 @@ from agents.usage import Usage
 from local_agent.evals import __main__ as cli
 from local_agent.evals import scripted, world
 from local_agent.evals.meter import FREE, BudgetReached, Meter, MeteredModel, Price
-from local_agent.evals.runner import ModelSpec, SetupError, check_setup, judge, parse_price, parse_spec, run_evals
+from local_agent.evals.runner import (
+    ModelSpec,
+    SetupError,
+    available,
+    check_setup,
+    judge,
+    parse_price,
+    parse_spec,
+    run_evals,
+)
 from local_agent.evals.scripted import ScriptedModel, call, say
 from local_agent.evals.tasks import TASK_IDS, TASKS, Run, failed_checks
 
@@ -24,17 +33,21 @@ SCRIPTED = ModelSpec('scripted', 'scripted')
 def test_the_offline_run_prints_the_table_and_writes_the_report(tmp_path, capsys):
     assert cli.main(['--scripted', '--out', str(tmp_path)]) == 0
     printed = capsys.readouterr().out
+    runnable = [task['id'] for task in TASKS if not available(task)]  # all of them once their features are in
+    judged = [task['id'] for task in TASKS if task['id'] in runnable and task['rubric']]
     assert '| task | scripted |' in printed
-    assert re.search(r'\| \*\*total\*\* \| 10/10 · [\d.]+k tok · \$0\.000 \|', printed)
-    for task_id in TASK_IDS:
+    assert re.search(rf'\| \*\*total\*\* \| {len(runnable)}/{len(runnable)} · [\d.]+k tok · \$0\.000 \|', printed)
+    for task_id in runnable:
         assert f'| {task_id} | pass 1/1 · ' in printed
 
     report = json.loads((tmp_path / 'report.json').read_text())
     assert (report['models'], report['judges'], report['runs'], report['max_cost'], report['stopped']) == \
         (['scripted'], ['scripted:judge-a', 'scripted:judge-b'], 1, 3.0, '')
-    assert report['agreement'] == {'graded': len(TASK_IDS), 'agreed': len(TASK_IDS)}
-    assert 'A rubric passes only when every judge passes it. The judges agreed on 10 of 10 answers (100%).' in printed
-    assert [r['task'] for r in report['results']] == TASK_IDS and all(r['passed'] for r in report['results'])
+    assert report['tasks'] == TASK_IDS
+    assert report['agreement'] == {'graded': len(judged), 'agreed': len(judged)}
+    assert (f'A rubric passes only when every judge passes it. The judges agreed on {len(judged)} of {len(judged)} '
+            'answers (100%).') in printed
+    assert [r['task'] for r in report['results']] == runnable and all(r['passed'] for r in report['results'])
     by_task = {r['task']: r for r in report['results']}
     # the real harness ran: the key was redacted before the model saw it, discovery was used past 12 actions
     assert world.LEAKED_KEY not in json.dumps(report)

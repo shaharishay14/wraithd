@@ -11,6 +11,7 @@ run stops before a call that could pass --max-cost. --runs repeats each task; ev
 """
 
 import asyncio
+import importlib
 import json
 import re
 import shutil
@@ -25,11 +26,13 @@ import keyring
 from agents import Agent, Model, ModelSettings, Runner
 
 from local_agent.channels.conversation import reply
-from local_agent.config import APP, Config, Home, ModelConfig
+from local_agent.config import APP, Config, Home, ModelConfig, load_config
+from local_agent.core import events as ev
 from local_agent.core import views
 from local_agent.evals import scripted
 from local_agent.evals.meter import BudgetReached, Meter, MeteredModel, Price, price_for
 from local_agent.evals.tasks import TASKS, Run, failed_checks
+from local_agent.mcp import pinning
 from local_agent.mcp.client import McpConnections, tool_name
 from local_agent.memory.notes import Note
 from local_agent.providers import OLLAMA_URL, build_model
@@ -115,16 +118,23 @@ def build(spec: ModelSpec, meter: Meter, prices: dict[str, Price], ollama_url: s
 
 # --- one task ---------------------------------------------------------------------------------------------
 
-def world_config(task: dict, logs: Path) -> str:
-    """config.toml for the task: no web search, and one [mcp.servers.*] block per app it uses."""
+def world_config(task: dict, logs: Path, variants: dict[str, str] | None = None) -> str:
+    """config.toml for the task: no web search, one [mcp.servers.*] block per app it uses, and its own sections."""
+    variants = {**task.get('world', {}), **(variants or {})}
     lines = ['[web]', 'search = ""', '']
     provides = {'gmail': ['email'], 'googlecalendar': ['calendar'], 'web': ['web_search']}
     for app in task.get('apps', ()):
         args = ['-m', 'local_agent.evals.world', '--app', app, '--log', str(logs / f'{app}.jsonl')]
         if app == 'googlecalendar' and task.get('filler'):
             args += ['--filler', str(task['filler'])]
+        if variants.get(app):
+            args += ['--variant', variants[app]]
         lines += [f'[mcp.servers.{app}]', 'transport = "stdio"', f'command = {json.dumps(sys.executable)}',
-                  f'args = {json.dumps(args)}', f'provides = {json.dumps(provides.get(app, []))}', '']
+                  f'args = {json.dumps(args)}', f'provides = {json.dumps(provides.get(app, []))}']
+        if task.get('always_allow', {}).get(app):
+            lines.append(f'always_allow = {json.dumps(list(task["always_allow"][app]))}')
+        lines.append('')
+    lines += task.get('config', [])
     return '\n'.join(lines)
 
 
@@ -137,6 +147,33 @@ def app_calls(logs: Path) -> list[tuple[str, dict]]:
     return calls
 
 
+def available(task: dict) -> str:
+    """'' when the task can run here, else why not (a feature that isn't on this branch yet)."""
+    for module in task.get('requires', ()):
+        try:
+            importlib.import_module(module)
+        except ImportError:
+            return f'needs {module}'
+    return ''
+
+
+# The run's own tools a task that turns built-ins on still gets (memory, skills)
+OWN_TOOLS = {'memory_search', 'memory_read', 'memory_append', 'memory_write', 'skill_load', 'skill_propose',
+             'skill_adjust', 'delegate'}
+
+
+async def pin_first(rt: Runtime, task: dict, logs: Path) -> None:
+    """What `mcp allow` does, on the version of the tool the owner saw then: connect it once, and pin it."""
+    pinned = task['pin_first']
+    then = world_config(task, logs, {pinned['app']: pinned['variant']})
+    now = rt.home.config_path.read_text()
+    rt.home.config_path.write_text(then)
+    async with McpConnections(load_config(rt.home).mcp_servers, store=rt.store):
+        pass
+    pinning.pin(rt.store, pinned['app'], pinned['tool'])
+    rt.home.config_path.write_text(now)
+
+
 async def run_task(task: dict, model: Model, folder: Path) -> tuple[Run, RunResult]:
     """One task in a fresh home under folder. Returns what the checks look at, and the run's result."""
     shutil.rmtree(folder, ignore_errors=True)  # an earlier eval run's home for this task
@@ -145,24 +182,49 @@ async def run_task(task: dict, model: Model, folder: Path) -> tuple[Run, RunResu
     home = Home(folder / 'home')
     home.ensure()
     home.config_path.write_text(world_config(task, logs))
+    asked = []
+    started = datetime.now(UTC)
+    if task.get('pin_first'):
+        bootstrap = Runtime.open(home, models={'default': model})
+        try:
+            await pin_first(bootstrap, task, logs)
+        finally:
+            bootstrap.close()
     rt = Runtime.open(home, models={'default': model})
+    site = None
     try:
         for path, body in task.get('notes', {}).items():
             rt.memory.save(Note(path=path, title=Path(path).stem.title(), body=body))
+        if task.get('site'):
+            site = task['site']()
+            rt.browser_driver, rt.web_transport = site.driver, site.transport
 
         async def decline(event_type, data):  # the owner in this world says no to every write
             if event_type == 'approval_required':
+                asked.append(data.get('tool'))
                 rt.store.decide_approval(data['approval_id'], store_base.DENIED)
 
         async with McpConnections(rt.config.mcp_servers, store=rt.store) as mcp:
             if mcp.errors:
                 raise RuntimeError(f'world servers did not start: {mcp.errors}')
-            conversation = rt.store.start_conversation('eval')
-            options = {'callback': decline, 'mcp': mcp, 'builtins': False}
-            if task.get('before'):
-                await reply(rt, conversation.id, task['before'], **options)
-            result = await reply(rt, conversation.id, task['message'], **options)
-        return Run(result.answer, rt.store.run_events(result.run_id), app_calls(logs)), result
+            if task.get('kind') == 'heartbeat':
+                from local_agent.daemon import heartbeat
+
+                run_id = await heartbeat.run_once(rt, mcp=mcp)
+                ended = [e.payload for e in rt.store.run_events(run_id) if e.type == ev.RUN_END]
+                result = RunResult('', run_id, ended[-1].get('outcome', '') if ended else '')
+            else:
+                conversation = rt.store.start_conversation('eval')
+                options = {'callback': decline, 'mcp': mcp, 'builtins': bool(task.get('builtins'))}
+                if task.get('builtins'):  # only the built-ins the task names, never the web or the shell
+                    options['allowed_tools'] = set(mcp.access) | set(task['builtins']) | OWN_TOOLS
+                if task.get('before'):
+                    await reply(rt, conversation.id, task['before'], **options)
+                result = await reply(rt, conversation.id, task['message'], **options)
+        between = [e for e in rt.store.events_between_runs(limit=500) if e.created_at >= started]
+        memory = {note.path: note.body for note in rt.memory.load()}
+        return Run(result.answer, rt.store.run_events(result.run_id), app_calls(logs), between=between,
+                   memory=memory, asked=asked, site_requests=site.requests if site else []), result
     finally:
         rt.close()
 
@@ -192,6 +254,8 @@ class Report:
     judges: list[str]
     max_cost: float
     runs: int = 1
+    tasks: list[str] = field(default_factory=list)
+    skipped: dict[str, str] = field(default_factory=dict)  # task id -> why it didn't run here
     started_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat(timespec='seconds'))
     results: list[dict] = field(default_factory=list)
     spent: float = 0.0
@@ -199,7 +263,8 @@ class Report:
     stopped: str = ''
 
     def to_json(self) -> dict:
-        return {'models': self.models, 'judges': self.judges, 'runs': self.runs, 'max_cost': self.max_cost,
+        return {'models': self.models, 'judges': self.judges, 'runs': self.runs, 'tasks': self.tasks,
+                'skipped': self.skipped, 'max_cost': self.max_cost,
                 'spent': round(self.spent, 6), 'judge_cost': round(self.judge_cost, 6), 'stopped': self.stopped,
                 'started_at': self.started_at, 'agreement': agreement(self.results), 'results': self.results}
 
@@ -244,14 +309,16 @@ def markdown(report: Report) -> str:
     for r in report.results:
         by.setdefault((r['model'], r['task']), []).append(r)
     lines = ['| task | ' + ' | '.join(report.models) + ' |', '|---|' + '---|' * len(report.models)]
-    task_ids = list(dict.fromkeys(r['task'] for r in report.results)) or [task['id'] for task in TASKS]
+    task_ids = report.tasks or list(dict.fromkeys(r['task'] for r in report.results))
     for task_id in task_ids:
-        lines.append(f'| {task_id} | '
-                     + ' | '.join(_cell(by.get((m, task_id), []), report.runs) for m in report.models) + ' |')
+        cells = ([f'off ({report.skipped[task_id]})'] * len(report.models) if task_id in report.skipped else
+                 [_cell(by.get((m, task_id), []), report.runs) for m in report.models])
+        lines.append(f'| {task_id} | ' + ' | '.join(cells) + ' |')
     totals = []
+    enabled = len([task_id for task_id in task_ids if task_id not in report.skipped])
     for model in report.models:
         mine = [r for r in report.results if r['model'] == model and r['status'] == 'ran']
-        totals.append(f'{sum(r["passed"] for r in mine)}/{len(task_ids) * report.runs} · '
+        totals.append(f'{sum(r["passed"] for r in mine)}/{enabled * report.runs} · '
                       f'{_tokens(sum(r["tokens"] for r in mine))} tok · ${sum(r["cost"] for r in mine):.3f}')
     lines.append('| **total** | ' + ' | '.join(totals) + ' |')
     runs = 'one run' if report.runs == 1 else f'{report.runs} runs'
@@ -267,6 +334,8 @@ def markdown(report: Report) -> str:
     else:
         lines.append('Judges: none (checks only).')
     lines.append(f'Spent ${report.spent:.3f} of the ${report.max_cost:.2f} cap.')
+    if report.skipped:
+        lines.append(f'Off here (their feature isn\'t on this branch): {", ".join(report.skipped)}.')
     if report.stopped:
         lines.append(f'**{report.stopped}** The cells marked "stopped" or "not run" have no result.')
     failures = [r for r in report.results if r['status'] == 'ran' and not r['passed']]
@@ -297,9 +366,11 @@ async def run_evals(specs: list[ModelSpec], judge_specs: list[ModelSpec], out: P
     """
     prices = prices or {}
     meter = Meter(max_cost)
-    report = Report(models=[spec.label for spec in specs], judges=[spec.label for spec in judge_specs],
-                    max_cost=max_cost, runs=runs)
     tasks = [task for task in TASKS if not task_ids or task['id'] in task_ids]
+    report = Report(models=[spec.label for spec in specs], judges=[spec.label for spec in judge_specs],
+                    max_cost=max_cost, runs=runs, tasks=[task['id'] for task in tasks],
+                    skipped={task['id']: why for task in tasks if (why := available(task))})
+    tasks = [task for task in tasks if task['id'] not in report.skipped]
     built: dict[ModelSpec, Model] = {}
 
     def model_for(spec: ModelSpec, task_id: str) -> Model:
@@ -346,7 +417,8 @@ async def run_evals(specs: list[ModelSpec], judge_specs: list[ModelSpec], out: P
                              run_id=result.run_id, home=str(folder / 'home'),
                              seconds=round(time.monotonic() - started, 1))
                 judged_from = meter.spent
-                for label, judge_model in judges.items():
+                graders = judges if task.get('rubric') else {}  # a task with nothing to say has nothing to judge
+                for label, judge_model in graders.items():
                     verdict = {'pass': None, 'reason': ''}
                     try:
                         verdict['pass'], verdict['reason'] = await judge(judge_model, task['rubric'],
@@ -358,15 +430,15 @@ async def run_evals(specs: list[ModelSpec], judge_specs: list[ModelSpec], out: P
                     entry['judges'][label] = verdict
                 entry['judge_cost'] = meter.spent - judged_from
                 report.judge_cost += entry['judge_cost']
-                if judges:
+                if graders:
                     verdicts = entry['judges'].values()
                     entry['rubric_pass'] = (True if all(v['pass'] is True for v in verdicts)
                                             else False if any(v['pass'] is False for v in verdicts) else None)
                     entry['rubric_reason'] = '; '.join(
-                        (f'{name}: ' if len(judges) > 1 else '') + v['reason']
+                        (f'{name}: ' if len(graders) > 1 else '') + v['reason']
                         for name, v in entry['judges'].items() if v['pass'] is not True)
                 entry['passed'] = (result.outcome == 'answered' and not entry['failed_checks']
-                                   and (not judges or entry['rubric_pass'] is True))
+                                   and (not graders or entry['rubric_pass'] is True))
                 tag = f' run {round_}' if runs > 1 else ''
                 say(f'[{spec.label} / {task["id"]}{tag}] {_line(entry)}'
                     + (f' | failed: {entry["failed_checks"]}' if entry['failed_checks'] else '')
