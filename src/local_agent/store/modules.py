@@ -34,6 +34,26 @@ class Migration:
 # Each worker inside its block only, in the order they apply
 MIGRATIONS: list[Migration] = [
     # >>> security
+    # The review queue (review/queue.py)
+    Migration('security_001', '''
+CREATE TABLE security_review_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    content TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    dedupe_key TEXT,
+    source TEXT NOT NULL,
+    run_id TEXT,
+    taint TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    decided_at TEXT,
+    decided_by TEXT,
+    result TEXT NOT NULL DEFAULT '',
+    notified_at TEXT
+);
+CREATE INDEX security_review_items_status ON security_review_items (status, kind);
+'''),
     # <<< security
     # >>> efficiency
     # <<< efficiency
