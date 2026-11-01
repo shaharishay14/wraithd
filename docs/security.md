@@ -91,9 +91,10 @@ reports none for Anthropic otherwise, and the budgets would count zero.
 - **`requests` became `httpx`**, the stack's HTTP client. The peer address after connecting comes from
   httpx's network stream instead of urllib3's socket.
 - **Server secrets became the owner's secrets.** agent-studio redacted its Django settings keys by value.
-  Here the owner's keys come from the keychain or the environment: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and
-  `TELEGRAM_BOT_TOKEN` are read from the environment, and anything else the process loads (keychain keys, MCP
-  tokens) is added with `register_secret`.
+  Here the owner's keys come from the keychain or the environment ([keys](keys.md)): the key variables,
+  `OP_SERVICE_ACCOUNT_TOKEN` and every `LOCAL_AGENT_MCP_*` value are read from the environment (and kept out of
+  shell commands), and anything else the process loads (keychain keys, MCP tokens) is added with
+  `register_secret`.
 - **No Composio.** The verb rules that classify `APP_VERB_OBJECT` names stay as the fallback, but the
   Composio-specific overrides are gone. MCP tools get tiers from their own annotations instead ([MCP](mcp.md):
   read-only tools run, others ask until the

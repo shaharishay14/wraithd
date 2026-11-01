@@ -137,15 +137,17 @@ def test_missing_keys_are_named_before_anything_runs(tmp_path, capsys):
     code = cli.main(['--model', 'openai:gpt-4o', '--model', 'anthropic:claude-sonnet-5-5', '--out', str(tmp_path)])
     assert code == 2
     error = capsys.readouterr().err
-    assert 'No openai key in the keychain. Set one with: local-agent key set openai' in error
-    assert 'No anthropic key in the keychain. Set one with: local-agent key set anthropic' in error
+    assert 'No openai key. Set one with `local-agent key set openai`, or set OPENAI_API_KEY' in error
+    assert 'No anthropic key. Set one with `local-agent key set anthropic`, or set ANTHROPIC_API_KEY' in error
     assert not (tmp_path / 'report.json').exists()
 
 
-def test_the_runner_reads_keys_from_the_keychain_only(monkeypatch, isolated):
-    monkeypatch.setenv('OPENAI_API_KEY', 'sk-from-the-environment-0123456789')
-    with pytest.raises(SetupError, match='No openai key in the keychain'):
+def test_the_runner_finds_keys_where_the_agent_does(monkeypatch, isolated):
+    with pytest.raises(SetupError, match='No openai key'):
         check_setup([parse_spec('openai:gpt-4o')], [], {})
+    monkeypatch.setenv('OPENAI_API_KEY', 'sk-from-the-environment-0123456789')  # a server with no keychain
+    check_setup([parse_spec('openai:gpt-4o')], [], {})
+    monkeypatch.delenv('OPENAI_API_KEY')
     isolated.set_password('local-agent', 'openai', 'sk-from-the-keychain-0123456789')
     check_setup([parse_spec('openai:gpt-4o')], [], {})
 

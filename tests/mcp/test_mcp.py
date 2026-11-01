@@ -290,7 +290,7 @@ async def test_each_secret_reaches_only_its_own_server(make_runtime, gmail, monk
 def test_a_missing_keychain_secret_is_a_clear_error(gmail, isolated):
     isolated.passwords.clear()
     [server] = load_config(gmail).mcp_servers
-    with pytest.raises(mcp_config.McpConfigError, match='missing from the keychain'):
+    with pytest.raises(mcp_config.McpConfigError, match='not in the keychain'):
         mcp_config.get_secrets(server)
 
 

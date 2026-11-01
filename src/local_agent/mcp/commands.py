@@ -15,6 +15,7 @@ one that's new or changed and not reviewed yet, is refused, and so is any tool w
 
 import asyncio
 import getpass
+import os
 import sys
 from dataclasses import replace
 
@@ -75,6 +76,9 @@ def _secret_pairs(items, separator: str, kind: str, server: str, ask) -> dict[st
         key, value = key.strip(), value.strip()
         if not key:
             raise McpConfigError(f'Give the {kind} as NAME or NAME{separator}VALUE.')
+        if not (found and value) and os.environ.get(mcp_config.env_name(server, key)):
+            pairs[key] = ''  # already in the environment (a server with no keychain): nothing to store
+            continue
         pairs[key] = value if found and value else ask(f'{kind} {key} for {server} (not shown): ')
         if not pairs[key]:
             raise McpConfigError(f'No value given for {key}.')
@@ -103,12 +107,16 @@ def add(home: Home, args, ask=None) -> int:
     except (McpConfigError, ConfigError) as e:
         print(e, file=sys.stderr)
         return 1
-    if previous:
-        mcp_config.delete_secrets(previous)
-    for key, value in env.items():
-        mcp_config.set_secret(server.name, 'env', key, value)
-    for key, value in headers.items():
-        mcp_config.set_secret(server.name, 'header', key, value)
+    try:
+        if previous:
+            mcp_config.delete_secrets(previous)
+        for kind, pairs in (('env', env), ('header', headers)):
+            for key, value in pairs.items():
+                if value:
+                    mcp_config.set_secret(server.name, kind, key, value)
+    except McpConfigError as e:  # no keychain on this machine
+        print(e, file=sys.stderr)
+        return 1
     mcp_config.write_server(home.config_path, server, server.name)
     print(f'{"Replaced" if previous else "Added"} {server.name}'
           + (f', providing {", ".join(server.provides)}' if server.provides else '')

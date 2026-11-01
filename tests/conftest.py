@@ -1,3 +1,5 @@
+import os
+
 import keyring
 import pytest
 from keyring.backend import KeyringBackend
@@ -95,7 +97,7 @@ def test_builtins(monkeypatch):
 @pytest.fixture(autouse=True)
 def no_owner_secrets(monkeypatch):
     """Keys in the developer's environment must not change what tests redact or which key is used."""
-    for name in secrets.ENV_SECRETS:
+    for name in [*secrets.ENV_SECRETS, *(name for name in os.environ if secrets.is_secret_variable(name))]:
         monkeypatch.delenv(name, raising=False)
     secrets.clear_registered()
     yield

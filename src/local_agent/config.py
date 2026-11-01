@@ -23,6 +23,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import keyring
+import keyring.errors
 
 from local_agent.core import secrets
 from local_agent.mcp.config import McpConfigError, parse_servers
@@ -357,13 +358,35 @@ def set_values(home: Home, section: str, values: dict) -> None:
 
 # --- keys --------------------------------------------------------------------------------------------------
 
+class NoKeychain(ConfigError):
+    """This machine has no keychain service (a headless Linux server): keys come from the environment instead."""
+
+
+def no_keychain_message(provider: str) -> str:
+    variable = KEY_ENV.get(provider, f'the {provider} variable')
+    return (f'This machine has no keychain, so the key can\'t be saved. Give it to Local Agent as the environment '
+            f'variable {variable} instead (an env file, a systemd EnvironmentFile, or a password manager\'s '
+            f'`run` command): see docs/keys.md.')
+
+
+def keychain_get(account: str) -> str | None:
+    """The keychain's value, or None when it has none or the machine has no keychain at all."""
+    try:
+        return keyring.get_password(APP, account)
+    except keyring.errors.NoKeyringError:
+        return None
+
+
 def set_key(provider: str, value: str) -> None:
-    keyring.set_password(APP, provider, value)
+    try:
+        keyring.set_password(APP, provider, value)
+    except keyring.errors.NoKeyringError as e:
+        raise NoKeychain(no_keychain_message(provider)) from e
 
 
 def get_key(provider: str) -> str | None:
     """The provider's key from the keychain, else its environment variable. Registered for redaction."""
-    value = keyring.get_password(APP, provider) or os.environ.get(KEY_ENV.get(provider, ''), '') or None
+    value = keychain_get(provider) or os.environ.get(KEY_ENV.get(provider, ''), '') or None
     if value:
         secrets.register_secret(value)  # a key the process holds must never reach the model or the log
     return value

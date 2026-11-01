@@ -22,11 +22,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
-import keyring
 from agents import Agent, Model, ModelSettings, Runner
 
 from local_agent.channels.conversation import reply
-from local_agent.config import APP, Config, Home, ModelConfig, load_config
+from local_agent.config import KEY_ENV, Config, Home, ModelConfig, get_key, load_config
 from local_agent.core import events as ev
 from local_agent.core import views
 from local_agent.evals import scripted
@@ -90,8 +89,9 @@ def check_setup(specs: list[ModelSpec], judges: list[ModelSpec], prices: dict[st
     problems = []
     wanted = [*specs, *judges]
     for provider in dict.fromkeys(spec.provider for spec in wanted if spec.provider in KEYED):
-        if not keyring.get_password(APP, provider):
-            problems.append(f'No {provider} key in the keychain. Set one with: local-agent key set {provider}')
+        if not get_key(provider):
+            problems.append(f'No {provider} key. Set one with `local-agent key set {provider}`, or set '
+                            f'{KEY_ENV[provider]} in the environment.')
     for spec in dict.fromkeys(wanted):
         if price_for(spec.provider, spec.name, prices) is None:
             problems.append(f'No price for {spec.name} in LiteLLM\'s list, so the cap can\'t be kept. Pass '
