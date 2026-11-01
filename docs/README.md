@@ -9,14 +9,14 @@ says what changed for running on one person's laptop.
 
 ## One-liner
 
-> Local Agent's harness logs every step of a run as an event, derives the run's state from that log, and uses
+> wraithd's harness logs every step of a run as an event, derives the run's state from that log, and uses
 > it to stop runaway runs, steer the model with short reminders, and enforce safety rules in code. The model
 > gets a small prompt and pulls in tools, memory and skills only when it needs them.
 
 ## The picture
 
 ```
-            ┌──────────────────────── Harness (src/local_agent/core/) ──────────────────────┐
+            ┌──────────────────────── Harness (src/wraithd/core/) ──────────────────────┐
  input ───▶ │  Event log ──▶ Views ──▶ Stop rules / Reminders ──▶ what the model sees next  │ ──▶ model
  (terminal, │      ▲                                                          │             │
  Telegram,  │      └──────────────── tool calls and results ◀─────────────────┘             │
@@ -26,7 +26,7 @@ says what changed for running on one person's laptop.
             └────────────────────────────────────────────────────────────────────────────────┘
                        │
                        ▼
-               Store (src/local_agent/store/): events, conversations, schedules, approvals in one SQLite file
+               Store (src/wraithd/store/): events, conversations, schedules, approvals in one SQLite file
 ```
 
 ## The notes
@@ -58,9 +58,9 @@ says what changed for running on one person's laptop.
 | [Proof](proof.md) | Unit tests, scripted runs through the real SDK, and replay of recorded runs. |
 | [Evals](evals.md) | Ten golden tasks in a fake world of MCP servers, graded by checks and a judge, cost-capped. |
 | [Seams](seams.md) | The extension points Phase 9 workers plug into: model per purpose, run options, marked blocks, module migrations, periodic jobs, tool-result hooks. |
-| [Review queue](review-queue.md) | Items waiting for the owner (third-party memory writes, later skills and changed MCP tools): `local-agent review`, the API, one short notice. |
+| [Review queue](review-queue.md) | Items waiting for the owner (third-party memory writes, later skills and changed MCP tools): `wraithd review`, the API, one short notice. |
 | [Memory provenance](memory-provenance.md) | Where each memory note came from, and why a tainted run's memory writes wait for review. |
-| [Token breakdown](tokens.md) | `local-agent runs tokens <id>`: where a run's input tokens go, part by part. |
+| [Token breakdown](tokens.md) | `wraithd runs tokens <id>`: where a run's input tokens go, part by part. |
 | [Prompt caching](caching.md) | A byte-identical prefix first, everything that changes after it; cache tokens in events and budgets. |
 | [Model per purpose](models.md) | `[models]`: a cheaper model for distill, compaction, heartbeat or subagents; unset means today's model. |
 | [Spilling big output](spill.md) | Big tool results go to a redacted file; the model gets today's preview plus the path. |

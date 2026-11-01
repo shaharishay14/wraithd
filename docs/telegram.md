@@ -10,10 +10,10 @@
 
 ## How it works
 
-- **Setup:** create a bot with BotFather, then `local-agent key set telegram` (the token goes to the keychain and is
+- **Setup:** create a bot with BotFather, then `wraithd key set telegram` (the token goes to the keychain and is
   registered for redaction). The daemon polls for updates with `getUpdates` over httpx: no public URL, no webhook,
   no extra library.
-- **Pairing:** `local-agent telegram pair` (or the web UI) shows a 6-digit code valid for 10 minutes. Sending
+- **Pairing:** `wraithd telegram pair` (or the web UI) shows a 6-digit code valid for 10 minutes. Sending
   `/pair <code>` to the bot makes that chat the owner's. Five wrong tries and the code is gone; a new code replaces
   the old one; a used code is gone.
 - **The owner's messages** are runs like the terminal's: memory, files, schedules, apps. A write shows a card with
@@ -34,11 +34,11 @@
   | --- | --- | --- |
   | `auto` (default) | `openai` if its key is set, else `whisper` if installed, else off | |
   | `openai` | gpt-4o-mini-transcribe, on your OpenAI key | about $0.003 per minute |
-  | `whisper` | faster-whisper on this computer; `uv tool install --reinstall "local-agent[whisper]"`, the `base` model downloaded on first use | free |
-  | `elevenlabs` | ElevenLabs Scribe v2, `local-agent key set elevenlabs` | about $0.004 per minute on your plan |
+  | `whisper` | faster-whisper on this computer; `uv tool install --reinstall "wraithd[whisper]"`, the `base` model downloaded on first use | free |
+  | `elevenlabs` | ElevenLabs Scribe v2, `wraithd key set elevenlabs` | about $0.004 per minute on your plan |
   | `""` | off | |
 
-  When it's off, the reply says why and how to turn it on; `local-agent doctor` shows the active provider and why.
+  When it's off, the reply says why and how to turn it on; `wraithd doctor` shows the active provider and why.
   A failed transcription is said plainly (a rejected key, a rate limit), never with the key.
 - **Files** (documents, audio files, videos, anything else) are saved to `workspace/files/inbox/<date>-<name>`:
   the name is Telegram's, made safe (no folders, no leading dot, plain characters, 100 at most), and a name that's
@@ -52,7 +52,7 @@
   line. The one exception is `/pair <code>`, since the owner's first contact comes from a chat that isn't paired
   yet (before pairing, every chat is a stranger; `/start` gets no reply either). A stranger's photo, voice note or
   file is never downloaded. Silence costs no tokens and tells
-  a stranger nothing, not even that the bot is a Local Agent.
+  a stranger nothing, not even that the bot is a wraithd.
 - **Ignored chats are logged** as a `telegram_ignored` event (between runs) with the chat id and username, never the
   text: the words are a stranger's and the log is the owner's. At most one event per chat per hour, so someone
   writing all day can't flood the log. The hour is counted in memory: a daemon restart logs each chat once more.
@@ -73,5 +73,5 @@ what to ask it there.
 ## Limits
 
 A stranger costs one `getUpdates` result and, at most hourly, one log row: never a model call, so nobody who finds
-the bot's name can spend the owner's tokens. Ignored chats are listed by `local-agent events` and
+the bot's name can spend the owner's tokens. Ignored chats are listed by `wraithd events` and
 `GET /api/events`.

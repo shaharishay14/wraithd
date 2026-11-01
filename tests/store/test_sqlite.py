@@ -7,9 +7,9 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from local_agent.core import events as ev
-from local_agent.store import SQLiteStore, Store
-from local_agent.store import base as store_base
+from wraithd.core import events as ev
+from wraithd.store import SQLiteStore, Store
+from wraithd.store import base as store_base
 
 T0 = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
 

@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 from agents.usage import Usage
 
-from local_agent.core import events as ev
-from local_agent.core.gate import ToolAccess
-from local_agent.daemon import heartbeat, jobs
 from tests.capabilities.fakes import enable
 from tests.scripted import ScriptedModel, call, say
+from wraithd.core import events as ev
+from wraithd.core.gate import ToolAccess
+from wraithd.daemon import heartbeat, jobs
 
 T0 = datetime(2026, 10, 29, 9, 0, tzinfo=UTC)
 WRITES = ('memory_append', 'memory_write', 'files_write', 'files_edit', 'skill_propose', 'schedule_cancel',
@@ -167,6 +167,6 @@ async def test_heartbeat_status(make_runtime, home):
 
 
 def test_the_cli_has_a_heartbeat_command():
-    from local_agent.cli import build_parser
+    from wraithd.cli import build_parser
 
     assert build_parser().parse_args(['heartbeat', 'status']).heartbeat_command == 'status'

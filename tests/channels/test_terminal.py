@@ -1,17 +1,17 @@
 """
 The terminal chat, end to end with the scripted model: a preference said in one session holds in the next,
-approvals are a y/N question, and every run can be shown afterwards with `local-agent runs show`.
+approvals are a y/N question, and every run can be shown afterwards with `wraithd runs show`.
 """
 
 import json
 
-from local_agent import cli
-from local_agent.channels import terminal
-from local_agent.core import events as ev
-from local_agent.core import gate as gate_module
-from local_agent.run import run
-from local_agent.store import base as store_base
 from tests.scripted import ScriptedModel, ScriptedTerminal, call, say
+from wraithd import cli
+from wraithd.channels import terminal
+from wraithd.core import events as ev
+from wraithd.core import gate as gate_module
+from wraithd.run import run
+from wraithd.store import base as store_base
 
 DISTILLED = {'facts': [{'path': 'profile/profile.md', 'title': 'Profile', 'text': '- Prefers short replies',
                         'evidence': 'I prefer short replies'}]}
@@ -24,7 +24,7 @@ async def test_a_preference_said_in_one_session_holds_in_the_next(make_runtime, 
     await terminal.chat(make_runtime(first), owner)
     assert 'Got it, I will keep it short.' in owner.text and 'Remembered: profile/profile.md' in owner.text
     assert '- Prefers short replies' in (home.memory_dir / 'profile' / 'profile.md').read_text()
-    # That happened between runs: `local-agent events` shows it
+    # That happened between runs: `wraithd events` shows it
     capsys.readouterr()
     assert cli.main(['events']) == 0
     [line] = capsys.readouterr().out.splitlines()
@@ -36,7 +36,7 @@ async def test_a_preference_said_in_one_session_holds_in_the_next(make_runtime, 
     await terminal.chat(rt, ScriptedTerminal('Capital of France?'))
     assert 'Profile:\n- Prefers short replies' in second.instructions[0]
 
-    # ...and `local-agent runs show` prints that run's timeline
+    # ...and `wraithd runs show` prints that run's timeline
     [latest, *_] = rt.store.recent_runs()
     assert latest.message == 'Capital of France?'
     capsys.readouterr()
@@ -105,11 +105,11 @@ async def test_runs_show_as_json_and_ambiguous_prefixes(make_runtime, capsys):
 
 def test_chat_explains_a_missing_key_instead_of_crashing(capsys):
     assert cli.main(['chat']) == 1
-    assert 'local-agent key set openai' in capsys.readouterr().err
+    assert 'wraithd key set openai' in capsys.readouterr().err
 
 
 def test_key_set_stores_the_key_in_the_keychain(monkeypatch, isolated, capsys):
     monkeypatch.setattr(cli.getpass, 'getpass', lambda prompt: '  sk-from-the-prompt-123  ')
     assert cli.main(['key', 'set', 'anthropic']) == 0
-    assert isolated.passwords[('local-agent', 'anthropic')] == 'sk-from-the-prompt-123'
+    assert isolated.passwords[('wraithd', 'anthropic')] == 'sk-from-the-prompt-123'
     assert 'sk-from' not in capsys.readouterr().out

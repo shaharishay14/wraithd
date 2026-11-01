@@ -7,8 +7,8 @@ token all still fail.
 import httpx
 import pytest
 
-from local_agent.daemon.app import Daemon
 from tests.scripted import ScriptedModel
+from wraithd.daemon.app import Daemon
 
 TAILNET = 'box.tail1234.ts.net'
 

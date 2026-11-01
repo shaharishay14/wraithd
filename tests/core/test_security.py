@@ -12,9 +12,9 @@ from agents import set_tracing_disabled, trace
 from agents.tracing.traces import NoOpTrace
 from agents.usage import Usage
 
-from local_agent.core import egress, secrets
-from local_agent.core import events as ev
 from tests.scripted import ScriptedModel, call, fake_tool, of_type, run_once, say
+from wraithd.core import egress, secrets
+from wraithd.core import events as ev
 
 OPENAI_LIKE = 'sk-proj-' + 'a1B2' * 10
 
@@ -194,7 +194,7 @@ async def test_secrets_are_not_saved_to_memory(make_runtime, home):
 
 
 async def test_the_providers_key_is_redacted_by_value(make_runtime, isolated):
-    from local_agent import config
+    from wraithd import config
     config.set_key('openai', 'plain-looking-provider-key-42')
     assert config.get_key('openai') == 'plain-looking-provider-key-42'  # reading it registers it
     model = ScriptedModel([[call('1', 'web_search', {'query': 'x'})], [say('done')]])

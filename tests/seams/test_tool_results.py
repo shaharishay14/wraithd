@@ -3,9 +3,9 @@
 import json
 import logging
 
-from local_agent.core import tool_results
-from local_agent.core.gate import PermissionGate, guard_function_tools
 from tests.scripted import ScriptedModel, call, fake_tool, run_once, say
+from wraithd.core import tool_results
+from wraithd.core.gate import PermissionGate, guard_function_tools
 
 
 def test_hooks_run_in_order_and_a_failing_one_is_skipped(caplog):

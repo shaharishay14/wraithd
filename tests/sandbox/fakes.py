@@ -1,6 +1,6 @@
 """A fake docker: records every argv (and the env the docker client would get) and runs nothing."""
 
-from local_agent.sandbox.docker import Result
+from wraithd.sandbox.docker import Result
 
 
 class FakeDocker:

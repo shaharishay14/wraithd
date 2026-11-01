@@ -47,12 +47,12 @@ not a model's judgment. A real model may simply not take the bait; it passes the
 
 ## The fake world
 
-`python -m local_agent.evals.world --app gmail --log calls.jsonl` is a real stdio MCP server; there's one per
+`python -m wraithd.evals.world --app gmail --log calls.jsonl` is a real stdio MCP server; there's one per
 app: `gmail` (fetch, send, forward, draft), `googlecalendar` (the agenda, plus look-alike tools when a task
 needs discovery), `web` (search and read a page), `weather` (always fails), `calculator` and `chat` (one send).
 `--variant` changes what a server shows: `gmail --variant poisoned` adds the memory-poisoning email (the other
 tasks keep the same inbox), `chat --variant v2` is `send_message` with a changed description. A task can pin a tool
-before it runs (`pin_first`: connect the old variant once and pin it, as `local-agent mcp allow` does), turn on
+before it runs (`pin_first`: connect the old variant once and pin it, as `wraithd mcp allow` does), turn on
 named built-ins only (`builtins`: big-page gets `files_read`, never the real web), and add config sections
 (`[browser]`, `[subagents]`, `[heartbeat]`). The browser task's site (`evals/site.py`) is JSON pages for the
 browser's `JsonSiteDriver`, served by an `httpx.MockTransport` on public IP literals, so the real egress router
@@ -62,14 +62,14 @@ way they would with your own servers, and connects them with the same `McpConnec
 server logs every call it receives, so a check can tell "the model asked to forward" (in the event log) from
 "a forward happened" (in the world's log).
 
-Each task runs in its own home under `eval-results/runs/<model>/<task>/home`, never `~/.local-agent`, through
+Each task runs in its own home under `eval-results/runs/<model>/<task>/home`, never `~/.wraithd`, through
 the real `run()` with built-in tools off: the fake world is all a run can reach, so a run can't read a real
 page or file.
 
 ## Run it offline
 
 ```sh
-uv run python -m local_agent.evals --scripted
+uv run python -m wraithd.evals --scripted
 ```
 
 Scripted models play each task through the real harness and the real MCP servers, and two scripted judges say
@@ -86,8 +86,8 @@ Ollama costs nothing. The cap is $3 either way.
 1. Keys, in the keychain (the runner reads nothing else: not the environment, not a file):
 
    ```sh
-   uv run local-agent key set openai       # gpt-4o, and the judge
-   uv run local-agent key set anthropic    # Claude
+   uv run wraithd key set openai       # gpt-4o, and the judge
+   uv run wraithd key set anthropic    # Claude
    ```
 
 2. A local model, with tool calling:
@@ -100,13 +100,13 @@ Ollama costs nothing. The cap is $3 either way.
 3. The offline run, to check the setup costs nothing:
 
    ```sh
-   uv run python -m local_agent.evals --scripted
+   uv run python -m wraithd.evals --scripted
    ```
 
 4. The table:
 
    ```sh
-   uv run python -m local_agent.evals \
+   uv run python -m wraithd.evals \
      --model openai:gpt-4o \
      --model anthropic:claude-sonnet-5-5 \
      --model ollama:qwen2.5:7b \
@@ -182,7 +182,7 @@ smallest edit that does it, and runs that task on the copy, then on the source a
 when asked:
 
 ```sh
-LOCAL_AGENT_PROVE_EVALS=1 uv run pytest tests/evals/test_regressions.py -s
+WRAITHD_PROVE_EVALS=1 uv run pytest tests/evals/test_regressions.py -s
 ```
 
 ```
@@ -220,7 +220,7 @@ table from this version:
 Every run's home is kept, so the inspector works on it:
 
 ```sh
-LOCAL_AGENT_HOME=eval-results/runs/openai-gpt-4o/morning-brief/home uv run local-agent runs show <run_id>
+WRAITHD_HOME=eval-results/runs/openai-gpt-4o/morning-brief/home uv run wraithd runs show <run_id>
 ```
 
 The `run_id` is in `report.json`. The world's logs of what really ran are in `.../morning-brief/world/`.

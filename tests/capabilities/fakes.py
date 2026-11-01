@@ -4,7 +4,7 @@ import json
 
 import httpx
 
-from local_agent.core import egress
+from wraithd.core import egress
 
 PUBLIC = '93.184.216.34'  # what every *.example host resolves to in these tests
 

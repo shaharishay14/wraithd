@@ -4,20 +4,20 @@
 
 ## One-liner
 
-> One package, one wizard: `uv tool install local-agent`, then `local-agent onboard` asks for a model and key,
+> One package, one wizard: `uv tool install wraithd`, then `wraithd onboard` asks for a model and key,
 > sets up Telegram, installs a background service that starts at login, and prints the web UI's link.
 
 ## How it works
 
 - **The release build** (`scripts/release.sh`): `npm ci` and `npm run build` on a temp copy of `frontend/` (never
-  in the checkout), the result copied into `src/local_agent/ui/`, then `uv build`. That folder is gitignored and
+  in the checkout), the result copied into `src/wraithd/ui/`, then `uv build`. That folder is gitignored and
   shipped by hatch as an artifact, so the wheel carries the UI while git doesn't. The script checks the wheel for
-  `local_agent/ui/index.html` and fails loudly on anything missing (node, npm, uv, the lockfile). Without a UI build
+  `wraithd/ui/index.html` and fails loudly on anything missing (node, npm, uv, the lockfile). Without a UI build
   the wheel still builds, and the daemon serves a placeholder page. CI's `wheel` job runs the script, installs the
   wheel as a uv tool in a temp folder, and checks the no-UI build too. Publishing (`uv publish`) is the owner's step.
-- **Install:** `uv tool install local-agent` or `pipx install local-agent`. Both give the command its own
+- **Install:** `uv tool install wraithd` or `pipx install wraithd`. Both give the command its own
   environment; nothing goes into the system Python.
-- **`local-agent onboard`** asks, in order: the provider and models, the key (typed without echo, into the
+- **`wraithd onboard`** asks, in order: the provider and models, the key (typed without echo, into the
   keychain) and whether to check it with one request for the provider's model list, which web search is active (nothing to
   ask: it's the model provider's own search, or DuckDuckGo for local models; a serpapi key only if `[web] search`
   says serpapi), an
@@ -30,30 +30,44 @@
   - **Pairing without two pollers.** Telegram allows one `getUpdates` caller per bot. If the daemon answers on its
     port, it handles `/pair` and onboard watches the store; otherwise onboard polls once per Enter, handles only
     `/pair`, and leaves later updates for the daemon.
-- **The background service** runs `python -m local_agent daemon` with the Python it was installed with (so it
+- **The background service** runs `python -m wraithd daemon` with the Python it was installed with (so it
   needs no PATH lookup and survives `update`):
-  - macOS: a launchd agent, `~/Library/LaunchAgents/com.local-agent.daemon.plist`, in the owner's GUI session:
+  - macOS: a launchd agent, `~/Library/LaunchAgents/com.wraithd.daemon.plist`, in the owner's GUI session:
     `RunAtLoad` (at login), `KeepAlive` on crashes only, 10-second throttle.
-  - Linux: a systemd user unit, `~/.config/systemd/user/local-agent.service`: `Restart=on-failure`,
+  - Linux: a systemd user unit, `~/.config/systemd/user/wraithd.service`: `Restart=on-failure`,
     `WantedBy=default.target`.
-  - Both append stdout and stderr to `~/.local-agent/logs/daemon.log`, and carry `LOCAL_AGENT_HOME`, the owner's
+  - Both append stdout and stderr to `~/.wraithd/logs/daemon.log`, and carry `WRAITHD_HOME`, the owner's
     PATH (launchd and systemd start with a bare one, and MCP servers are often `npx` or `uvx`) and
     `PYTHONUNBUFFERED`. The daemon logs warnings and up with timestamps: httpx logs request URLs at INFO, and
     Telegram's contain the bot token.
-  - `local-agent daemon install | start | stop | restart | status | logs [-n N] [-f] | uninstall`. Bare
-    `local-agent daemon` still runs in the foreground. `start` installs first if needed. `stop` unloads the service
+  - `wraithd daemon install | start | stop | restart | status | logs [-n N] [-f] | uninstall`. Bare
+    `wraithd daemon` still runs in the foreground. `start` installs first if needed. `stop` unloads the service
     (so launchd's KeepAlive doesn't bring it back); it loads again at the next login, and `uninstall` removes it.
     `status` also asks `/api/health` and prints the web UI link.
   - Every `launchctl`/`systemctl` call goes through an injectable runner: tests use a fake service manager and a temp
     HOME, so they never touch the real ones.
-- **`local-agent doctor`** reads and changes nothing: Python and package versions, the state folder (mode 700),
+- **`wraithd doctor`** reads and changes nothing: Python and package versions, the state folder (mode 700),
   the settings, which keys are present (never their values), the API token file (mode 600), the web UI, the
   service (installed, running), `/api/health` (and whether it's the installed version), the port, and one line for
-  `local-agent audit` (the security rules, [From EC2 to laptop](ec2-to-laptop.md)). One line per check, a fix under
+  `wraithd audit` (the security rules, [From EC2 to laptop](ec2-to-laptop.md)). One line per check, a fix under
   each failure, exit code 1 if anything failed.
-- **`local-agent update`** finds the installer from its own environment (`uv-receipt.toml` for uv,
-  `pipx_metadata.json` for pipx), runs `uv tool upgrade local-agent` or `pipx upgrade local-agent`, and restarts the
+- **`wraithd update`** finds the installer from its own environment (`uv-receipt.toml` for uv,
+  `pipx_metadata.json` for pipx), runs `uv tool upgrade wraithd` or `pipx upgrade wraithd`, and restarts the
   service if it's installed. Any other install (a checkout, plain pip) is left to the owner rather than guessed at.
+
+## Coming from Local Agent
+
+wraithd was called Local Agent. Installing wraithd over it moves things across once, by itself (`rename.py`):
+
+- `~/.local-agent` is moved to `~/.wraithd` (or `$WRAITHD_HOME`) the first time wraithd runs, with one line saying
+  so. If both folders exist, neither is touched: wraithd uses the new one and `wraithd doctor` names the old one.
+  `$LOCAL_AGENT_HOME` still works for now when `$WRAITHD_HOME` isn't set.
+- Keys saved in the keychain under `local-agent` are still read (after `wraithd`); new ones are saved under
+  `wraithd`. `LOCAL_AGENT_MCP_*` variables are still read after `WRAITHD_MCP_*`.
+- While the old `local-agent.service` or `com.local-agent.daemon` agent is installed, the folder isn't moved (its
+  daemon may have the store open): wraithd uses `~/.local-agent` and says to run `wraithd daemon install`. That
+  stops and removes the old service first, then moves the folder, then installs the new service on the new path.
+  `wraithd doctor` says when the old service is still there.
 
 ## On a laptop
 
@@ -66,7 +80,7 @@ stops it, and a schedule that came due meanwhile fires once when it wakes (see [
 
 - On Linux a user unit stops at logout unless lingering is on (`loginctl enable-linger $USER`); onboard doesn't
   turn that on, since it changes a system setting.
-- launchd needs a GUI session: installing over SSH fails with launchctl's error, and `local-agent daemon` in a
+- launchd needs a GUI session: installing over SSH fails with launchctl's error, and `wraithd daemon` in a
   terminal (or tmux) is the fallback.
 - The log rotates at 5 MB, keeping 3 old files ([the daemon](daemon.md#the-log)).
-- Windows has no service; `local-agent daemon` works in a terminal.
+- Windows has no service; `wraithd daemon` works in a terminal.

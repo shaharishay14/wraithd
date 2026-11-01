@@ -11,10 +11,10 @@ import httpx
 import pytest
 from agents.usage import Usage
 
-from local_agent.evals import __main__ as cli
-from local_agent.evals import scripted, world
-from local_agent.evals.meter import FREE, BudgetReached, Meter, MeteredModel, Price
-from local_agent.evals.runner import (
+from wraithd.evals import __main__ as cli
+from wraithd.evals import scripted, world
+from wraithd.evals.meter import FREE, BudgetReached, Meter, MeteredModel, Price
+from wraithd.evals.runner import (
     ModelSpec,
     SetupError,
     available,
@@ -24,8 +24,8 @@ from local_agent.evals.runner import (
     parse_spec,
     run_evals,
 )
-from local_agent.evals.scripted import ScriptedModel, call, say
-from local_agent.evals.tasks import TASK_IDS, TASKS, Run, failed_checks
+from wraithd.evals.scripted import ScriptedModel, call, say
+from wraithd.evals.tasks import TASK_IDS, TASKS, Run, failed_checks
 
 SCRIPTED = ModelSpec('scripted', 'scripted')
 
@@ -54,7 +54,7 @@ def test_the_offline_run_prints_the_table_and_writes_the_report(tmp_path, capsys
     assert by_task['discovery-order']['tools'] == ['find_app_actions', 'describe_app_action',
                                                    'GOOGLECALENDAR_EVENTS_LIST']
     assert (tmp_path / 'report.md').read_text() in printed
-    # each run's home is kept for the inspector, and never the real ~/.local-agent
+    # each run's home is kept for the inspector, and never the real ~/.wraithd
     assert (tmp_path / 'runs' / 'scripted' / 'calculation' / 'home' / 'state.db').exists()
 
 
@@ -137,8 +137,8 @@ def test_missing_keys_are_named_before_anything_runs(tmp_path, capsys):
     code = cli.main(['--model', 'openai:gpt-4o', '--model', 'anthropic:claude-sonnet-5-5', '--out', str(tmp_path)])
     assert code == 2
     error = capsys.readouterr().err
-    assert 'No openai key. Set one with `local-agent key set openai`, or set OPENAI_API_KEY' in error
-    assert 'No anthropic key. Set one with `local-agent key set anthropic`, or set ANTHROPIC_API_KEY' in error
+    assert 'No openai key. Set one with `wraithd key set openai`, or set OPENAI_API_KEY' in error
+    assert 'No anthropic key. Set one with `wraithd key set anthropic`, or set ANTHROPIC_API_KEY' in error
     assert not (tmp_path / 'report.json').exists()
 
 
@@ -148,7 +148,7 @@ def test_the_runner_finds_keys_where_the_agent_does(monkeypatch, isolated):
     monkeypatch.setenv('OPENAI_API_KEY', 'sk-from-the-environment-0123456789')  # a server with no keychain
     check_setup([parse_spec('openai:gpt-4o')], [], {})
     monkeypatch.delenv('OPENAI_API_KEY')
-    isolated.set_password('local-agent', 'openai', 'sk-from-the-keychain-0123456789')
+    isolated.set_password('wraithd', 'openai', 'sk-from-the-keychain-0123456789')
     check_setup([parse_spec('openai:gpt-4o')], [], {})
 
 

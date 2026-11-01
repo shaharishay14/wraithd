@@ -1,4 +1,4 @@
-<h1 align="center">Local Agent</h1>
+<h1 align="center">wraithd</h1>
 
 <p align="center">
   <strong>A personal AI agent that runs on your own machine.</strong><br>
@@ -23,8 +23,8 @@
 
 ---
 
-Local Agent is an agent you own, the way you own your notes. It runs as one process on your Mac or Linux
-machine, keeps its state as plain files plus one SQLite file in `~/.local-agent/`, and sends nothing anywhere
+wraithd is an agent you own, the way you own your notes. It runs as one process on your Mac or Linux
+machine, keeps its state as plain files plus one SQLite file in `~/.wraithd/`, and sends nothing anywhere
 except what it needs to: your model provider (or nothing at all, with a local model through Ollama), Telegram
 if you pair it, and web searches.
 
@@ -44,8 +44,8 @@ Requires macOS or Linux, Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 git clone https://github.com/shaharishay14/local-agent-harness
 cd local-agent-harness
 uv sync
-uv run local-agent onboard     # model and key, Telegram, the background service, the web UI link
-uv run local-agent chat        # talk to it in the terminal
+uv run wraithd onboard     # model and key, Telegram, the background service, the web UI link
+uv run wraithd chat        # talk to it in the terminal
 ```
 
 `onboard` asks for a provider (OpenAI, Anthropic, Ollama or any OpenAI-compatible endpoint), stores the key in
@@ -55,8 +55,8 @@ It's safe to run again: Enter keeps what's set.
 Once it's on PyPI:
 
 ```sh
-uv tool install local-agent    # or: pipx install local-agent
-local-agent onboard
+uv tool install wraithd    # or: pipx install wraithd
+wraithd onboard
 ```
 
 ## Out of the box
@@ -65,31 +65,31 @@ Everything here works with nothing but a model. Accounts (apps, a search API) ar
 
 | | |
 |---|---|
-| **Chat where you are** | The terminal (`local-agent chat`), a local web page, and your own Telegram bot, which answers only you. Send it photos (it sees them, if your model can), voice notes (transcribed) and files (saved to its folder). |
+| **Chat where you are** | The terminal (`wraithd chat`), a local web page, and your own Telegram bot, which answers only you. Send it photos (it sees them, if your model can), voice notes (transcribed) and files (saved to its folder). |
 | **Persistent memory** | Remembers what you tell it as markdown notes you can open and edit, and keeps a short profile of you in every conversation. |
 | **Skills** | A starter pack (morning brief, inbox triage, research report, meeting prep, weekly review) that loads only when a request matches, plus rules you add ("never include newsletters"). Subtle skills can ask for a stronger model. |
 | **The web** | Reads pages and searches the web with your model provider's own search, no extra key. SerpAPI is optional. |
 | **Files** | Reads, writes and edits files in its own folder. PDF, Word and spreadsheets are read as text. |
 | **Schedules and reminders** | Cron or one-time, in your timezone, firing with the terminal closed. The answer comes to you on Telegram. |
 | **The shell** | Off by default. Turn it on and it asks y/N for every command, and never runs one unattended. |
-| **Every step inspectable** | `local-agent runs show <id>` prints a run's timeline: each model call, tool call, approval and result. |
+| **Every step inspectable** | `wraithd runs show <id>` prints a run's timeline: each model call, tool call, approval and result. |
 
 ## Connect your apps
 
 Your apps (mail, calendar, notes, anything) come in as [MCP](https://modelcontextprotocol.io) servers:
 
 ```sh
-local-agent mcp add gmail --provides email --env GMAIL_TOKEN -- <command that starts the server>
-local-agent mcp add notes --url https://example.com/mcp --header Authorization   # a remote server
-local-agent mcp tools gmail      # what it offers, and which tools are read-only
-local-agent mcp allow gmail send_email   # stop asking for this one
+wraithd mcp add gmail --provides email --env GMAIL_TOKEN -- <command that starts the server>
+wraithd mcp add notes --url https://example.com/mcp --header Authorization   # a remote server
+wraithd mcp tools gmail      # what it offers, and which tools are read-only
+wraithd mcp allow gmail send_email   # stop asking for this one
 ```
 
 - Secrets go to the OS keychain and only to their own server.
 - Read-only tools run freely. Anything else asks first (a y/N in the terminal, a card in the web UI, buttons
   in Telegram), until you mark it "always allow". Tools a server marks destructive ask every time.
 - "Always allow" holds only for the tool as you saw it: if a server changes a tool's description, inputs or
-  read-only/destructive marks, it asks again and the change waits in `local-agent review list`.
+  read-only/destructive marks, it asks again and the change waits in `wraithd review list`.
   **Upgrading:** tools you always-allowed before this version ask once more; allow them again to pin them.
 - Skills follow what's connected: `--provides email` makes the morning brief and inbox triage appear.
 - Tools are discovered rather than listed, so the prompt doesn't grow with every server you add.
@@ -114,7 +114,7 @@ More in [docs/mcp.md](docs/mcp.md).
 ## How it works
 
 ```
-          ┌───────────────── one process (local-agent daemon) ────────────────┐
+          ┌───────────────── one process (wraithd daemon) ────────────────┐
 terminal ─┤                                                                   │
 web UI ───┤  API (127.0.0.1, token)  ──▶  run()  ──▶  harness  ──▶  model     │
 Telegram ─┤  scheduler (cron, reminders)        │                             │
@@ -129,7 +129,7 @@ log, stops runaway runs, nudges the model with short reminders and enforces the 
 gets a small prompt and pulls in tools, memory and skills only when it needs them.
 
 ```
-~/.local-agent/
+~/.wraithd/
   config.toml      the provider and models, budgets, timezone, channels (no secrets: those are in the keychain)
   state.db         SQLite: event log, conversations, schedules, approvals
   workspace/
@@ -159,12 +159,12 @@ Prompts can be talked out of anything, so the rules that must hold are in code
   can't drive it.
 - **Telegram answers only you.** Other chats get no reply and no model call.
 - **Review before memory.** After a run reads someone else's text, what it wants to remember waits in
-  `local-agent review list`, unless it's in your own words. Skills the agent proposes wait there too.
+  `wraithd review list`, unless it's in your own words. Skills the agent proposes wait there too.
 - **Pinned app tools.** "Always allow" holds for a tool as you saw it; a changed description or permission asks
   again.
 - **Budgets.** Per-run limits on tokens and tool calls, an optional daily budget, and stop rules for broken
   tools and loops.
-- **`local-agent audit`** checks the live setup against these rules; `local-agent doctor` checks everything
+- **`wraithd audit`** checks the live setup against these rules; `wraithd doctor` checks everything
   else, with a fix for anything wrong.
 
 ## How well it does
@@ -216,45 +216,45 @@ judge model ([Evals](docs/evals.md)). Run on 2026-10-26, judged by gpt-4o, $0.57
 ## Commands
 
 ```sh
-local-agent onboard                   # set up the model, keys, Telegram and the background service
-local-agent chat                      # talk in the terminal
-local-agent doctor                    # check everything, with a fix for anything wrong
-local-agent audit                     # check the setup against the security rules
-local-agent daemon status             # also: start, stop, restart, logs, uninstall
-local-agent update                    # upgrade and restart the service
-local-agent runs list                 # what each run did
-local-agent runs show <id>            # one run's timeline (subagents nested)
-local-agent runs tokens <id>          # where the run's input tokens went
-local-agent review list               # what waits for you (show, approve, reject <id>)
-local-agent heartbeat now             # one heartbeat now (the periodic check is off by default)
-local-agent events                    # what happened between runs: distill, compaction, ignored chats
-local-agent schedules list            # schedules and reminders (rm <id> to cancel)
-local-agent key set <name>            # openai, anthropic, telegram, serpapi, elevenlabs: into the keychain
-local-agent telegram pair             # then send /pair <code> to your bot
-local-agent mcp add|list|tools|allow|disallow|remove
+wraithd onboard                   # set up the model, keys, Telegram and the background service
+wraithd chat                      # talk in the terminal
+wraithd doctor                    # check everything, with a fix for anything wrong
+wraithd audit                     # check the setup against the security rules
+wraithd daemon status             # also: start, stop, restart, logs, uninstall
+wraithd update                    # upgrade and restart the service
+wraithd runs list                 # what each run did
+wraithd runs show <id>            # one run's timeline (subagents nested)
+wraithd runs tokens <id>          # where the run's input tokens went
+wraithd review list               # what waits for you (show, approve, reject <id>)
+wraithd heartbeat now             # one heartbeat now (the periodic check is off by default)
+wraithd events                    # what happened between runs: distill, compaction, ignored chats
+wraithd schedules list            # schedules and reminders (rm <id> to cancel)
+wraithd key set <name>            # openai, anthropic, telegram, serpapi, elevenlabs: into the keychain
+wraithd telegram pair             # then send /pair <code> to your bot
+wraithd mcp add|list|tools|allow|disallow|remove
 ```
 
-Settings are in `~/.local-agent/config.toml`: the provider and model, a stronger model for subtle skills,
+Settings are in `~/.wraithd/config.toml`: the provider and model, a stronger model for subtle skills,
 budgets, your timezone, how Telegram voice notes are transcribed (`[voice] transcribe`: OpenAI, a local
-Whisper with the `local-agent[whisper]` extra, or ElevenLabs), web search (`[web] search`), and the shell switch (off by default). Phase 9 added, all off or unchanged until you
+Whisper with the `wraithd[whisper]` extra, or ElevenLabs), web search (`[web] search`), and the shell switch (off by default). Phase 9 added, all off or unchanged until you
 set them: `[models]` (a cheaper model for distill, compaction, heartbeat, subagents), `[browser] enabled` (with the
-`local-agent[browser]` extra), `[subagents] enabled`, `[heartbeat]`, and `[remote] allowed_hosts` for
+`wraithd[browser]` extra), `[subagents] enabled`, `[heartbeat]`, and `[remote] allowed_hosts` for
 `tailscale serve` ([Remote access](docs/remote-access.md)).
 
 ## Development
 
 ```sh
 uv sync
-uv run pytest        # no test calls a model, needs a key or touches ~/.local-agent, the keychain or services
+uv run pytest        # no test calls a model, needs a key or touches ~/.wraithd, the keychain or services
 uv run ruff check
-uv run python -m local_agent.evals --scripted   # the golden evals offline (docs/evals.md for the paid run)
+uv run python -m wraithd.evals --scripted   # the golden evals offline (docs/evals.md for the paid run)
 scripts/release.sh   # builds the web UI (frontend/) into the wheel, in dist/
 ```
 
 The web UI is in `frontend/` (React, Vite, TypeScript) and the landing page in `site/`. Run `npm ci && npm run
 dev` in either. [PLAN.md](PLAN.md) is the roadmap and the source of truth for what's built and what's next.
 
-Issues and pull requests are welcome. Please keep the tests offline (no real models, keys or `~/.local-agent`),
+Issues and pull requests are welcome. Please keep the tests offline (no real models, keys or `~/.wraithd`),
 and run `uv run pytest` and `uv run ruff check` before you open one.
 
 ## Credits

@@ -5,10 +5,10 @@ read from it. No model, no store.
 
 from datetime import datetime
 
-from local_agent.core import events as ev
-from local_agent.core import views
-from local_agent.core.events import EventLog
-from local_agent.core.stop import StopPolicy, tokens_used_today
+from wraithd.core import events as ev
+from wraithd.core import views
+from wraithd.core.events import EventLog
+from wraithd.core.stop import StopPolicy, tokens_used_today
 
 
 def log_of(*steps):

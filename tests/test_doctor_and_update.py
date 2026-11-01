@@ -1,17 +1,17 @@
 """
-`local-agent doctor` (every check passing, then each one failing with its fix) and `local-agent update` (finding
+`wraithd doctor` (every check passing, then each one failing with its fix) and `wraithd update` (finding
 the installer, upgrading through a fake runner, restarting the service).
 """
 
 import httpx
 import pytest
 
-from local_agent import __version__, doctor, update
-from local_agent.config import set_key
-from local_agent.daemon import app as app_module
-from local_agent.daemon.security import load_or_create_token
-from local_agent.daemon.service import Launchd, Systemd
 from tests.fixtures.services import FakeServiceManager
+from wraithd import __version__, doctor, update
+from wraithd.config import set_key
+from wraithd.daemon import app as app_module
+from wraithd.daemon.security import load_or_create_token
+from wraithd.daemon.service import Launchd, Systemd
 
 OPENAI_KEY = 'sk-test-doctor-0123456789'
 
@@ -75,30 +75,30 @@ def test_doctor_names_each_problem_with_its_fix(home, manager):
     fixes = {check.text: check.fix for check in found if check.state == doctor.FAIL}
     assert fixes == {
         f'{home.root} is private (mode 755)': f'chmod 700 {home.root}',
-        'openai key: missing': 'local-agent key set openai',
+        'openai key: missing': 'wraithd key set openai',
         'API token file is private (mode 644)': f'chmod 600 {home.root / "api-token"}',
         'Web UI: not in this install (the daemon shows a placeholder)':
-            'install a release build (scripts/release.sh builds one), or set LOCAL_AGENT_UI_DIR to a built '
+            'install a release build (scripts/release.sh builds one), or set WRAITHD_UI_DIR to a built '
             'frontend/dist',
-        'Background service: not installed': 'local-agent daemon install',
-        'Daemon: nothing answers on port 7878': 'local-agent daemon start (or run local-agent daemon)',
+        'Background service: not installed': 'wraithd daemon install',
+        'Daemon: nothing answers on port 7878': 'wraithd daemon start (or run wraithd daemon)',
         'Port 7878: in use by another program':
             f'stop that program, or set another port in {home.config_path} ([daemon] port)',
-        'Security rules: 2 fail': 'local-agent audit, for each rule and its fix',  # the folder and the token
+        'Security rules: 2 fail': 'wraithd audit, for each rule and its fix',  # the folder and the token
     }
     assert states(found)['Web search: off: openai search needs your model key, which is missing '
-                         '(local-agent key set openai)'] == doctor.INFO  # the model key's own check fails
+                         '(wraithd key set openai)'] == doctor.INFO  # the model key's own check fails
     text = doctor.render(found)
-    assert '        fix: local-agent key set openai' in text and text.endswith('8 problems found.')
+    assert '        fix: wraithd key set openai' in text and text.endswith('8 problems found.')
 
 
 def test_doctor_a_stopped_service_an_old_daemon_and_a_broken_config(home, healthy, manager):
     manager.running = False
     found = doctor.checks(home, service=healthy, transport=answering('0.0.0'), port_free=lambda port: True)
     fixes = {check.text: check.fix for check in found if check.state == doctor.FAIL}
-    assert fixes['Background service: not running'].startswith('local-agent daemon start')
+    assert fixes['Background service: not running'].startswith('wraithd daemon start')
     assert fixes['Daemon answers on port 7878 (version 0.0.0)'] == \
-        'it is still running the old version: local-agent daemon restart'
+        'it is still running the old version: wraithd daemon restart'
 
     home.config_path.write_text('[model]\nprovider = "gemini"\n')
     found = doctor.checks(home, service=healthy, transport=answering(), port_free=lambda port: True)
@@ -107,10 +107,10 @@ def test_doctor_a_stopped_service_an_old_daemon_and_a_broken_config(home, health
 
 
 def test_doctor_without_a_home_says_to_onboard(tmp_path):
-    from local_agent.config import Home
+    from wraithd.config import Home
 
     [python, package, missing] = doctor.checks(Home(tmp_path / 'nowhere'))
-    assert missing == doctor.Check(doctor.FAIL, f'No state folder at {tmp_path / "nowhere"}', 'local-agent onboard')
+    assert missing == doctor.Check(doctor.FAIL, f'No state folder at {tmp_path / "nowhere"}', 'wraithd onboard')
 
 
 def test_doctor_ollama_needs_no_key(home, manager):
@@ -125,7 +125,7 @@ def test_doctor_ollama_needs_no_key(home, manager):
 
 @pytest.mark.parametrize('web, text, state', [
     ('search = "serpapi"', 'Web search: off: serpapi search needs your serpapi key, which is missing '
-                           '(local-agent key set serpapi)', doctor.INFO),
+                           '(wraithd key set serpapi)', doctor.INFO),
     ('search = ""', 'Web search: off in the settings ([web] search = "")', doctor.INFO),
     ('search = "anthropic"', 'Web search: anthropic (your anthropic key), about $10 per 1,000 searches on your '
                              'Anthropic account', doctor.OK),
@@ -156,7 +156,7 @@ def test_update_with_uv_upgrades_then_restarts_the_service(home, manager, tmp_pa
     service.install()
     assert update.update(home, runner=manager, prefix=tmp_path, which=lambda name: f'/usr/bin/{name}',
                          service=service, say=said.append) == 0
-    assert ['uv', 'tool', 'upgrade', 'local-agent'] in manager.calls
+    assert ['uv', 'tool', 'upgrade', 'wraithd'] in manager.calls
     assert manager.commands('launchctl')[-1][:3] == ['launchctl', 'kickstart', '-k']
     assert said[-1] == 'Restarted the background service on the new version.'
 
@@ -166,7 +166,7 @@ def test_update_with_pipx_and_no_service_only_upgrades(home, manager, tmp_path):
     service = Systemd(home, runner=manager)
     assert update.update(home, runner=manager, prefix=tmp_path, which=lambda name: name, service=service,
                          say=lambda text: None) == 0
-    assert manager.calls == [['pipx', 'upgrade', 'local-agent']]
+    assert manager.calls == [['pipx', 'upgrade', 'wraithd']]
 
 
 def test_a_failed_update_restarts_nothing(home, manager, tmp_path):
@@ -177,7 +177,7 @@ def test_a_failed_update_restarts_nothing(home, manager, tmp_path):
     before = list(manager.calls)
     assert update.update(home, runner=manager, prefix=tmp_path, which=lambda name: name, service=service,
                          say=said.append) == 1
-    assert manager.calls == before + [['uv', 'tool', 'upgrade', 'local-agent']]
+    assert manager.calls == before + [['uv', 'tool', 'upgrade', 'wraithd']]
     assert said[-2:] == ['error: no network', 'The update failed; nothing was restarted.']
 
 
@@ -187,17 +187,17 @@ def test_update_leaves_other_installs_and_missing_tools_to_the_owner(home, manag
     assert 'wasn\'t installed with uv or pipx' in said[0]
     (tmp_path / 'uv-receipt.toml').write_text('[tool]\n')
     assert update.update(home, runner=manager, prefix=tmp_path, which=lambda name: None, say=said.append) == 1
-    assert said[-1] == 'Installed with uv, but `uv` isn\'t on the PATH. Run: uv tool upgrade local-agent'
+    assert said[-1] == 'Installed with uv, but `uv` isn\'t on the PATH. Run: uv tool upgrade wraithd'
     assert manager.calls == []
 
 
 def test_doctor_says_how_voice_notes_are_transcribed_or_how_to_turn_them_on(home, manager, monkeypatch):
-    from local_agent import voice
+    from wraithd import voice
 
     monkeypatch.setattr(voice, 'whisper_installed', lambda: False)
     off = states(doctor.checks(home, service=Launchd(home, runner=manager), transport=silent()))
     [line] = [text for text in off if text.startswith('Voice notes:')]
-    assert 'off: no OpenAI key' in line and 'local-agent[whisper]' in line and off[line] == doctor.INFO
+    assert 'off: no OpenAI key' in line and 'wraithd[whisper]' in line and off[line] == doctor.INFO
     monkeypatch.setattr(voice, 'whisper_installed', lambda: True)
     found = states(doctor.checks(home, service=Launchd(home, runner=manager), transport=silent()))
     assert found['Voice notes: whisper (installed, no OpenAI key), free, runs on this computer'] == doctor.OK

@@ -8,10 +8,10 @@ import os
 
 import pytest
 
-from local_agent.core import events as ev
-from local_agent.tools import files as files_module
-from local_agent.tools.files import OutsideWorkspace, file_tools, resolve_inside, safe_name, save_new
 from tests.scripted import ScriptedModel, call, of_type, run_once, say
+from wraithd.core import events as ev
+from wraithd.tools import files as files_module
+from wraithd.tools.files import OutsideWorkspace, file_tools, resolve_inside, safe_name, save_new
 
 
 @pytest.fixture

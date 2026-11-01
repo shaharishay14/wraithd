@@ -2,10 +2,10 @@
 
 import sys
 
-from local_agent import cli
-from local_agent.mcp import pinning
 from tests.daemon.test_api import FAKE
 from tests.scripted import ScriptedModel
+from wraithd import cli
+from wraithd.mcp import pinning
 
 
 async def test_always_allow_pins_and_unpins(make_daemon, home, capsys):

@@ -4,13 +4,14 @@ import keyring
 import pytest
 from keyring.backend import KeyringBackend
 
-from local_agent import run as run_module
-from local_agent.config import HOME_ENV, KEY_ENV, Home
-from local_agent.core import gate, secrets
-from local_agent.daemon import app as app_module
-from local_agent.run import Runtime
-from local_agent.store import SQLiteStore
 from tests.scripted import recorder
+from wraithd import rename
+from wraithd import run as run_module
+from wraithd.config import HOME_ENV, KEY_ENV, Home
+from wraithd.core import gate, secrets
+from wraithd.daemon import app as app_module
+from wraithd.run import Runtime
+from wraithd.store import SQLiteStore
 
 
 class MemoryKeyring(KeyringBackend):
@@ -35,10 +36,11 @@ class MemoryKeyring(KeyringBackend):
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
     """
-    No test touches the real ~/.local-agent, the real keychain, or anything else in the real home folder
+    No test touches the real ~/.wraithd or ~/.local-agent, the real keychain, or anything else in the real home folder
     (~/Library/LaunchAgents, ~/.config/systemd): HOME is a temp folder too.
     """
     monkeypatch.setenv(HOME_ENV, str(tmp_path / 'home'))
+    monkeypatch.delenv(rename.OLD_HOME_ENV, raising=False)  # a developer's old variable must not move it
     monkeypatch.setenv('HOME', str(tmp_path / 'user'))
     monkeypatch.delenv(app_module.UI_ENV, raising=False)
     for variable in KEY_ENV.values():  # a key in the developer's environment would turn tools on

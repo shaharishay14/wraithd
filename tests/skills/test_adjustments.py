@@ -6,9 +6,9 @@ in workspace/skills/<skill>/your-way.md, and shown as "Your way" whenever the sk
 import asyncio
 import json
 
-from local_agent.skills import registry
-from local_agent.store import base as store_base
 from tests.scripted import ScriptedModel, call, fake_tool, run_once, say, tool_json
+from wraithd.skills import registry
+from wraithd.store import base as store_base
 
 RULE = 'Always put the sources table first'
 WEB = fake_tool('web_search', lambda **a: {'snippet': 'Tell your agent to...'})

@@ -4,7 +4,7 @@
 
 ## One-liner
 
-> Local Agent runs one agent with one context window. Skills carry the procedures, discovery carries the
+> wraithd runs one agent with one context window. Skills carry the procedures, discovery carries the
 > capabilities, and the harness enforces limits and approvals. There's no orchestrator handing work to
 > specialist agents.
 

@@ -11,12 +11,12 @@ import keyring
 import pytest
 from keyring.backends import fail
 
-from local_agent import cli
-from local_agent.config import KEY_ENV, NoKeychain, get_key, load_config, set_key
-from local_agent.core import secrets
-from local_agent.evals.runner import check_setup, parse_spec
-from local_agent.mcp import config as mcp_config
-from local_agent.tools.shell import shell_tool
+from wraithd import cli
+from wraithd.config import KEY_ENV, NoKeychain, get_key, load_config, set_key
+from wraithd.core import secrets
+from wraithd.evals.runner import check_setup, parse_spec
+from wraithd.mcp import config as mcp_config
+from wraithd.tools.shell import shell_tool
 
 OPENAI_KEY = 'sk-from-the-environment-0123456789'
 X_TOKEN = 'x-token-from-the-environment-0123456789'
@@ -44,7 +44,7 @@ def test_saving_a_key_says_which_variable_to_set(no_keychain, capsys, monkeypatc
 
 def test_an_mcp_value_from_the_environment_is_not_asked_for(no_keychain, home, monkeypatch, capsys):
     name = mcp_config.env_name('x', 'X_TOKEN')
-    assert name == 'LOCAL_AGENT_MCP_X_X_TOKEN'
+    assert name == 'WRAITHD_MCP_X_X_TOKEN'
     monkeypatch.setenv(name, X_TOKEN)
 
     def ask(prompt):
@@ -58,7 +58,7 @@ def test_an_mcp_value_from_the_environment_is_not_asked_for(no_keychain, home, m
 
 def test_an_mcp_value_given_inline_says_which_variable_to_set(no_keychain, home, capsys):
     assert cli.main(['mcp', 'add', 'x', '--env', f'X_TOKEN={X_TOKEN}', '--', sys.executable, '-c', 'pass']) == 1
-    assert 'LOCAL_AGENT_MCP_X_X_TOKEN' in capsys.readouterr().err
+    assert 'WRAITHD_MCP_X_X_TOKEN' in capsys.readouterr().err
     assert not load_config(home).mcp_servers
 
 
@@ -68,7 +68,7 @@ def test_every_key_variable_counts_as_a_secret():
 
 async def test_the_shell_never_sees_a_key_from_the_environment(tmp_path, monkeypatch):
     values = {'ELEVENLABS_API_KEY': 'eleven-key-0123456789', 'OP_SERVICE_ACCOUNT_TOKEN': 'ops_token-0123456789',
-              'LOCAL_AGENT_MCP_X_X_TOKEN': X_TOKEN, 'OPENAI_API_KEY': OPENAI_KEY}
+              'WRAITHD_MCP_X_X_TOKEN': X_TOKEN, 'OPENAI_API_KEY': OPENAI_KEY}
     for name, value in values.items():
         monkeypatch.setenv(name, value)
     monkeypatch.setenv('HARMLESS_SETTING', 'kept')

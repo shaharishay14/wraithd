@@ -3,9 +3,9 @@ Compaction: recent messages word for word, older ones folded into a rolling summ
 conversation so a restart doesn't lose it.
 """
 
-from local_agent.core import compaction
-from local_agent.core import events as ev
 from tests.scripted import ScriptedModel, say
+from wraithd.core import compaction
+from wraithd.core import events as ev
 
 
 def conversation_with(rt, count):

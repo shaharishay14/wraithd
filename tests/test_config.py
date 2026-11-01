@@ -8,16 +8,16 @@ import stat
 import pytest
 from agents import OpenAIChatCompletionsModel, OpenAIResponsesModel
 
-from local_agent import config, providers
-from local_agent.config import ConfigError, Home, load_config
+from wraithd import config, providers
+from wraithd.config import ConfigError, Home, load_config
 
 
 def test_the_home_comes_from_the_environment_and_is_created_private(tmp_path):
     home = Home.locate()
-    assert home.root == tmp_path / 'home'  # tests never see the real ~/.local-agent
+    assert home.root == tmp_path / 'home'  # tests never see the real ~/.wraithd
     home.ensure()
     assert stat.S_IMODE(os.stat(home.root).st_mode) == 0o700
-    assert home.config_path.read_text().startswith('# Local Agent settings')
+    assert home.config_path.read_text().startswith('# wraithd settings')
     assert home.agents_md.exists() and home.memory_dir.is_dir() and home.skills_dir.is_dir()
     home.agents_md.write_text('mine')
     home.ensure()
@@ -77,7 +77,7 @@ def test_set_values_that_break_the_config_leave_it_as_it_was(home):
 
 def test_keys_live_in_the_keychain_not_the_config(home, isolated):
     config.set_key('openai', 'sk-test-key-in-keychain')
-    assert isolated.passwords == {('local-agent', 'openai'): 'sk-test-key-in-keychain'}
+    assert isolated.passwords == {('wraithd', 'openai'): 'sk-test-key-in-keychain'}
     assert config.get_key('openai') == 'sk-test-key-in-keychain'
     assert 'sk-test' not in home.config_path.read_text()
 
@@ -97,7 +97,7 @@ def test_openai_uses_the_responses_api_with_the_keychain_key(home):
 
 
 def test_a_missing_key_says_how_to_set_it(home):
-    with pytest.raises(providers.ProviderError, match='local-agent key set openai'):
+    with pytest.raises(providers.ProviderError, match='wraithd key set openai'):
         providers.build_models(load_config(home))
 
 

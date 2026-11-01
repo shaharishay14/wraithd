@@ -6,11 +6,11 @@ in real runs, where the skill nudges point the agent to skill_adjust where corre
 import json
 from datetime import UTC, datetime, timedelta
 
-from local_agent.core import events as ev
-from local_agent.core import reminders
-from local_agent.core.events import EventLog
-from local_agent.core.gate import wrap_untrusted
 from tests.scripted import ScriptedModel, call, fake_tool, run_once, say, skill
+from wraithd.core import events as ev
+from wraithd.core import reminders
+from wraithd.core.events import EventLog
+from wraithd.core.gate import wrap_untrusted
 
 # --- the engine --------------------------------------------------------------------------------------------
 

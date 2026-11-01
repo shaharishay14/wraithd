@@ -1210,7 +1210,7 @@ wheels = [
 ]
 
 [[package]]
-name = "local-agent"
+name = "wraithd"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [

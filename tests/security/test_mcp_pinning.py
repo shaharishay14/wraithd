@@ -7,13 +7,13 @@ asks; the owner reviews each change in the review queue.
 import pytest
 from mcp.types import Tool, ToolAnnotations
 
-from local_agent.core import events as ev
-from local_agent.core.gate import ToolAccess
-from local_agent.mcp import pinning
-from local_agent.mcp.client import McpConnections
-from local_agent.mcp.config import McpServer
-from local_agent.review import queue
-from local_agent.review.queue import ReviewQueue
+from wraithd.core import events as ev
+from wraithd.core.gate import ToolAccess
+from wraithd.mcp import pinning
+from wraithd.mcp.client import McpConnections
+from wraithd.mcp.config import McpServer
+from wraithd.review import queue
+from wraithd.review.queue import ReviewQueue
 
 SEND_SCHEMA = {'type': 'object', 'properties': {'to': {'type': 'string'}}}
 

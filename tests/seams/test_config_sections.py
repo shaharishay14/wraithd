@@ -4,8 +4,8 @@ import logging
 
 import pytest
 
-from local_agent import config as config_module
-from local_agent.config import CORE_TABLES, SECTIONS, Config, ConfigError, Section, load_config, load_sections
+from wraithd import config as config_module
+from wraithd.config import CORE_TABLES, SECTIONS, Config, ConfigError, Section, load_config, load_sections
 
 
 def check_hours(values):

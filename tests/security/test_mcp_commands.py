@@ -1,15 +1,15 @@
-"""`local-agent mcp tools / allow / disallow / remove` with pinning: what the owner sees and what allow refuses."""
+"""`wraithd mcp tools / allow / disallow / remove` with pinning: what the owner sees and what allow refuses."""
 
 import pytest
 
-from local_agent import cli
-from local_agent.config import load_config
-from local_agent.mcp import commands, pinning
-from local_agent.mcp import config as mcp_config
-from local_agent.mcp.client import McpConnections
-from local_agent.mcp.config import McpServer
-from local_agent.store import SQLiteStore
 from tests.security.test_mcp_pinning import FakeServer, baseline_tools, tool
+from wraithd import cli
+from wraithd.config import load_config
+from wraithd.mcp import commands, pinning
+from wraithd.mcp import config as mcp_config
+from wraithd.mcp.client import McpConnections
+from wraithd.mcp.config import McpServer
+from wraithd.store import SQLiteStore
 
 
 @pytest.fixture

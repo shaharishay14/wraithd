@@ -28,7 +28,7 @@
   | `""` | off | | |
 
   When the backend's key is missing, the tool isn't offered, and neither are the skills that need it
-  (research-report); `local-agent doctor` says which backend is active and why. Errors never include the request
+  (research-report); `wraithd doctor` says which backend is active and why. Errors never include the request
   URL or a key.
 - **Ours, not the provider's tool:** the native backends run the provider's hosted search inside one small model
   call of their own and turn its result into rows: OpenAI's url citations (with the sentence each one closes),

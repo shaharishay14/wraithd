@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from local_agent.core import replay
 from tests.efficiency import scenarios
+from wraithd.core import replay
 
 pytestmark = pytest.mark.skipif(not os.environ.get('RECORD_RUNS'), reason='only when recording fixtures')
 RUNS = Path(__file__).parent / 'runs'

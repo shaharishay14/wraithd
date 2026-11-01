@@ -5,9 +5,9 @@ turns into each provider's own image part (Chat Completions and LiteLLM too), an
 
 from agents.models.chatcmpl_converter import Converter
 
-from local_agent.config import Config, ModelConfig
-from local_agent.providers import can_see_images
-from local_agent.run import user_content
+from wraithd.config import Config, ModelConfig
+from wraithd.providers import can_see_images
+from wraithd.run import user_content
 
 IMAGE = 'data:image/jpeg;base64,/9j/AAAA'
 

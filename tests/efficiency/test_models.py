@@ -5,14 +5,14 @@ import json
 import httpx
 import pytest
 
-from local_agent import doctor, providers
-from local_agent.config import Config, ConfigError, load_config, set_key
-from local_agent.core import compaction
-from local_agent.daemon import jobs
-from local_agent.memory import distill
-from local_agent.run import Runtime
-from local_agent.store import SQLiteStore
 from tests.scripted import ScriptedModel, run_once, say
+from wraithd import doctor, providers
+from wraithd.config import Config, ConfigError, load_config, set_key
+from wraithd.core import compaction
+from wraithd.daemon import jobs
+from wraithd.memory import distill
+from wraithd.run import Runtime
+from wraithd.store import SQLiteStore
 
 TODAY = {'chat': 'default', 'strong': 'strong', 'distill': 'default', 'compaction': 'default',
          'heartbeat': 'default', 'subagent': 'default'}  # what each purpose used before [models]

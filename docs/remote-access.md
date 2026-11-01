@@ -34,14 +34,14 @@ machine joins (a café's Wi-Fi, a hotel's), so remote access doesn't change the 
 2. Let the agent run without anyone logged in. A systemd **user** unit stops at logout unless lingering is on:
    ```
    sudo loginctl enable-linger $USER
-   local-agent daemon install
+   wraithd daemon install
    ```
-3. Tell the daemon its tailnet name, in `~/.local-agent/config.toml`:
+3. Tell the daemon its tailnet name, in `~/.wraithd/config.toml`:
    ```toml
    [remote]
    allowed_hosts = ["box.tail1234.ts.net"]
    ```
-   Then `local-agent daemon restart`. An entry is a bare host name (optionally `:port`). `*`, `https://...`, a path or
+   Then `wraithd daemon restart`. An entry is a bare host name (optionally `:port`). `*`, `https://...`, a path or
    a name without a dot are refused when the config loads.
 4. Put the API on the tailnet:
    ```
@@ -49,7 +49,7 @@ machine joins (a café's Wi-Fi, a hotel's), so remote access doesn't change the 
    tailscale serve status
    ```
    `--bg` keeps the setting across reboots. `tailscale serve reset` removes it.
-5. `local-agent daemon status` prints the link with the token in its fragment:
+5. `wraithd daemon status` prints the link with the token in its fragment:
    `https://box.tail1234.ts.net/#token=...`. Open it once on the phone (with Tailscale on). The UI keeps the token
    and removes it from the address bar.
 
@@ -70,14 +70,14 @@ and the "no public URL" rule would be gone.
 | Host of another machine or name, a rebinding name | `403 bad_host` |
 | Host `127.0.0.1:7878` | as before |
 
-The tests (`tests/reach/test_remote.py`, `tests/attacks/test_reach_remote.py`) cover each row. `local-agent audit`
+The tests (`tests/reach/test_remote.py`, `tests/attacks/test_reach_remote.py`) cover each row. `wraithd audit`
 lists every remote name as reachable and fails on one that isn't a `*.ts.net` name or is an IP address
 (`daemon.security.remote_hosts(config)`).
 
 ## Limits
 
 - Any device on the tailnet that the tailnet's access rules let through can reach the port. The token is what
-  stops it, so keep it private, and rotate it (`rm ~/.local-agent/api-token`, restart) if a device is lost.
+  stops it, so keep it private, and rotate it (`rm ~/.wraithd/api-token`, restart) if a device is lost.
 - The daemon doesn't use Tailscale's identity headers (`Tailscale-User-Login`). The token is the one credential,
   the same as on the laptop.
 - If `tailscale serve` were set up to rewrite Host, every request would get `bad_host`. That fails closed, never

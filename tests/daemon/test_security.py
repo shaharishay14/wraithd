@@ -9,10 +9,10 @@ import stat
 import httpx
 import pytest
 
-from local_agent.daemon.app import HOST, Daemon
-from local_agent.daemon.security import load_or_create_token
 from tests.daemon.conftest import BASE
 from tests.scripted import ScriptedModel
+from wraithd.daemon.app import HOST, Daemon
+from wraithd.daemon.security import load_or_create_token
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ async def test_no_token_or_a_wrong_one_is_401(guarded):
         response = await bare.get('/api/status', headers=headers)
         assert response.status_code == 401, headers
         assert response.json() == {'error': {'code': 'unauthorized',
-                                             'message': 'Open the link printed by `local-agent daemon`.'}}
+                                             'message': 'Open the link printed by `wraithd daemon`.'}}
     # the token in a query string doesn't count either
     assert (await bare.get(f'/api/status?token={daemon.token}')).status_code == 401
 

@@ -10,11 +10,11 @@ import os
 
 import pytest
 
-from local_agent import sandbox
-from local_agent.config import load_config
-from local_agent.sandbox import docker
-from local_agent.tools.shell import shell_tool
 from tests.sandbox.fakes import FakeDocker, flag_values
+from wraithd import sandbox
+from wraithd.config import load_config
+from wraithd.sandbox import docker
+from wraithd.tools.shell import shell_tool
 
 DOCKER = '[shell]\nenabled = true\n\n[sandbox]\nbackend = "docker"\n'
 ESCAPES = [

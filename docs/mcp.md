@@ -10,7 +10,7 @@
 
 ## How it works
 
-- **Adding a server:** `local-agent mcp add gmail --provides email --env GMAIL_TOKEN -- npx -y some-gmail-mcp` for a
+- **Adding a server:** `wraithd mcp add gmail --provides email --env GMAIL_TOKEN -- npx -y some-gmail-mcp` for a
   local (stdio) server, or `--url https://.../mcp --header Authorization` for a remote (streamable HTTP) one. The
   block in `config.toml` names the env vars and headers; their values go to the keychain (asked for without echo
   if not given). `mcp list`, `mcp tools <name>` (connects and shows each tool's tier), `mcp remove <name>` (and
@@ -24,7 +24,7 @@
   `describe_app_action` -> `run_app_action` instead of the schemas, so the prompt doesn't grow with each server
   (a one-line note names the connected apps). A handful are still given directly.
 - **Gate tiers:** a tool the server annotates read-only runs freely. Anything else is a write, so the approval card
-  asks, until the owner runs `local-agent mcp allow <server> <tool>` (undo with `mcp disallow`). An always-allowed
+  asks, until the owner runs `wraithd mcp allow <server> <tool>` (undo with `mcp disallow`). An always-allowed
   tool runs without asking, but like any pre-approval, once the run has read third-party content it may only go to
   recipients the owner wrote; otherwise the owner is asked again (warned about the stranger's address), or, with
   nobody there, it's refused. Unattended runs only run read-only or always-allowed tools.
@@ -57,8 +57,8 @@ table `security_mcp_tools`):
 - **The first connect is the baseline**: a server's tools are accepted as they are the first time it connects
   (trust on first use). `mcp remove` forgets them.
 - **Re-allow needed after the upgrade.** A tool always-allowed before pinning existed has no pin, so it asks until
-  the owner runs `local-agent mcp allow <server> <tool>` once more. `mcp tools` shows `re-allow needed`, and
-  `local-agent audit` fails on it.
+  the owner runs `wraithd mcp allow <server> <tool>` once more. `mcp tools` shows `re-allow needed`, and
+  `wraithd audit` fails on it.
 - `mcp tools` marks each tool: `changed: asks until you review it (review #N)`, `new: ...`, `re-allow needed`.
 - Pinning needs the store: every connection given one checks (the daemon, the terminal, runs, the `mcp` commands).
 
@@ -71,7 +71,7 @@ Each server's secrets are read from the keychain when it connects and passed onl
 gets a minimal environment (`PATH`, `HOME`...) plus its own variables, never the owner's environment, so it sees
 neither the model keys nor another server's token; a remote server's headers go on its requests only. Every value
 is registered for redaction, so a server that echoes its token shows `[REDACTED:owner_secret]` to the model and
-the log. The shell never has them: they're never in Local Agent's own environment.
+the log. The shell never has them: they're never in wraithd's own environment.
 
 ## What a server says is third-party text
 

@@ -28,8 +28,8 @@
 
 ## Config and keys
 
-`~/.local-agent/config.toml` (or `$LOCAL_AGENT_HOME`) has the model, budgets and the owner's email. Keys never go
-there: `local-agent key set <provider>` puts them in the OS keychain (`keyring`), with the provider's
+`~/.wraithd/config.toml` (or `$WRAITHD_HOME`) has the model, budgets and the owner's email. Keys never go
+there: `wraithd key set <provider>` puts them in the OS keychain (`keyring`), with the provider's
 environment variable as a fallback. Every key the process reads is registered for redaction, so it can't reach
 the model or the log even if a tool echoes it.
 
@@ -51,12 +51,12 @@ it's used, it reads its bundled price list instead of downloading one, and its t
 
 ## The terminal
 
-`local-agent chat` is one conversation: answers stream as they're written, tool calls show as `· tool_name`,
+`wraithd chat` is one conversation: answers stream as they're written, tool calls show as `· tool_name`,
 and a write shows its arguments and warnings, then asks `Allow? [y/N]` (anything but "y" is no). Messages are
 stored with the conversation, so a long session is compacted (the newest 10 messages word for word, older ones
 folded into a summary in batches of 10). When the session ends, distill turns it into memory.
 
-`local-agent runs list` and `local-agent runs show <id>` (a unique prefix is enough, `--json` for everything)
+`wraithd runs list` and `wraithd runs show <id>` (a unique prefix is enough, `--json` for everything)
 print what a run did, from its event log.
 
 ## On a laptop

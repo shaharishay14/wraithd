@@ -8,9 +8,9 @@ import json
 
 from agents import FunctionTool
 
-from local_agent.core import disclosure
-from local_agent.core import events as ev
 from tests.scripted import ScriptedModel, call, of_type, run_once, say
+from wraithd.core import disclosure
+from wraithd.core import events as ev
 
 SEND_SCHEMA = {'type': 'object', 'properties': {
     'recipient_email': {'type': 'string', 'description': 'Who gets the email'},

@@ -1,6 +1,6 @@
 """
-`local-agent onboard` end to end with scripted answers: an in-memory keychain, a fake Telegram, a fake service
-manager, and a temp HOME and LOCAL_AGENT_HOME (conftest). The key check is a fake that records its calls: the
+`wraithd onboard` end to end with scripted answers: an in-memory keychain, a fake Telegram, a fake service
+manager, and a temp HOME and WRAITHD_HOME (conftest). The key check is a fake that records its calls: the
 real one would call the provider.
 """
 
@@ -9,13 +9,13 @@ import json
 import httpx
 import pytest
 
-from local_agent import onboard
-from local_agent.channels import telegram
-from local_agent.config import get_key, load_config, set_key
-from local_agent.daemon.service import Launchd
-from local_agent.store import SQLiteStore
 from tests.fixtures.services import FakeServiceManager
 from tests.scripted import ScriptedTerminal
+from wraithd import onboard
+from wraithd.channels import telegram
+from wraithd.config import get_key, load_config, set_key
+from wraithd.daemon.service import Launchd
+from wraithd.store import SQLiteStore
 
 BOT_TOKEN = '123456:fake-bot-token-abcdefghij'
 OPENAI_KEY, SERP_KEY = 'sk-test-onboard-0123456789', 'serp-test-0123456789'
@@ -55,7 +55,7 @@ class FakeTelegram:
 
 
 def onboard_home():
-    from local_agent.config import Home
+    from wraithd.config import Home
     return Home.locate()
 
 
@@ -122,7 +122,7 @@ async def test_onboard_from_nothing_to_a_paired_bot_and_a_running_service(manage
     assert 'Telegram:  @my_agent_bot, paired with @shahar' in text and 'Service:   running' in text
     # web search needs no key of its own: OpenAI's, on the model key, with SerpAPI as an option
     assert 'Web search: openai (your model key), about $10 per 1,000 searches on your OpenAI account.' in text
-    assert 'Search:    openai' in text and 'run `local-agent key set serpapi`' in text
+    assert 'Search:    openai' in text and 'run `wraithd key set serpapi`' in text
     for secret in (OPENAI_KEY, BOT_TOKEN):  # keys are typed without echo and never printed
         assert secret not in text
 
@@ -181,7 +181,7 @@ async def test_an_invalid_answer_is_asked_again(manager):
     assert 'Please answer y or n.' in term.text
     config = load_config(onboard_home())
     assert (config.model.provider, config.model.default) == ('anthropic', 'claude-haiku-5-5')
-    assert 'No key yet: runs won\'t work until you set one (local-agent key set anthropic).' in term.text
+    assert 'No key yet: runs won\'t work until you set one (wraithd key set anthropic).' in term.text
 
 
 async def test_ctrl_d_stops_and_keeps_what_was_saved(manager):

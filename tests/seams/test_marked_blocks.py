@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from local_agent.core import events as ev
+from wraithd.core import events as ev
 
-SRC = Path(__file__).resolve().parents[2] / 'src' / 'local_agent'
+SRC = Path(__file__).resolve().parents[2] / 'src' / 'wraithd'
 WORKERS = ('security', 'efficiency', 'capabilities', 'reach', 'evals', 'sandbox')
 
 # file -> (anchor the blocks follow, anchor they come before), one entry per registry in that file
@@ -26,7 +26,7 @@ REGISTRIES = {
     'daemon/api.py': [('# Workers import their route modules', 'logger = '),
                       ("Route('/api/telegram/pairing'", "Route('/api/{rest:path}'")],
     'doctor.py': [('def checks', 'return found')],
-    'audit.py': [("'local-agent schedules list')", 'return found')],
+    'audit.py': [("'wraithd schedules list')", 'return found')],
     'core/tool_results.py': [('hooks: list[Hook] = []', 'return hooks')],
     'store/modules.py': [('MIGRATIONS: list[Migration] = [', ']')],
     'daemon/jobs.py': [("found = [Job('distill'", 'return found')],

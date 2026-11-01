@@ -39,10 +39,10 @@
   - Reading the file back with `files_read` is third-party content and taints the run, as any file does.
 - **Third-party text stays on disk.** Spilled output from emails, pages and app tools stays in
   `workspace/files/.spill/`, redacted, for the retention period (`keep_days`, default 7 days). The folder is inside
-  the private state folder (`~/.local-agent`, mode 700). The model can read it again with `files_read`, and it's
+  the private state folder (`~/.wraithd`, mode 700). The model can read it again with `files_read`, and it's
   third-party content every time.
 - **Retention.** A daily daemon job (`spill_cleanup`) deletes run folders not changed for `[spill] keep_days`
-  days (0 or less: kept forever). It logs `spill_cleaned` between runs (`local-agent events`).
+  days (0 or less: kept forever). It logs `spill_cleaned` between runs (`wraithd events`).
 
 ## Checked how
 

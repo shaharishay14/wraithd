@@ -25,13 +25,13 @@ image = "debian:bookworm-slim"    # what the shell and sandboxed MCP servers run
 network = "none"                  # none | bridge
 ```
 
-Docker is the only backend. The settings load even when they're wrong, so `local-agent audit` can say what's wrong;
+Docker is the only backend. The settings load even when they're wrong, so `wraithd audit` can say what's wrong;
 the shell refuses to run until it's fixed.
 
 ## The shell under docker
 
 ```
-docker run --rm --name local-agent-shell-<id> --network none
+docker run --rm --name wraithd-shell-<id> --network none
   --mount type=bind,source=<real path of workspace/files>,target=/workspace --workdir /workspace
   --user <your uid>:<gid> --cap-drop ALL --security-opt no-new-privileges --read-only --tmpfs /tmp
   --pids-limit 256 --env HOME=/tmp <image> sh -c <the command>
@@ -47,7 +47,7 @@ docker run --rm --name local-agent-shell-<id> --network none
   stopping the client doesn't stop the container.
 - **Fail closed.** A broken setting (an unknown backend or network, an image name that looks like a flag, a
   `workspace/files` that is really `/`, your home folder or the state folder) makes `shell_run` refuse with a
-  pointer to `local-agent audit`. It never falls back to running without the sandbox you asked for. No Docker on
+  pointer to `wraithd audit`. It never falls back to running without the sandbox you asked for. No Docker on
   the machine is a clear error, not a fallback either.
 - The tool's description tells the model it runs in a sandbox at `/workspace`. The approval card still says the
   command runs with your permissions: the gate doesn't know about the sandbox, so it errs on the safe side.
@@ -55,7 +55,7 @@ docker run --rm --name local-agent-shell-<id> --network none
 ## MCP servers (opt-in, per server)
 
 ```
-local-agent mcp add notes --sandbox --env NOTES_TOKEN -- npx -y some-notes-mcp
+wraithd mcp add notes --sandbox --env NOTES_TOKEN -- npx -y some-notes-mcp
 ```
 
 stores `sandbox = true` in that server's block (local servers only; `--url` refuses it). The server then starts
@@ -85,7 +85,7 @@ variable (`sandbox.bind_log`), reset when the run ends; a subagent's run logs to
 
 ## The audit
 
-`local-agent audit` fails (exit 1) on each of these, with the fix:
+`wraithd audit` fails (exit 1) on each of these, with the fix:
 
 1. `backend` is not `none` or `docker`.
 2. Docker with `network` other than `none` (`bridge` runs but is widened; anything else refuses).
@@ -98,7 +98,7 @@ variable (`sandbox.bind_log`), reset when the run ends; a subagent's run logs to
    it does.
 
 Sandboxed MCP servers are an info line, and their settings are checked too (1 doesn't apply: they always use
-docker). `local-agent doctor` adds one line when anything uses docker: is `docker` on the PATH.
+docker). `wraithd doctor` adds one line when anything uses docker: is `docker` on the PATH.
 
 ## Tests
 
@@ -106,7 +106,7 @@ The default tests use a fake docker that records the argv and the client's envir
 (`tests/sandbox/`, `tests/attacks/test_sandbox_escape.py`). One real test runs against Docker, skipped by default:
 
 ```
-LOCAL_AGENT_DOCKER_TESTS=1 uv run pytest tests/sandbox/test_real_docker.py
+WRAITHD_DOCKER_TESTS=1 uv run pytest tests/sandbox/test_real_docker.py
 ```
 
 ## What's honest to say
@@ -115,4 +115,4 @@ LOCAL_AGENT_DOCKER_TESTS=1 uv run pytest tests/sandbox/test_real_docker.py
   every command is still the first defense.
 - With `network = "bridge"` a command can send what it reads in `workspace/files/` anywhere.
 - On macOS, Docker Desktop runs containers in a VM and shares folders into it; `workspace/files` has to be in a
-  shared folder (`~/.local-agent` is, by default).
+  shared folder (`~/.wraithd` is, by default).

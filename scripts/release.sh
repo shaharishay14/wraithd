@@ -3,7 +3,7 @@
 #
 #   scripts/release.sh
 #
-# npm runs on a copy of frontend/ in a temp folder, never in the checkout. The built UI goes to src/local_agent/ui/
+# npm runs on a copy of frontend/ in a temp folder, never in the checkout. The built UI goes to src/wraithd/ui/
 # (gitignored); hatch ships it as an artifact. The wheel is checked for ui/index.html before the script says done.
 # Publishing is a separate, manual step (uv publish).
 set -euo pipefail
@@ -29,21 +29,21 @@ cp -R "$root/tests/core/runs" "$work/tests/core/runs"
 (cd "$work/frontend" && npm ci --no-audit --no-fund && npm run build)
 [ -f "$work/frontend/dist/index.html" ] || fail "the UI build made no dist/index.html"
 
-ui="$root/src/local_agent/ui"
+ui="$root/src/wraithd/ui"
 rm -rf "$ui"
 cp -R "$work/frontend/dist" "$ui"
-echo "release: copied the UI into src/local_agent/ui/"
+echo "release: copied the UI into src/wraithd/ui/"
 
 rm -rf "$root/dist"
 (cd "$root" && uv build --out-dir dist)
 
 wheel=$(ls "$root"/dist/*.whl 2>/dev/null | head -n 1 || true)
 [ -n "$wheel" ] || fail "uv build made no wheel"
-uv run --no-project python - "$wheel" <<'PY' || fail "the wheel has no local_agent/ui/index.html"
+uv run --no-project python - "$wheel" <<'PY' || fail "the wheel has no wraithd/ui/index.html"
 import sys
 import zipfile
 
 names = zipfile.ZipFile(sys.argv[1]).namelist()
-sys.exit(0 if 'local_agent/ui/index.html' in names else 1)
+sys.exit(0 if 'wraithd/ui/index.html' in names else 1)
 PY
 echo "release: done: $(basename "$wheel") includes the web UI"

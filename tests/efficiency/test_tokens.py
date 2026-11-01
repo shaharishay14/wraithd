@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from local_agent import cli
-from local_agent.core import events as ev
-from local_agent.core import replay, tokens, views
-from local_agent.store import SQLiteStore
 from tests.efficiency import scenarios
 from tests.efficiency.fakes import CountingModel
 from tests.scripted import ScriptedModel, of_type, run_once, say
+from wraithd import cli
+from wraithd.core import events as ev
+from wraithd.core import replay, tokens, views
+from wraithd.store import SQLiteStore
 
 RUNS = sorted((Path(__file__).parent / 'runs').glob('*.json'))
 # What the parts can't account for: each message's and each tool's framing in the provider's format. The meter

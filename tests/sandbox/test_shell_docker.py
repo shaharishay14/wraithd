@@ -9,17 +9,17 @@ import os
 
 import pytest
 
-from local_agent import sandbox
-from local_agent.config import load_config
-from local_agent.core import events as ev
-from local_agent.core import gate as gate_module
-from local_agent.core.gate import PermissionGate
-from local_agent.sandbox import docker
-from local_agent.sandbox.docker import Result
-from local_agent.store import base as store_base
-from local_agent.tools.shell import shell_tool
 from tests.sandbox.fakes import FakeDocker, flag_values
 from tests.scripted import ScriptedModel, call, of_type, run_once, say, unwrapped_json
+from wraithd import sandbox
+from wraithd.config import load_config
+from wraithd.core import events as ev
+from wraithd.core import gate as gate_module
+from wraithd.core.gate import PermissionGate
+from wraithd.sandbox import docker
+from wraithd.sandbox.docker import Result
+from wraithd.store import base as store_base
+from wraithd.tools.shell import shell_tool
 
 DOCKER_ON = '[shell]\nenabled = true\ntimeout_seconds = 3\n\n[sandbox]\nbackend = "docker"\n'
 
@@ -78,7 +78,7 @@ async def test_a_timeout_kills_the_container_by_name(home, monkeypatch):
     result = await invoke(docker_shell(home, fake), 'sleep 600')
     assert 'did not finish within 3 seconds' in result['error']
     name = flag_values(fake.calls[0]['argv'], '--name')[0]
-    assert name.startswith('local-agent-shell-')
+    assert name.startswith('wraithd-shell-')
     assert fake.calls[1]['argv'] == ['docker', 'kill', name]
 
 
@@ -95,7 +95,7 @@ async def test_a_broken_setting_refuses_and_never_runs_unsandboxed(home, fake):
         tool = docker_shell(home, fake, settings)
         marker = home.files_dir / 'ran.txt'
         result = await invoke(tool, f'echo ran > {marker}')
-        assert 'set up wrong, so nothing runs' in result['error'] and 'local-agent audit' in result['error']
+        assert 'set up wrong, so nothing runs' in result['error'] and 'wraithd audit' in result['error']
         assert not marker.exists()
     assert fake.calls == []
 

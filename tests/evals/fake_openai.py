@@ -18,9 +18,9 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
-from local_agent.core.delegate import CHILD_BRIEF
-from local_agent.evals.scripted import SCRIPTS, say
-from local_agent.evals.tasks import TASKS
+from wraithd.core.delegate import CHILD_BRIEF
+from wraithd.evals.scripted import SCRIPTS, say
+from wraithd.evals.tasks import TASKS
 
 REMINDER = '<system-reminder>'
 USAGE = {'prompt_tokens': 1000, 'completion_tokens': 100, 'total_tokens': 1100}

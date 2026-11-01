@@ -8,10 +8,10 @@ graders. The owner runs the real column against a real Ollama.
 import json
 import re
 
-from local_agent.evals import __main__ as cli
-from local_agent.evals.runner import available
-from local_agent.evals.tasks import TASKS
 from tests.evals.fake_openai import FakeOpenAI
+from wraithd.evals import __main__ as cli
+from wraithd.evals.runner import available
+from wraithd.evals.tasks import TASKS
 
 
 def test_an_openai_compatible_local_model_runs_the_whole_set(tmp_path, capsys):

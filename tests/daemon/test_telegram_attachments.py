@@ -12,11 +12,11 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-from local_agent import config
-from local_agent.channels import telegram
-from local_agent.core import gate as gate_module
 from tests.daemon.test_telegram import BOT_TOKEN, OWNER, STRANGER, FakeTelegram, paired
 from tests.scripted import ScriptedModel, say
+from wraithd import config
+from wraithd.channels import telegram
+from wraithd.core import gate as gate_module
 
 NOW = datetime(2026, 10, 26, 12, 0, tzinfo=UTC)
 TODAY = f'{NOW.astimezone():%Y-%m-%d}'
@@ -176,8 +176,8 @@ async def test_a_voice_note_without_a_transcriber_says_how_to_set_one(make_daemo
 
     assert model.inputs == [] and fake.downloads == []  # nothing downloaded for nothing
     reply = fake.sent(OWNER)[-1]['text']
-    assert "can't listen to voice notes" in reply and 'local-agent key set openai' in reply
-    assert 'local-agent[whisper]' in reply
+    assert "can't listen to voice notes" in reply and 'wraithd key set openai' in reply
+    assert 'wraithd[whisper]' in reply
 
 
 async def test_a_failed_or_empty_transcription_is_said_plainly(make_daemon, fake):

@@ -10,10 +10,10 @@ dist/
 .coverage
 
 # The built web UI, copied in by scripts/release.sh
-src/local_agent/ui/
+src/wraithd/ui/
 
 # Claude Code worktrees (sessions working in isolation)
 .claude/worktrees/
 
-# Eval reports and run homes (python -m local_agent.evals)
+# Eval reports and run homes (python -m wraithd.evals)
 eval-results/

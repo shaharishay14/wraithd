@@ -5,13 +5,13 @@ import os
 import httpx
 import pytest
 
-from local_agent.core import events as ev
-from local_agent.review import queue
-from local_agent.skills import registry
-from local_agent.skills import review as skill_review
 from tests.capabilities.fakes import public_example_hosts
 from tests.daemon.conftest import make_daemon  # noqa: F401
 from tests.scripted import ScriptedModel, call, run_once, say
+from wraithd.core import events as ev
+from wraithd.review import queue
+from wraithd.skills import registry
+from wraithd.skills import review as skill_review
 
 DRAFT = {'name': 'weekly-sales-digest', 'description': 'Sum up the week in sales.',
          'instructions': '1. Read the numbers. 2. Summarize.', 'requires': []}

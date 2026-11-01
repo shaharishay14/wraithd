@@ -13,7 +13,7 @@ class FakeServiceManager:
         self.loaded = self.running = False
         self.pid = pid
         self.fail: dict[str, str] = {}  # verb -> stderr: make that command fail
-        self.upgrade_result = (0, 'Updated local-agent v0.0.1 -> v0.0.2', '')
+        self.upgrade_result = (0, 'Updated wraithd v0.0.1 -> v0.0.2', '')
 
     def __call__(self, argv: list[str]) -> subprocess.CompletedProcess:
         self.calls.append(list(argv))

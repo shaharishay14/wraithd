@@ -5,11 +5,11 @@ instead of in the context.
 
 import httpx
 
-from local_agent.core import events as ev
-from local_agent.core import secrets
-from local_agent.spill import FOLDER, spill_hook
 from tests.efficiency.test_spill import page_tool, spilled_files
 from tests.scripted import ScriptedModel, call, of_type, run_once, say
+from wraithd.core import events as ev
+from wraithd.core import secrets
+from wraithd.spill import FOLDER, spill_hook
 
 EVIL = 'https://evil.example/collect?data=secret'
 

@@ -15,19 +15,19 @@ from pathlib import Path
 import httpx
 import pytest
 
-from local_agent import cli
-from local_agent.channels import terminal
-from local_agent.config import load_config
-from local_agent.core import events as ev
-from local_agent.core import gate as gate_module
-from local_agent.core import inspector
-from local_agent.mcp import config as mcp_config
-from local_agent.mcp import pinning
-from local_agent.mcp.client import McpConnections
-from local_agent.store import SQLiteStore
-from local_agent.store import base as store_base
 from tests.daemon.conftest import BASE
 from tests.scripted import ScriptedModel, ScriptedTerminal, call, of_type, run_once, say, tool_json, unwrapped_json
+from wraithd import cli
+from wraithd.channels import terminal
+from wraithd.config import load_config
+from wraithd.core import events as ev
+from wraithd.core import gate as gate_module
+from wraithd.core import inspector
+from wraithd.mcp import config as mcp_config
+from wraithd.mcp import pinning
+from wraithd.mcp.client import McpConnections
+from wraithd.store import SQLiteStore
+from wraithd.store import base as store_base
 
 FAKE = str(Path(__file__).parent.parent / 'fixtures' / 'fake_mcp.py')
 

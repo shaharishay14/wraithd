@@ -8,13 +8,13 @@ import asyncio
 import httpx
 import pytest
 
-from local_agent import config
-from local_agent.channels import base
-from local_agent.core import events as ev
-from local_agent.core import gate as gate_module
 from tests.daemon.conftest import make_daemon  # noqa: F401 (a fixture)
 from tests.daemon.test_telegram import BOT_TOKEN, OWNER, STRANGER, FakeTelegram, paired
 from tests.scripted import ScriptedModel, call, say
+from wraithd import config
+from wraithd.channels import base
+from wraithd.core import events as ev
+from wraithd.core import gate as gate_module
 
 
 class MemoryChannel(base.Channel):

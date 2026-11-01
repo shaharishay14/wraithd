@@ -9,8 +9,8 @@ import tiktoken
 from agents.usage import InputTokensDetails, Usage
 from openai.types.responses import ResponseCompletedEvent
 
-from local_agent.core import tokens
 from tests.scripted import ScriptedModel
+from wraithd.core import tokens
 
 PER_MESSAGE = 4  # role and separators, as chat formats frame each message
 PER_TOOL = 8

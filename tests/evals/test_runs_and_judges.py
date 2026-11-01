@@ -6,10 +6,10 @@ passes it; how often they agreed is in the table). Scripted models and judges on
 import json
 import re
 
-from local_agent.evals import __main__ as cli
-from local_agent.evals import scripted
-from local_agent.evals.runner import ModelSpec, run_evals
-from local_agent.evals.scripted import ScriptedModel, say
+from wraithd.evals import __main__ as cli
+from wraithd.evals import scripted
+from wraithd.evals.runner import ModelSpec, run_evals
+from wraithd.evals.scripted import ScriptedModel, say
 
 SCRIPTED = ModelSpec('scripted', 'scripted')
 JUDGE_A, JUDGE_B = ModelSpec('scripted', 'judge-a'), ModelSpec('scripted', 'judge-b')
@@ -90,7 +90,7 @@ async def test_agreeing_judges_pass_together(tmp_path):
 async def test_a_judge_stopped_by_the_cap_leaves_the_rubric_undecided(tmp_path):
     from agents.usage import Usage
 
-    from local_agent.evals.meter import Price
+    from wraithd.evals.meter import Price
 
     usage = Usage(requests=1, input_tokens=1000, output_tokens=100, total_tokens=1100)
     pricey = ModelSpec('scripted', 'pricey')

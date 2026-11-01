@@ -11,13 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from local_agent import cli, schedules
-from local_agent.core import events as ev
-from local_agent.core import gate as gate_module
-from local_agent.memory import vault
-from local_agent.memory.notes import SOURCE_AGENT, Note
-from local_agent.skills import registry
 from tests.scripted import ScriptedModel, call, say
+from wraithd import cli, schedules
+from wraithd.core import events as ev
+from wraithd.core import gate as gate_module
+from wraithd.memory import vault
+from wraithd.memory.notes import SOURCE_AGENT, Note
+from wraithd.skills import registry
 
 FAKE = str(Path(__file__).parent.parent / 'fixtures' / 'fake_mcp.py')
 
@@ -262,7 +262,7 @@ async def test_status_and_telegram_without_a_bot(make_daemon):
 async def test_without_a_build_a_placeholder_is_served(make_daemon):
     _, client = await make_daemon(ScriptedModel([]))
     response = await client.get('/', headers={'Authorization': ''})  # static files need no token
-    assert response.status_code == 200 and 'Local Agent is running' in response.text
+    assert response.status_code == 200 and 'wraithd is running' in response.text
 
 
 async def test_the_built_ui_is_served_with_an_index_fallback(make_daemon, tmp_path, monkeypatch):
@@ -271,7 +271,7 @@ async def test_the_built_ui_is_served_with_an_index_fallback(make_daemon, tmp_pa
     (ui / 'index.html').write_text('<div id="app"></div>')
     (ui / 'assets' / 'app.js').write_text('console.log(1)')
     (tmp_path / 'secret.txt').write_text('not for the browser')
-    monkeypatch.setenv('LOCAL_AGENT_UI_DIR', str(ui))
+    monkeypatch.setenv('WRAITHD_UI_DIR', str(ui))
     _, client = await make_daemon(ScriptedModel([]))
     assert (await client.get('/assets/app.js')).text == 'console.log(1)'
     assert (await client.get('/runs/r1')).text == '<div id="app"></div>'  # the app's own route

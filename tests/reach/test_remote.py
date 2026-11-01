@@ -6,10 +6,10 @@ Host and Origin checks. The token is still required, the server still binds to 1
 import httpx
 import pytest
 
-from local_agent.config import ConfigError, load_config
-from local_agent.daemon.app import HOST, Daemon
-from local_agent.daemon.security import allowed_hosts, allowed_origins, remote_hosts
 from tests.scripted import ScriptedModel
+from wraithd.config import ConfigError, load_config
+from wraithd.daemon.app import HOST, Daemon
+from wraithd.daemon.security import allowed_hosts, allowed_origins, remote_hosts
 
 TAILNET = 'box.tail1234.ts.net'
 
@@ -98,7 +98,7 @@ def test_remote_hosts_reads_the_config(home):
 
 
 def test_daemon_status_lists_the_tailnet_link(home):
-    from local_agent.daemon import commands
+    from wraithd.daemon import commands
 
     assert commands.remote_links(home) == []
     home.config_path.write_text(f'[remote]\nallowed_hosts = ["{TAILNET}"]\n')

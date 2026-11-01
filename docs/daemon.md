@@ -5,7 +5,7 @@
 
 ## One-liner
 
-> `local-agent daemon` is one async process: the local API and web UI, the scheduler, Telegram long polling, open
+> `wraithd daemon` is one async process: the local API and web UI, the scheduler, Telegram long polling, open
 > MCP connections and background distill, all sharing one runtime, so every channel sees the same memory, skills,
 > approvals and event log.
 
@@ -31,14 +31,14 @@ One message at a time per conversation: a second one waits for the first answer 
 
 ## Running it
 
-`local-agent daemon` runs in the foreground and prints the UI's address with its token:
-`http://127.0.0.1:7878/#token=...`. Ctrl-C stops everything. `local-agent daemon install` runs it as a background
+`wraithd daemon` runs in the foreground and prints the UI's address with its token:
+`http://127.0.0.1:7878/#token=...`. Ctrl-C stops everything. `wraithd daemon install` runs it as a background
 service instead (launchd or systemd), with `daemon start/stop/status/logs`: see [installing and running](install.md).
 To reach it from your phone or another computer, put `tailscale serve` in front of it ([remote access](remote-access.md)).
 
 ## The log
 
-The service appends the daemon's output to `~/.local-agent/logs/daemon.log`. The daemon rotates it itself, at
+The service appends the daemon's output to `~/.wraithd/logs/daemon.log`. The daemon rotates it itself, at
 start and every minute (a job in `daemon/jobs.py`):
 
 - Past **5 MB** it's copied to `daemon.log.1`, and the older copies move to `.2` and `.3`. The oldest is dropped,
@@ -47,7 +47,7 @@ start and every minute (a job in `daemon/jobs.py`):
   file would keep growing under its new name. After emptying, their next write lands at the start of the same file.
 - **A few lines can be lost.** Lines written between the end of the copy and the emptying are in neither file. The
   window is a few milliseconds every 5 MB, and the log is mostly warnings, but nothing guarantees every line.
-- `local-agent daemon logs -n N` reaches into `.1`, `.2`... when the current file is shorter than N lines, and
+- `wraithd daemon logs -n N` reaches into `.1`, `.2`... when the current file is shorter than N lines, and
   `-f` keeps following through a rotation (it starts again at the top of the emptied file).
 
 ## On a laptop

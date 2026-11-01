@@ -9,10 +9,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from local_agent import cli, schedules
-from local_agent.channels import terminal
-from local_agent.core import gate as gate_module
 from tests.scripted import ScriptedModel, ScriptedTerminal, call, run_once, say
+from wraithd import cli, schedules
+from wraithd.channels import terminal
+from wraithd.core import gate as gate_module
 
 LONDON = 'Europe/London'
 # Friday 6 November 2026, 10:00 in London (UTC+0 in winter)
@@ -139,7 +139,7 @@ async def test_every_weekday_at_8_through_a_conversation(make_runtime, london):
     created = json.loads(model.tool_outputs(1)['call_1'])['created']
     assert created['when'].startswith('every: 0 8 * * 1-5 (next ') and created['when'].endswith(f'08:00 {LONDON})')
     # the daemon fires it: the agent tells the owner so
-    assert 'while Local Agent\'s daemon is running' in json.loads(model.tool_outputs(1)['call_1'])['hint']
+    assert 'while wraithd\'s daemon is running' in json.loads(model.tool_outputs(1)['call_1'])['hint']
 
 
 async def test_no_means_no_schedule(make_runtime, london):
@@ -171,7 +171,7 @@ async def test_list_and_cancel_need_no_approval(make_runtime, london, events):
 # --- the CLI -----------------------------------------------------------------------------------------------
 
 def test_schedules_list_and_rm(home, capsys):
-    from local_agent.store import SQLiteStore
+    from wraithd.store import SQLiteStore
     real = SQLiteStore(home.db_path)
     schedules.create(real, 'Send me my morning brief', LONDON, NOW, cron='0 8 * * 1-5')
     schedules.create(real, 'Call the bank', LONDON, NOW, at='2026-11-13T09:00')

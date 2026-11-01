@@ -19,11 +19,11 @@
 - **`due(now)`:** what the daemon's [scheduler](scheduler.md) calls every minute. It returns the schedules due now
   and, before returning each, moves it to its next time (a one-off is turned off) with a compare-and-set, so a slot fires at
   most once even if two processes ask, and a laptop that slept through three slots fires once when it wakes.
-- **CLI:** `local-agent schedules list [--all]` and `local-agent schedules rm <id>`.
+- **CLI:** `wraithd schedules list [--all]` and `wraithd schedules rm <id>`.
 
 ## Firing
 
-The daemon fires schedules ([scheduler](scheduler.md)), so they run while `local-agent daemon` does; the tool tells
+The daemon fires schedules ([scheduler](scheduler.md)), so they run while `wraithd daemon` does; the tool tells
 the model to say so. `due()` is tested on a fake clock, including a daylight-saving change and a week of missed
 slots.
 
