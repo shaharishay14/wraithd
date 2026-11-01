@@ -96,18 +96,37 @@ def _account(server: str, kind: str, key: str) -> str:
 
 
 def set_secret(server: str, kind: str, key: str, value: str) -> None:
-    keyring.set_password(APP, _account(server, kind, key), value)
+    try:
+        keyring.set_password(APP, _account(server, kind, key), value)
+    except keyring.errors.NoKeyringError as e:
+        raise McpConfigError(f'This machine has no keychain, so {key} can\'t be saved. Give it to Local Agent as the '
+                             f'environment variable {env_name(server, key)} instead: see docs/keys.md.') from e
+
+
+def env_name(server: str, key: str) -> str:
+    """The environment variable a value is read from when it isn't in the keychain: LOCAL_AGENT_MCP_X_API_KEY.
+    The prefix is the server's, so a value still goes only to its own server (and the shell never sees it)."""
+    return re.sub(r'[^A-Z0-9]+', '_', f'{secrets.MCP_ENV_PREFIX}{server}_{key}'.upper())
+
+
+def _keychain(account: str) -> str | None:
+    try:
+        return keyring.get_password(APP, account)
+    except keyring.errors.NoKeyringError:  # a headless server: the environment is the only source
+        return None
 
 
 def get_secrets(server: McpServer) -> tuple[dict[str, str], dict[str, str]]:
-    """(env, headers) for this server only, from the keychain. Every value is registered for redaction."""
+    """(env, headers) for this server only, from the keychain or else the environment (env_name). Every value is
+    registered for redaction."""
     found = {'env': {}, 'header': {}}
     for kind, names in (('env', server.env), ('header', server.headers)):
         for key in names:
-            value = keyring.get_password(APP, _account(server.name, kind, key))
+            value = _keychain(_account(server.name, kind, key)) or os.environ.get(env_name(server.name, key)) or None
             if value is None:
-                raise McpConfigError(f'The {kind} value {key} for {server.name} is missing from the keychain. Add the '
-                                     f'server again: local-agent mcp add {server.name} ...')
+                raise McpConfigError(f'The {kind} value {key} for {server.name} is missing: it\'s not in the keychain '
+                                     f'and {env_name(server.name, key)} isn\'t set. Add the server again '
+                                     f'(local-agent mcp add {server.name} ...) or set that variable.')
             secrets.register_secret(value)
             found[kind][key] = value
     return found['env'], found['header']
@@ -116,7 +135,7 @@ def get_secrets(server: McpServer) -> tuple[dict[str, str], dict[str, str]]:
 def delete_secrets(server: McpServer) -> None:
     for kind, names in (('env', server.env), ('header', server.headers)):
         for key in names:
-            with contextlib.suppress(keyring.errors.PasswordDeleteError):
+            with contextlib.suppress(keyring.errors.PasswordDeleteError, keyring.errors.NoKeyringError):
                 keyring.delete_password(APP, _account(server.name, kind, key))
 
 

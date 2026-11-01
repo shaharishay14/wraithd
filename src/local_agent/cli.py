@@ -26,7 +26,7 @@ import logging
 import sys
 
 from local_agent import __version__
-from local_agent.config import KEY_NAMES, ConfigError, Home, set_key
+from local_agent.config import KEY_NAMES, ConfigError, Home, NoKeychain, set_key
 from local_agent.core import events as ev
 from local_agent.core import inspector
 from local_agent.daemon import commands as daemon_commands
@@ -210,7 +210,11 @@ def key_set(provider: str) -> int:
     if not value:
         print('Nothing saved.', file=sys.stderr)
         return 1
-    set_key(provider, value)
+    try:
+        set_key(provider, value)
+    except NoKeychain as e:
+        print(e, file=sys.stderr)
+        return 1
     print(f'Saved the {provider} key in the keychain.')
     return 0
 

@@ -28,7 +28,16 @@ PATTERNS = [
 ]
 
 # Keys the owner may have in the environment, matched by exact value whatever their shape
-ENV_SECRETS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'SERPAPI_KEY', 'TELEGRAM_BOT_TOKEN']
+ENV_SECRETS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'SERPAPI_KEY', 'TELEGRAM_BOT_TOKEN', 'ELEVENLABS_API_KEY',
+               # a 1Password service account token (`op run`): it unlocks the vault the keys came from
+               'OP_SERVICE_ACCOUNT_TOKEN']
+# An MCP server's values in the environment (mcp/config.py env_name): LOCAL_AGENT_MCP_<SERVER>_<KEY>
+MCP_ENV_PREFIX = 'LOCAL_AGENT_MCP_'
+
+
+def is_secret_variable(name: str) -> bool:
+    """True for an environment variable that holds a key: kept out of every command the agent runs."""
+    return name in ENV_SECRETS or name.startswith(MCP_ENV_PREFIX)
 MIN_SECRET_LENGTH = 12  # shorter values would match ordinary text
 
 # Values registered at runtime: keys read from the keychain, MCP server tokens
@@ -47,7 +56,7 @@ def clear_registered() -> None:
 
 def _owner_secrets() -> list[str]:
     # Read the environment each time: it's a handful of lookups, and a key set after import still counts
-    values = _registered | {os.environ.get(name, '') for name in ENV_SECRETS}
+    values = _registered | {value for name, value in os.environ.items() if is_secret_variable(name)}
     # Longest first, so a key that contains another is replaced whole
     return sorted((v for v in values if len(v) >= MIN_SECRET_LENGTH), key=len, reverse=True)
 

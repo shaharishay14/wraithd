@@ -34,6 +34,7 @@ says what changed for running on one person's laptop.
 | Note | In one line |
 |---|---|
 | [One run](run.md) | `run()`, config and keys, providers, the terminal chat. |
+| [Keys](keys.md) | Keychain, else environment variables: an env file, systemd or a password manager such as 1Password. |
 | [Event log](event-log.md) | Every step is an event; the run's state is a query over them. |
 | [Security](security.md) | Hard rules in code: the gate, taint tracking, egress, redaction, budgets. |
 | [From EC2 to laptop](ec2-to-laptop.md) | What changed in the threat model, the mechanism and test for each, and `audit`. |

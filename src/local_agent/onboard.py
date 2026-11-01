@@ -23,6 +23,7 @@ from local_agent.config import (
     PROVIDERS,
     ConfigError,
     Home,
+    NoKeychain,
     get_key,
     load_config,
     set_key,
@@ -107,13 +108,21 @@ class Wizard:
 
     async def maybe_key(self, name: str, what: str) -> bool:
         """Asks for a key unless one is set and the owner keeps it. True if a key is set afterwards."""
-        if get_key(name) and not await self.yes(f'{what} is already in the keychain. Replace it?', False):
+        if get_key(name) and not await self.yes(f'{what} is already set. Replace it?', False):
             return True
         value = await self.secret(what)
-        if value:
-            set_key(name, value)
+        if value and self.save_key(name, value):
             self.term.say(f'Saved the {name} key in the keychain.')
-        return bool(value) or bool(get_key(name))
+        return bool(get_key(name))
+
+    def save_key(self, name: str, value: str) -> bool:
+        """Saves a key, or says how to give it through the environment when this machine has no keychain."""
+        try:
+            set_key(name, value)
+        except NoKeychain as e:
+            self.term.say(str(e))
+            return False
+        return True
 
     # --- the steps -------------------------------------------------------------------------------------------
 
@@ -180,7 +189,7 @@ class Wizard:
             if not await self.yes('Talk to the agent from your phone through your own Telegram bot?', False):
                 return None
             self.term.say('In Telegram, message @BotFather, send /newbot, pick a name, and copy the token it gives.')
-        elif not await self.yes('A Telegram bot token is already in the keychain. Replace it?', False):
+        elif not await self.yes('A Telegram bot token is already set. Replace it?', False):
             token = get_key('telegram')
             return await self._bot_name(token)
         while token := await self.secret('Bot token'):
@@ -192,7 +201,8 @@ class Wizard:
                 continue
             finally:
                 await bot.close()
-            set_key('telegram', token)
+            if not self.save_key('telegram', token):
+                return None
             self.term.say(f'Saved the bot token in the keychain: @{me.get("username", "your bot")}.')
             return f'@{me.get("username", "your bot")}'
         return await self._bot_name(get_key('telegram')) if get_key('telegram') else None
