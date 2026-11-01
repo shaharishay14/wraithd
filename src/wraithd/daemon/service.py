@@ -27,7 +27,7 @@ from pathlib import Path
 import httpx
 
 from wraithd import rename
-from wraithd.config import Home
+from wraithd.config import HOME_ENV, Home
 
 LABEL = 'com.wraithd.daemon'  # launchd
 UNIT = 'wraithd.service'  # systemd
@@ -117,8 +117,9 @@ class Service:
         self.program = program or daemon_command()
         # launchd and systemd start services with a bare PATH: keep the owner's, so MCP servers (npx, uvx) are found
         # (and unbuffered output, so the log shows lines as they happen)
+        self._own_environment = environment is None
         self.environment = environment if environment is not None else {
-            'WRAITHD_HOME': str(home.root), 'PATH': os.environ.get('PATH', '/usr/bin:/bin'),
+            HOME_ENV: str(home.root), 'PATH': os.environ.get('PATH', '/usr/bin:/bin'),
             'PYTHONUNBUFFERED': '1'}
 
     @property
@@ -147,6 +148,14 @@ class Service:
             self.path.write_bytes(text)
         else:
             self.path.write_text(text)
+
+    def _replace_old_service(self, kind: str) -> None:
+        """Local Agent's service, if it's still there: stopped and removed first, so its daemon has let go of
+        ~/.local-agent, then the folder is moved (Home.locate does it) and the new service gets the new path."""
+        if rename.remove_old_service(self.user_home, kind, self.runner) and self.home.root == rename.old_home():
+            self.home = Home.locate()
+            if self._own_environment:
+                self.environment[HOME_ENV] = str(self.home.root)
 
     def _require_installed(self) -> None:
         if not self.is_installed():
@@ -188,7 +197,7 @@ class Launchd(Service):
         return result if result.returncode == 0 else None
 
     def install(self) -> None:
-        rename.remove_old_service(self.user_home, 'launchd', self.runner)  # Local Agent's, if it's still there
+        self._replace_old_service('launchd')
         self._write(self.definition())
         if self._loaded():  # reinstalling: load the new definition
             self._run('launchctl', 'bootout', self.target)
@@ -266,7 +275,7 @@ class Systemd(Service):
         return self._run('systemctl', '--user', *argv, check=check)
 
     def install(self) -> None:
-        rename.remove_old_service(self.user_home, 'systemd', self.runner)  # Local Agent's, if it's still there
+        self._replace_old_service('systemd')
         self._write(self.definition())
         self._systemctl('daemon-reload')
         self._systemctl('enable', UNIT)

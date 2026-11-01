@@ -128,6 +128,7 @@ def main(home: Home, args, service=None, transport=None, say=print) -> int:
             return status(home, service, transport, say)
         if verb == 'install' or (verb == 'start' and not service.is_installed()):
             service.install()
+            home = service.home  # moved from ~/.local-agent, if the old service was there (rename.py)
             say(f'Installed the background service ({service.path}). It starts at login and is starting now.')
             say(f'Web UI: {web_link(home)}')
         elif verb == 'uninstall':

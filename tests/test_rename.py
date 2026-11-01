@@ -1,8 +1,12 @@
 """
 The move from Local Agent to wraithd (rename.py): the state folder is moved once and never merged, keys and MCP values
-are still read under the old names, and the old background service is removed on install. HOME, WRAITHD_HOME and the
-keychain are temp ones (conftest), so the real ~/.local-agent, ~/.wraithd and keychain are never touched.
+are still read under the old names, and the old background service is stopped and removed on install, before the
+folder moves. HOME, WRAITHD_HOME and the keychain are temp ones (conftest), so the real ~/.local-agent, ~/.wraithd
+and keychain are never touched.
 """
+
+import argparse
+import plistlib
 
 import keyring
 import pytest
@@ -11,6 +15,7 @@ from tests.fixtures.services import FakeServiceManager
 from wraithd import config, doctor, rename
 from wraithd.config import HOME_ENV, Home, get_key, set_key
 from wraithd.core import secrets
+from wraithd.daemon import commands as daemon_commands
 from wraithd.daemon.service import Launchd, Systemd
 from wraithd.mcp.config import McpServer, delete_secrets, get_secrets
 from wraithd.tools.shell import _environment as shell_environment
@@ -144,3 +149,58 @@ def test_install_removes_the_old_service_and_doctor_names_a_leftover(home, tmp_p
     assert 'removed the old Local Agent service' in capsys.readouterr().err
     found = doctor.checks(home, service=service, port_free=lambda port: True)
     assert not [check for check in found if 'old Local Agent service' in check.text]
+
+
+# --- the order: the old service lets go of the folder before it moves -----------------------------------------
+
+def put_old_service(kind: str, tmp_path):
+    path = rename.old_service_file(tmp_path / 'user', kind)
+    path.parent.mkdir(parents=True)
+    path.write_text('old')
+    return path
+
+
+@pytest.mark.parametrize('kind', ['launchd', 'systemd'])
+def test_the_folder_waits_while_the_old_service_is_installed(old, tmp_path, monkeypatch, capsys, kind):
+    monkeypatch.delenv(HOME_ENV)
+    monkeypatch.setattr(rename, 'service_kind', lambda: kind)
+    put_old_service(kind, tmp_path)
+    assert Home.locate().root == old  # its daemon may have the store open: not moved under it
+    assert old.exists() and not (tmp_path / 'user' / '.wraithd').exists()
+    err = capsys.readouterr().err
+    assert err == ('wraithd: the old Local Agent service is still installed; run `wraithd daemon install` to finish '
+                   f'the move to {tmp_path / "user" / ".wraithd"}.\n')
+
+
+@pytest.mark.parametrize('kind, service_class', [('launchd', Launchd), ('systemd', Systemd)])
+def test_install_stops_the_old_service_then_moves_then_installs_on_the_new_path(
+        old, tmp_path, monkeypatch, kind, service_class):
+    monkeypatch.delenv(HOME_ENV)
+    monkeypatch.setattr(rename, 'service_kind', lambda: kind)
+    leftover = put_old_service(kind, tmp_path)
+    new = tmp_path / 'user' / '.wraithd'
+    manager = FakeServiceManager()
+    seen = []
+
+    def runner(argv):  # what the folders looked like when each command ran
+        seen.append((argv, old.exists(), new.exists()))
+        return manager(argv)
+
+    service = service_class(Home.locate(), runner=runner)
+    assert service.home.root == old
+    said = []
+    assert daemon_commands.main(service.home, argparse.Namespace(daemon_command='install'), service=service,
+                                say=said.append) == 0
+    stop = next(entry for entry in seen if rename.OLD_LABEL in ' '.join(entry[0]) or rename.OLD_UNIT in entry[0])
+    assert stop[1:] == (True, False)  # the old daemon was stopped while the folder was still where it expected
+    assert not leftover.exists() and not old.exists()
+    assert service.home.root == new and (new / 'workspace' / 'memory' / 'note.md').read_text() == 'remember me'
+    if kind == 'launchd':
+        plist = plistlib.loads(service.path.read_bytes())
+        assert plist['EnvironmentVariables']['WRAITHD_HOME'] == str(new)
+        assert plist['StandardOutPath'] == str(new / 'logs' / 'daemon.log')
+    else:
+        unit = service.path.read_text()
+        assert f'"WRAITHD_HOME={new}"' in unit and f'StandardOutput=append:{new / "logs" / "daemon.log"}' in unit
+    assert not old.exists()  # the web link that install prints didn't make a new old folder
+    assert (new / 'api-token').exists() and any('#token=' in line for line in said)

@@ -234,6 +234,7 @@ class Wizard:
             elif await self.yes('Run wraithd in the background (it starts at login, restarts if it crashes)?',
                                 True):
                 service.install()
+                self.home = service.home  # moved from ~/.local-agent, if the old service was there (rename.py)
                 self.term.say(f'Installed: {service.path}. Logs: {service.log_path}')
         except ServiceError as e:
             self.term.say(f'{e}\nYou can run it in a terminal instead: wraithd daemon')

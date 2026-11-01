@@ -64,8 +64,10 @@ wraithd was called Local Agent. Installing wraithd over it moves things across o
   `$LOCAL_AGENT_HOME` still works for now when `$WRAITHD_HOME` isn't set.
 - Keys saved in the keychain under `local-agent` are still read (after `wraithd`); new ones are saved under
   `wraithd`. `LOCAL_AGENT_MCP_*` variables are still read after `WRAITHD_MCP_*`.
-- `wraithd daemon install` stops and removes the old `local-agent.service` or `com.local-agent.daemon` agent;
-  `wraithd doctor` says when one is still there.
+- While the old `local-agent.service` or `com.local-agent.daemon` agent is installed, the folder isn't moved (its
+  daemon may have the store open): wraithd uses `~/.local-agent` and says to run `wraithd daemon install`. That
+  stops and removes the old service first, then moves the folder, then installs the new service on the new path.
+  `wraithd doctor` says when the old service is still there.
 
 ## On a laptop
 

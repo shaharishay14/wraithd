@@ -8,7 +8,8 @@ mcp/config.py, core/secrets.py, daemon/service.py, doctor.py, and their tests):
   $LOCAL_AGENT_HOME still works while $WRAITHD_HOME isn't set
 - keys: read from the keychain under 'wraithd' first, then the old 'local-agent' service; written to 'wraithd' only
 - MCP values in the environment: LOCAL_AGENT_MCP_* still read (and kept out of the shell) after WRAITHD_MCP_*
-- the background service: `wraithd daemon install` stops and removes the old one; doctor names a leftover
+- the background service: while the old one is installed the folder isn't moved (its daemon may have it open);
+  `wraithd daemon install` stops and removes it first, then moves the folder; doctor names a leftover
 """
 
 import os
@@ -49,7 +50,8 @@ def both_homes(root: Path) -> bool:
 def locate(new_env: str | None, default: Path) -> Path:
     """
     The state folder: $WRAITHD_HOME (new_env), else $LOCAL_AGENT_HOME, else `default` (~/.wraithd). The first time,
-    an old ~/.local-agent is moved to the new place, and one line says so. Both there: neither is touched.
+    an old ~/.local-agent is moved to the new place, and one line says so. Both there: neither is touched. The old
+    service still installed: not moved yet (`wraithd daemon install` stops it, then moves).
     """
     old_env = os.environ.get(OLD_HOME_ENV)
     if not new_env and old_env:
@@ -60,6 +62,12 @@ def locate(new_env: str | None, default: Path) -> Path:
         return target  # the owner's old state is somewhere else: ~/.local-agent isn't theirs to move
     if not old.is_dir() or old.resolve() == target.resolve():
         return target
+    kind = service_kind()
+    if kind and old_service_file(Path.home(), kind).is_file() and not target.exists():
+        # its daemon may be running with this folder open (SQLite reopens its journal by path): install moves it
+        _say(f'wraithd: the old Local Agent service is still installed; run `wraithd daemon install` to finish '
+             f'the move to {target}.')
+        return old
     if target.exists():
         _say(f'wraithd: both {old} and {target} exist; using {target} and leaving {old} as it is.')
         return target
@@ -93,6 +101,10 @@ def old_mcp_env(name: str) -> str | None:
 
 
 # --- the background service --------------------------------------------------------------------------------
+
+def service_kind(platform: str = sys.platform) -> str | None:
+    return 'launchd' if platform == 'darwin' else 'systemd' if platform.startswith('linux') else None
+
 
 def old_service_file(user_home: Path, kind: str) -> Path:
     """kind: 'launchd' or 'systemd'."""
