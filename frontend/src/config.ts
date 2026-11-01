@@ -4,8 +4,8 @@
 // leaves the address bar, so it isn't left in history, bookmarks or screenshots. The API is always /api on the
 // page's own origin: the daemon serves the UI and the API together.
 
-export const TOKEN_KEY = 'local-agent-token'
-const MOCK_KEY = 'local-agent-mock'
+export const TOKEN_KEY = 'wraithd-token'
+const MOCK_KEY = 'wraithd-mock'
 
 const storage = {
   get(key: string) {
@@ -24,6 +24,17 @@ const storage = {
   },
 }
 
+// One-time move of the token saved before the rename to wraithd, so an open tab keeps working without a new link
+try {
+  const old = localStorage.getItem('local-agent-token')
+  if (old !== null) {
+    if (localStorage.getItem(TOKEN_KEY) === null) localStorage.setItem(TOKEN_KEY, old)
+    localStorage.removeItem('local-agent-token')
+  }
+} catch {
+  // Blocked storage: nothing to move
+}
+
 let memoryToken: string | null = null
 
 // Reads #token=... once at startup, keeps it, and strips it from the address bar
@@ -40,9 +51,9 @@ export const getToken = () => memoryToken ?? storage.get(TOKEN_KEY)
 export const API_BASE = '/api'
 
 // The mock backend (src/api/mock/) answers instead of a daemon: for development, design checks and demos.
-// Turn it on with ?mock in the address (remembered for the tab) or VITE_LOCAL_AGENT_MOCK=1 at build time.
+// Turn it on with ?mock in the address (remembered for the tab) or VITE_WRAITHD_MOCK=1 at build time.
 export function mockBackendEnabled() {
-  if (import.meta.env.VITE_LOCAL_AGENT_MOCK === '1') return true
+  if (import.meta.env.VITE_WRAITHD_MOCK === '1') return true
   try {
     if (new URLSearchParams(location.search).has('mock')) sessionStorage.setItem(MOCK_KEY, '1')
     return sessionStorage.getItem(MOCK_KEY) === '1'

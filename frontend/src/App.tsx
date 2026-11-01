@@ -35,7 +35,7 @@ function Logo() {
           <path d="M9 9l5 5" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" />
         </svg>
       </span>
-      Local Agent
+      wraithd.
     </a>
   )
 }
@@ -92,7 +92,7 @@ function Unauthorized() {
         </span>
         <h1 className="m-0 font-display text-2xl font-medium tracking-[-0.025em]">This page needs its key</h1>
         <p className="m-0 text-white/72">
-          Open the link printed by <code className="rounded-md bg-white/8 px-1.5 py-0.5 font-mono text-[0.9em]">local-agent daemon</code>. It carries the token that lets this
+          Open the link printed by <code className="rounded-md bg-white/8 px-1.5 py-0.5 font-mono text-[0.9em]">wraithd daemon</code>. It carries the token that lets this
           page talk to your agent.
         </p>
       </div>
@@ -129,7 +129,7 @@ export default function App({ mock }: { mock: boolean }) {
   useEffect(() => onUnauthorized(() => setUnauthorized(true)), [])
   useEffect(() => {
     const label = NAV.find((item) => item.key === active)?.label
-    document.title = `${pending ? `(${pending}) ` : ''}${label} · Local Agent`
+    document.title = `${pending ? `(${pending}) ` : ''}${label} · wraithd.`
   }, [active, pending])
 
   if (unauthorized) return <Unauthorized />

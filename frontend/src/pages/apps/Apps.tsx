@@ -134,8 +134,8 @@ function TelegramPanel() {
       {telegram.error && !t && <p className="m-0 text-sm text-off" role="alert">{telegram.error}</p>}
       {t && !t.configured && (
         <p className="m-0 text-sm text-white/65">
-          To talk to your agent from Telegram, store your bot's token with <Code>local-agent key set telegram</Code>, restart{' '}
-          <Code>local-agent daemon</Code>, then pair from this page.
+          To talk to your agent from Telegram, store your bot's token with <Code>wraithd key set telegram</Code>, restart{' '}
+          <Code>wraithd daemon</Code>, then pair from this page.
         </p>
       )}
       {t?.configured && (
@@ -172,12 +172,12 @@ export default function Apps() {
           {servers.loading && <Loading label="Loading servers" />}
           {servers.error && !servers.data && <ErrorState message={servers.error} onRetry={servers.reload} />}
           {servers.data?.length === 0 && (
-            <EmptyState title="No apps connected.">Add one in the terminal (it keeps the secrets in your keychain): <Code>local-agent mcp add gmail --provides email -- npx -y …</Code></EmptyState>
+            <EmptyState title="No apps connected.">Add one in the terminal (it keeps the secrets in your keychain): <Code>wraithd mcp add gmail --provides email -- npx -y …</Code></EmptyState>
           )}
           {servers.data && servers.data.length > 0 && (
             <>
               <ul className="m-0 flex list-none flex-col gap-3 p-0">{servers.data.map((s) => <ServerCard key={s.name} server={s} />)}</ul>
-              <p className="m-0 mt-3 text-xs text-white/50">Add or remove servers in the terminal: <Code>local-agent mcp add</Code>, <Code>local-agent mcp remove</Code>.</p>
+              <p className="m-0 mt-3 text-xs text-white/50">Add or remove servers in the terminal: <Code>wraithd mcp add</Code>, <Code>wraithd mcp remove</Code>.</p>
             </>
           )}
         </section>

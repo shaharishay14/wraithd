@@ -10,7 +10,7 @@ import { takeTokenFromHash, mockBackendEnabled } from './config'
 
 async function start() {
   takeTokenFromHash()
-  // A fresh link from `local-agent daemon` pasted into this tab only changes the fragment: take it and start over
+  // A fresh link from `wraithd daemon` pasted into this tab only changes the fragment: take it and start over
   window.addEventListener('hashchange', () => {
     if (location.hash.startsWith('#token=')) {
       takeTokenFromHash()

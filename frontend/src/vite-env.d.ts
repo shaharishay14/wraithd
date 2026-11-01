@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_LOCAL_AGENT_MOCK?: string
+  readonly VITE_WRAITHD_MOCK?: string
 }

@@ -10,7 +10,7 @@ import { summarize } from './inspector'
 
 const APPROVAL_TIMEOUT_MS = 60_000
 const APPROVAL_STATUSES: ApprovalStatus[] = ['pending', 'approved', 'denied', 'expired', 'preapproved']
-const SCHEDULE_REASON = 'Your agent will run this on its own at these times, without asking you first. See and remove schedules with `local-agent schedules`.'
+const SCHEDULE_REASON = 'Your agent will run this on its own at these times, without asking you first. See and remove schedules with `wraithd schedules`.'
 
 const now = Date.now()
 const runs: RunDetail[] = seedRuns(now)

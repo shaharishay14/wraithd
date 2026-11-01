@@ -1,4 +1,4 @@
-// What the daemon derives from a run's events, ported from src/local_agent/core/inspector.py (summarize,
+// What the daemon derives from a run's events, ported from src/wraithd/core/inspector.py (summarize,
 // disclosure_depth) and core/views.py, so mock runs carry the summary the real API will send.
 
 import type { RunDetail, RunDisclosure, RunEvent, RunListItem, RunOutcome, RunSource, RunSummary } from '../types'
