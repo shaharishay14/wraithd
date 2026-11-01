@@ -134,7 +134,7 @@ export default function Skills({ name }: { name: string | null }) {
         {unavailable.length > 0 && (
           <Panel title="Connecting what a skill needs" className="text-sm text-white/70">
             <p className="m-0">
-              Add an MCP server that provides it, e.g. <code className="font-mono text-white/90">local-agent mcp add gmail --provides email -- …</code>. See Apps for what's connected.
+              Add an MCP server that provides it, e.g. <code className="font-mono text-white/90">wraithd mcp add gmail --provides email -- …</code>. See Apps for what's connected.
             </p>
           </Panel>
         )}

@@ -29,7 +29,7 @@ export const setTransport = (next: Transport) => {
   transport = next
 }
 
-// The app shows "open the link printed by local-agent daemon" on any 401
+// The app shows "open the link printed by wraithd daemon" on any 401
 export const onUnauthorized = (listener: () => void) => {
   unauthorizedListeners.add(listener)
   return () => {
@@ -55,7 +55,7 @@ async function send(method: string, path: string, body?: unknown, signal?: Abort
     })
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') throw e
-    throw new ApiError(0, 'network', 'Local Agent is not answering. Is `local-agent daemon` running?')
+    throw new ApiError(0, 'network', 'wraithd is not answering. Is `wraithd daemon` running?')
   }
 
   if (response.ok) return response

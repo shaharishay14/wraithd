@@ -57,7 +57,7 @@ export function seedApprovals(now: number, runs: RunDetail[]): Approval[] {
       suspicious_recipients: [{ value: 'eve@evil.com', source: 'GMAIL_FETCH_EMAILS' }] }, 140 * MINUTE),
     card({ approval_id: 'a-52c0', tool: 'schedule_create', status: 'approved',
       arguments: { message: 'Send me my morning brief', cron: '0 8 * * 1-5' },
-      reason: 'Your agent will run this on its own at these times, without asking you first. See and remove schedules with `local-agent schedules`.' }, 3 * 24 * 60 * MINUTE),
+      reason: 'Your agent will run this on its own at these times, without asking you first. See and remove schedules with `wraithd schedules`.' }, 3 * 24 * 60 * MINUTE),
     card({ approval_id: 'a-91d4', tool: 'GMAIL_CREATE_DRAFT', status: 'preapproved', channel: 'schedule',
       arguments: { to: 'dana@acme.com', subject: 'Re: launch dates', body: 'Thursday works for me.' } }, 26 * 60 * MINUTE),
     card({ approval_id: 'a-0b6a', tool: 'shell_run', status: 'expired', channel: 'telegram',
