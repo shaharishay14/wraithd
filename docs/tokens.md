@@ -5,7 +5,7 @@
 ## One-liner
 
 > Every model call is measured part by part as it's sent, so "where did the tokens go?" has an answer in the event
-> log: `local-agent runs tokens <id>`.
+> log: `wraithd runs tokens <id>`.
 
 ## How it works
 
@@ -39,7 +39,7 @@
   usage.
 
 ```
-$ local-agent runs tokens 3f2a
+$ wraithd runs tokens 3f2a
 Run 3f2a…: 2 model calls, 6,077 input tokens reported (o200k_base count: 5,773)
 
   tool list                                    4,264   70.2%

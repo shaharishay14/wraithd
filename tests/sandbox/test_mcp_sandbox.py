@@ -1,19 +1,19 @@
 """
-`local-agent mcp add --sandbox`: a stdio server that opts in is stored with sandbox = true and launches through
+`wraithd mcp add --sandbox`: a stdio server that opts in is stored with sandbox = true and launches through
 docker, with nothing mounted, the [sandbox] network, and its secrets passed by name only.
 """
 
 import pytest
 
-from local_agent import cli
-from local_agent.config import load_config
-from local_agent.core import events as ev
-from local_agent.mcp import client as mcp_client
-from local_agent.mcp import config as mcp_config
-from local_agent.mcp.client import McpConnections, sdk_server
-from local_agent.mcp.config import McpConfigError, McpServer
-from local_agent.sandbox.docker import HARDENING
 from tests.sandbox.fakes import flag_values
+from wraithd import cli
+from wraithd.config import load_config
+from wraithd.core import events as ev
+from wraithd.mcp import client as mcp_client
+from wraithd.mcp import config as mcp_config
+from wraithd.mcp.client import McpConnections, sdk_server
+from wraithd.mcp.config import McpConfigError, McpServer
+from wraithd.sandbox.docker import HARDENING
 
 
 @pytest.fixture

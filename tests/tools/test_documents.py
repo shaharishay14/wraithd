@@ -14,9 +14,9 @@ import pytest
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-from local_agent.tools import documents
-from local_agent.tools.files import file_tools
 from tests.scripted import ScriptedModel, call, run_once, say
+from wraithd.tools import documents
+from wraithd.tools.files import file_tools
 
 
 def make_pdf(pages, password=None) -> bytes:

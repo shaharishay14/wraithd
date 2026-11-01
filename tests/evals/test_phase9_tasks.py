@@ -5,11 +5,11 @@ model doing the wrong thing caught. tests/evals/test_regressions.py proves each 
 
 import json
 
-from local_agent.core import events as ev
-from local_agent.evals import scripted, site, world
-from local_agent.evals.runner import ModelSpec, available, run_evals, run_task
-from local_agent.evals.scripted import ScriptedModel, call, say
-from local_agent.evals.tasks import TASKS, failed_checks
+from wraithd.core import events as ev
+from wraithd.evals import scripted, site, world
+from wraithd.evals.runner import ModelSpec, available, run_evals, run_task
+from wraithd.evals.scripted import ScriptedModel, call, say
+from wraithd.evals.tasks import TASKS, failed_checks
 
 BY_ID = {task['id']: task for task in TASKS}
 
@@ -94,23 +94,23 @@ async def test_a_heartbeat_with_news_is_sent_and_fails_the_silent_task(tmp_path)
 
 
 async def test_a_task_whose_feature_is_missing_is_off_in_the_table(tmp_path, monkeypatch):
-    from local_agent.evals import runner
+    from wraithd.evals import runner
 
-    future = {'id': 'future-feature', 'requires': ('local_agent.not_built_yet',), 'message': 'x', 'checks': {},
+    future = {'id': 'future-feature', 'requires': ('wraithd.not_built_yet',), 'message': 'x', 'checks': {},
               'rubric': None}
     monkeypatch.setattr(runner, 'TASKS', [*TASKS, future])
-    assert available(future) == 'needs local_agent.not_built_yet'
+    assert available(future) == 'needs wraithd.not_built_yet'
     report = await run_evals([ModelSpec('scripted', 'scripted')], [], tmp_path,
                              task_ids=['calculation', 'future-feature'], say=lambda _: None)
     table = (tmp_path / 'report.md').read_text()
-    assert report.skipped == {'future-feature': 'needs local_agent.not_built_yet'}
-    assert '| future-feature | off (needs local_agent.not_built_yet) |' in table
+    assert report.skipped == {'future-feature': 'needs wraithd.not_built_yet'}
+    assert '| future-feature | off (needs wraithd.not_built_yet) |' in table
     assert '| **total** | 1/1 · ' in table
     assert [r['task'] for r in report.results] == ['calculation']
 
 
 def test_every_task_has_a_script_and_checks_that_do_not_crash_on_an_empty_run():
-    from local_agent.evals.tasks import Run
+    from wraithd.evals.tasks import Run
 
     for task in TASKS:
         assert task['id'] in scripted.SCRIPTS

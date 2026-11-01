@@ -3,10 +3,10 @@ The runs E1's breakdown is checked on: real run()s through the real SDK loop, a 
 provider does, and an owner with standing orders, a profile and skills. record_runs.py saves them as fixtures.
 """
 
-from local_agent.memory.notes import Note  # noqa: F401 (tests use it)
-from local_agent.memory.vault import PROFILE_PATH
 from tests.efficiency.fakes import CountingModel
 from tests.scripted import call, fake_tool, run_once, say
+from wraithd.memory.notes import Note  # noqa: F401 (tests use it)
+from wraithd.memory.vault import PROFILE_PATH
 
 AGENTS_MD = '# Standing orders\n\nAnswer in short bullet points. Never book anything without asking me first.\n'
 PROFILE = 'Dana, product manager in Lisbon. Prefers metric units and short replies. Vegetarian.'

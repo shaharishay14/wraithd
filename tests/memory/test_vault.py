@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from local_agent.memory import vault
+from wraithd.memory import vault
 
 NOW = datetime(2026, 6, 1, tzinfo=UTC)
 

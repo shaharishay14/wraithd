@@ -2,12 +2,12 @@
 
 import pytest
 
-from local_agent import run as run_module
-from local_agent.config import Config
-from local_agent.core import events as ev
-from local_agent.core.stop import StopPolicy
-from local_agent.providers import PURPOSES, model_for
 from tests.scripted import ScriptedModel, call, fake_tool, of_type, run_once, say
+from wraithd import run as run_module
+from wraithd.config import Config
+from wraithd.core import events as ev
+from wraithd.core.stop import StopPolicy
+from wraithd.providers import PURPOSES, model_for
 
 # --- model_for ------------------------------------------------------------------------------------------------
 

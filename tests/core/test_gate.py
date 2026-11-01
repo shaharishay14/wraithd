@@ -9,9 +9,9 @@ import json
 import pytest
 from agents import FunctionTool
 
-from local_agent.core import gate as gate_module
-from local_agent.core.gate import PermissionGate, ToolAccess, classify_tool, guard_function_tools
-from local_agent.store import base as store_base
+from wraithd.core import gate as gate_module
+from wraithd.core.gate import PermissionGate, ToolAccess, classify_tool, guard_function_tools
+from wraithd.store import base as store_base
 
 
 def error_of(result):

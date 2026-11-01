@@ -11,13 +11,13 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from local_agent import config
-from local_agent.channels import telegram, terminal
-from local_agent.core import events as ev
-from local_agent.core import gate as gate_module
-from local_agent.daemon.app import distill_all
-from local_agent.skills import registry
 from tests.scripted import ScriptedModel, ScriptedTerminal, call, say
+from wraithd import config
+from wraithd.channels import telegram, terminal
+from wraithd.core import events as ev
+from wraithd.core import gate as gate_module
+from wraithd.daemon.app import distill_all
+from wraithd.skills import registry
 
 BOT_TOKEN = '123456:fake-bot-token-abcdefghij'
 OWNER, STRANGER = 1001, 2002

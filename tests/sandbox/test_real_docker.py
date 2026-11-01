@@ -1,10 +1,10 @@
 """
-The sandboxed shell against a real Docker. Skipped unless LOCAL_AGENT_DOCKER_TESTS=1 (it pulls an image and needs
+The sandboxed shell against a real Docker. Skipped unless WRAITHD_DOCKER_TESTS=1 (it pulls an image and needs
 the Docker daemon); run with:
 
-    LOCAL_AGENT_DOCKER_TESTS=1 uv run pytest tests/sandbox/test_real_docker.py
+    WRAITHD_DOCKER_TESTS=1 uv run pytest tests/sandbox/test_real_docker.py
 
-Its state folder is made in the repo (or LOCAL_AGENT_DOCKER_TMP) and removed after.
+Its state folder is made in the repo (or WRAITHD_DOCKER_TMP) and removed after.
 """
 
 import json
@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from local_agent import sandbox
-from local_agent.config import HOME_ENV, Home, load_config
-from local_agent.tools.shell import shell_tool
+from wraithd import sandbox
+from wraithd.config import HOME_ENV, Home, load_config
+from wraithd.tools.shell import shell_tool
 
-pytestmark = pytest.mark.skipif(os.environ.get('LOCAL_AGENT_DOCKER_TESTS') != '1' or not shutil.which('docker'),
-                                reason='real Docker test: set LOCAL_AGENT_DOCKER_TESTS=1 (needs docker)')
+pytestmark = pytest.mark.skipif(os.environ.get('WRAITHD_DOCKER_TESTS') != '1' or not shutil.which('docker'),
+                                reason='real Docker test: set WRAITHD_DOCKER_TESTS=1 (needs docker)')
 DOCKER_CONFIG = os.environ.get('DOCKER_CONFIG') or os.path.expanduser('~/.docker')  # before the tests swap HOME
 
 
@@ -32,7 +32,7 @@ def docker_context(monkeypatch):
 @pytest.fixture
 def home(monkeypatch):
     """A state folder Docker Desktop can mount: it doesn't share pytest's /private/var/folders temp folders."""
-    base = os.environ.get('LOCAL_AGENT_DOCKER_TMP') or str(Path(__file__).resolve().parents[2])
+    base = os.environ.get('WRAITHD_DOCKER_TMP') or str(Path(__file__).resolve().parents[2])
     root = Path(tempfile.mkdtemp(prefix='.docker-test-', dir=base))
     monkeypatch.setenv(HOME_ENV, str(root))
     home = Home.locate()

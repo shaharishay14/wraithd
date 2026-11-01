@@ -7,13 +7,13 @@ import json
 
 import pytest
 
-from local_agent.channels import terminal
-from local_agent.core import events as ev
-from local_agent.core import gate as gate_module
-from local_agent.core.gate import PermissionGate
-from local_agent.store import base as store_base
-from local_agent.tools.shell import shell_tool
 from tests.scripted import ScriptedModel, ScriptedTerminal, call, of_type, run_once, say, unwrapped_json
+from wraithd.channels import terminal
+from wraithd.core import events as ev
+from wraithd.core import gate as gate_module
+from wraithd.core.gate import PermissionGate
+from wraithd.store import base as store_base
+from wraithd.tools.shell import shell_tool
 
 SHELL_ON = '[shell]\nenabled = true\ntimeout_seconds = 1\n'
 

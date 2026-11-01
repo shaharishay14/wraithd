@@ -1,5 +1,5 @@
 """
-The security rules in `local-agent audit` (audit.security_rules): the store's permissions, pinned MCP tools, the
+The security rules in `wraithd audit` (audit.security_rules): the store's permissions, pinned MCP tools, the
 review queue, remote access. Each broken setting is a FAIL with its fix.
 """
 
@@ -7,16 +7,16 @@ import stat
 
 import pytest
 
-from local_agent import audit, cli
-from local_agent.config import load_config
-from local_agent.daemon import security
-from local_agent.doctor import FAIL, INFO, OK
-from local_agent.mcp import config as mcp_config
-from local_agent.mcp import pinning
-from local_agent.mcp.config import McpServer
-from local_agent.review.queue import ReviewQueue
-from local_agent.store import SQLiteStore
 from tests.security.test_mcp_pinning import baseline_tools, connect, tool
+from wraithd import audit, cli
+from wraithd.config import load_config
+from wraithd.daemon import security
+from wraithd.doctor import FAIL, INFO, OK
+from wraithd.mcp import config as mcp_config
+from wraithd.mcp import pinning
+from wraithd.mcp.config import McpServer
+from wraithd.review.queue import ReviewQueue
+from wraithd.store import SQLiteStore
 
 
 def rules(home):
@@ -54,7 +54,7 @@ async def test_always_allowed_tools_must_be_pinned_and_unchanged(home, store):
     await connect(store, baseline_tools())  # the baseline; send_email was allowed before pinning: no pin
     found = {check.text: check for check in rules(home)}
     unpinned = found['Always allowed but not pinned, so they ask (re-allow needed): gmail send_email']
-    assert unpinned.state == FAIL and 'local-agent mcp allow' in unpinned.fix
+    assert unpinned.state == FAIL and 'wraithd mcp allow' in unpinned.fix
 
     pinning.pin(store, 'gmail', 'send_email')
     assert all(state != FAIL for state in states(rules(home)).values())
@@ -64,15 +64,15 @@ async def test_always_allowed_tools_must_be_pinned_and_unchanged(home, store):
     await connect(store, tools)
     found = {check.text: check for check in rules(home)}
     changed = found['Changed since you allowed them, so they ask until you review: gmail send_email']
-    assert changed.state == FAIL and changed.fix == 'local-agent review list'
-    assert found['1 item waits for your review: local-agent review list'].state == INFO
+    assert changed.state == FAIL and changed.fix == 'wraithd review list'
+    assert found['1 item waits for your review: wraithd review list'].state == INFO
     assert cli.main(['audit']) == 1
 
 
 def test_pending_reviews_are_listed_as_info(home, store):
     ReviewQueue(store).add('memory', {}, 'x', 'agent')
     ReviewQueue(store).add('memory', {}, 'y', 'agent')
-    assert states(rules(home))['2 items wait for your review: local-agent review list'] == INFO
+    assert states(rules(home))['2 items wait for your review: wraithd review list'] == INFO
 
 
 @pytest.mark.parametrize('host, problem', [

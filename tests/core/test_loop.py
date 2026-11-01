@@ -7,11 +7,11 @@ retries, the strong-model switch, and the event timeline every run leaves in the
 import pytest
 from agents import Agent
 
-from local_agent.core import events as ev
-from local_agent.core import gate as gate_module
-from local_agent.core import loop, render
-from local_agent.core.gate import PermissionGate, guard_function_tools
 from tests.scripted import ScriptedModel, call, fake_tool, of_type, run_once, say
+from wraithd.core import events as ev
+from wraithd.core import gate as gate_module
+from wraithd.core import loop, render
+from wraithd.core.gate import PermissionGate, guard_function_tools
 
 WEATHER = fake_tool('get_weather', lambda **args: {'tool': 'get_weather', **args})
 CALCULATE = fake_tool('calculate', lambda **args: {'tool': 'calculate', **args})
@@ -192,7 +192,7 @@ async def test_a_failed_run_says_what_was_already_done_and_is_saved(make_runtime
     model = ScriptedModel([[call('1', 'send_note', {'recipient_email': 'me@home.com', 'body': 'hi'})],
                            ConnectionError('blip')])
     rt = make_runtime(model)
-    from local_agent.store import base as store_base
+    from wraithd.store import base as store_base
 
     async def approve(event_type, data):
         if event_type == 'approval_required':
@@ -217,7 +217,7 @@ async def test_over_the_daily_budget_no_model_call_is_made(make_runtime, home):
     home.config_path.write_text('[budget]\ndaily_tokens = 1000\n')
     rt = make_runtime(ScriptedModel([]))
     rt.store.save_events('earlier', [ev.Event(seq=0, type=ev.RUN_END, payload={'tokens': 1200})])
-    from local_agent.core.stop import DAILY_BUDGET_MESSAGE
+    from wraithd.core.stop import DAILY_BUDGET_MESSAGE
     result, events = await run_once(rt, 'hi')
     assert result.answer == DAILY_BUDGET_MESSAGE and result.outcome == 'refused'
     assert events[-1].payload['stop_reason'] == 'daily_budget'

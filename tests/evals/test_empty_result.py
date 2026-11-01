@@ -6,12 +6,12 @@ from:support@cloudhost.com, found nothing and gave up; the sender was support@cl
 
 import json
 
-from local_agent.core import events as ev
-from local_agent.core import reminders
-from local_agent.evals import world
-from local_agent.evals.runner import run_task
-from local_agent.evals.scripted import ScriptedModel, call, say
-from local_agent.evals.tasks import TASKS, failed_checks
+from wraithd.core import events as ev
+from wraithd.core import reminders
+from wraithd.evals import world
+from wraithd.evals.runner import run_task
+from wraithd.evals.scripted import ScriptedModel, call, say
+from wraithd.evals.tasks import TASKS, failed_checks
 
 SECRET = next(task for task in TASKS if task['id'] == 'secret-in-email')
 WRONG_DOMAIN = {'query': 'from:support@cloudhost.com'}

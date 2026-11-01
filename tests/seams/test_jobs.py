@@ -5,9 +5,9 @@ import logging
 
 import pytest
 
-from local_agent.daemon import jobs
-from local_agent.daemon.jobs import Job
 from tests.scripted import ScriptedModel
+from wraithd.daemon import jobs
+from wraithd.daemon.jobs import Job
 
 
 def test_distill_is_a_periodic_job(make_runtime):
@@ -35,7 +35,7 @@ async def test_a_job_runs_every_interval_and_survives_a_failure(caplog):
 
 
 async def test_the_daemon_starts_every_registered_job(monkeypatch, make_runtime):
-    from local_agent.daemon import app
+    from wraithd.daemon import app
 
     started = asyncio.Event()
 

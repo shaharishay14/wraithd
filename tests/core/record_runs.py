@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 from agents import FunctionTool
 
-from local_agent.core import replay
 from tests.scripted import ScriptedModel, call, fake_tool, run_once, say
+from wraithd.core import replay
 
 pytestmark = pytest.mark.skipif(not os.environ.get('RECORD_RUNS'), reason='only when recording fixtures')
 RUNS = Path(__file__).parent / 'runs'

@@ -15,7 +15,7 @@
   updates the summary: keep facts, names, decisions, preferences and open tasks; drop small talk; at most 200
   words. The conversation row records the summary and the last message it covers (`summarized_until`).
 - **It's logged between runs** as a `compaction` event (conversation, messages folded, summary size), shown by
-  `local-agent events` and `GET /api/events`.
+  `wraithd events` and `GET /api/events`.
 - **A failed summary call changes nothing:** the old summary stays and the messages go to the model as they
   are, to be folded on a later turn.
 - **The summary goes in as a user message, not a system one.** It's built from the conversation's content, so

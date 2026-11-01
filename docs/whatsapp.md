@@ -13,7 +13,7 @@
 These are Telegram's rules ([telegram](telegram.md)), and the channel interface enforces them in shared code, not
 per channel:
 
-- **One paired owner.** A pairing code from `local-agent <channel> pair`, sent from the owner's phone. Five wrong
+- **One paired owner.** A pairing code from `wraithd <channel> pair`, sent from the owner's phone. Five wrong
   tries and the code is gone.
 - **Strangers are ignored.** No run, no model call, no reply, no download. One `<channel>_ignored` event per
   chat per hour, with the sender's id and name and never the text.
@@ -82,7 +82,7 @@ Meta hosts the number, and the daemon sends with `POST graph.facebook.com/v{N}/{
 An unofficial client speaks the WhatsApp Web protocol as a linked device of the owner's own number, the way
 WhatsApp Desktop does. Examples are whatsmeow (Go), Baileys (Node) and neonize (Python bindings to whatsmeow).
 
-- **Setup:** `local-agent whatsapp link` shows a QR code, and the owner scans it in WhatsApp → Linked devices.
+- **Setup:** `wraithd whatsapp link` shows a QR code, and the owner scans it in WhatsApp → Linked devices.
   No Meta account and no public URL: the client keeps an outbound connection, as polling does.
 - **Risks:**
   - Against WhatsApp's terms. Meta bans numbers that automate, and a ban hits the owner's personal number.
@@ -107,7 +107,7 @@ WhatsApp Desktop does. Examples are whatsmeow (Go), Baileys (Node) and neonize (
 The same unofficial client, but in a separate small process (a whatsmeow or Baileys bridge). It talks to the
 daemon over loopback or a Unix socket.
 
-- **Setup:** `local-agent whatsapp install-bridge` fetches a pinned bridge binary or package, and it runs as a
+- **Setup:** `wraithd whatsapp install-bridge` fetches a pinned bridge binary or package, and it runs as a
   second service next to the daemon (launchd/systemd, the same pattern as `daemon install`). Linking is the QR
   scan, shown through the bridge. Ideally the bridge uses a second number (a cheap SIM or eSIM), so a ban costs
   nothing personal and "the owner's chat" is an ordinary chat, as on Telegram.

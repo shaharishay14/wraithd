@@ -7,11 +7,11 @@ import time
 
 from agents import FunctionTool
 
-from local_agent.config import set_values
-from local_agent.core import events as ev
-from local_agent.core import render, views
-from local_agent.spill import FOLDER, cleanup, cleanup_job, spill_hook
 from tests.scripted import ScriptedModel, call, fake_tool, of_type, run_once, say
+from wraithd.config import set_values
+from wraithd.core import events as ev
+from wraithd.core import render, views
+from wraithd.spill import FOLDER, cleanup, cleanup_job, spill_hook
 
 TOKEN = 'sk-proj-' + 'A1b2C3d4E5f6G7h8I9j0' * 2
 PAGE = ('Quarterly report. ' * 300) + f'Config dump: OPENAI={TOKEN}. ' + ('Appendix line. ' * 400)
@@ -131,7 +131,7 @@ async def test_the_cleanup_job_records_what_it_deleted(make_runtime, home):
 
 
 def test_spill_cleanup_is_a_daily_daemon_job(make_runtime):
-    from local_agent.daemon import jobs
+    from wraithd.daemon import jobs
     [job] = [job for job in jobs.jobs(make_runtime(ScriptedModel([]))) if job.name == 'spill_cleanup']
     assert job.every_seconds == 24 * 3600 and job.run is cleanup_job
 

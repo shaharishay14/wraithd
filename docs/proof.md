@@ -28,8 +28,8 @@ scripted version ([Evals](evals.md)).
 
 ## On a laptop
 
-- **No Django test database, no real home.** Every test gets a temporary `LOCAL_AGENT_HOME` and an in-memory
-  keychain, so nothing touches `~/.local-agent` or the OS keychain.
+- **No Django test database, no real home.** Every test gets a temporary `WRAITHD_HOME` and an in-memory
+  keychain, so nothing touches `~/.wraithd` or the OS keychain.
 - **The fixtures were re-recorded locally.** Phase 1 replayed agent-studio's four recorded runs to show the
   port decided exactly as the original. Phase 2 re-recorded them through the local `run()`: the decisions (every
   stop, every reminder, at the same events) are unchanged; the context around them is smaller.

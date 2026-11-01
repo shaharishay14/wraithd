@@ -6,9 +6,9 @@ and proposals that stay off until the owner turns them on.
 
 import json
 
-from local_agent.core import events as ev
-from local_agent.skills import registry
 from tests.scripted import ScriptedModel, call, fake_tool, of_type, run_once, say, tool_json
+from wraithd.core import events as ev
+from wraithd.skills import registry
 
 WEB = fake_tool('web_search', lambda **a: {'results': []})
 

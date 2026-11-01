@@ -9,15 +9,15 @@ from datetime import datetime
 import httpx
 import pytest
 
-from local_agent import run as run_module
-from local_agent.config import ModelConfig, set_key
-from local_agent.core import events as ev
-from local_agent.core import tokens, views
-from local_agent.providers import CACHE_POINTS, build_models, model_settings
-from local_agent.run import Runtime
 from tests.efficiency import scenarios
 from tests.efficiency.fakes import CountingModel
 from tests.scripted import call, fake_tool, of_type, run_once, say
+from wraithd import run as run_module
+from wraithd.config import ModelConfig, set_key
+from wraithd.core import events as ev
+from wraithd.core import tokens, views
+from wraithd.providers import CACHE_POINTS, build_models, model_settings
+from wraithd.run import Runtime
 
 
 def at(hour, minute):
@@ -61,7 +61,7 @@ async def test_the_prefix_is_the_same_on_every_turn_and_every_run(make_runtime, 
 async def test_the_prefix_follows_the_agreed_order(make_runtime):
     model, *_ = await scenarios.a_tool_run(make_runtime)
     system = model.instructions[0]
-    order = [system.index(marker) for marker in ('You are Local Agent', 'The app may add short notes',
+    order = [system.index(marker) for marker in ('You are wraithd', 'The app may add short notes',
                                                  'STANDING ORDERS', 'SKILLS (', 'MEMORY (')]
     assert order == sorted(order)
 
@@ -143,7 +143,7 @@ async def test_cache_control_survives_the_sdk_and_litellm(anthropic, home):
     [body] = anthropic
     # Breakpoint 1: the end of the system prompt (Anthropic caches the tools and the system prompt up to here)
     stable, time_note = body['system']
-    assert stable['text'].startswith('You are Local Agent') and stable['cache_control'] == {'type': 'ephemeral'}
+    assert stable['text'].startswith('You are wraithd') and stable['cache_control'] == {'type': 'ephemeral'}
     # LiteLLM moves the time note (role system) into Anthropic's system blocks, after the stable one. On a first
     # call it is the last message, so breakpoint 2 lands on it: the cache entry then ends with this run's time,
     # which only this run's next calls read.

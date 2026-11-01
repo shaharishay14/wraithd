@@ -5,11 +5,11 @@ toward strangers, and distill.
 
 import json
 
-from local_agent.core import events as ev
-from local_agent.memory import distill, vault
-from local_agent.memory.notes import SOURCE_AGENT, SOURCE_DISTILL, Note
-from local_agent.review.queue import ReviewQueue
 from tests.scripted import ScriptedModel, call, fake_tool, of_type, run_once, say
+from wraithd.core import events as ev
+from wraithd.memory import distill, vault
+from wraithd.memory.notes import SOURCE_AGENT, SOURCE_DISTILL, Note
+from wraithd.review.queue import ReviewQueue
 
 
 def make_note(rt, path, body, trust=vault.HIGH):
@@ -65,7 +65,7 @@ async def test_facts_saved_after_third_party_content_wait_for_review(make_runtim
 
     assert rt.memory.get('preferences/email.md') is None
     answer = json.loads(model.tool_outputs(2)['call_2'])
-    assert answer['saved'] is False and 'local-agent review list' in answer['message']
+    assert answer['saved'] is False and 'wraithd review list' in answer['message']
     [item] = ReviewQueue(rt.store).list()
     assert item.kind == 'memory' and item.taint == ['web_search'] and item.content['path'] == 'preferences/email.md'
 

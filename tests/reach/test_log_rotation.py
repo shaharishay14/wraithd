@@ -9,9 +9,9 @@ import stat
 
 import pytest
 
-from local_agent.daemon import commands, jobs, service
-from local_agent.daemon.app import Daemon
 from tests.scripted import ScriptedModel
+from wraithd.daemon import commands, jobs, service
+from wraithd.daemon.app import Daemon
 
 
 @pytest.fixture

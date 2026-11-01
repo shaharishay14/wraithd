@@ -6,8 +6,8 @@ faked (never installed or run in tests), and which provider "auto" picks.
 import httpx
 import pytest
 
-from local_agent import voice
-from local_agent.config import ConfigError, Home, load_config, set_key
+from wraithd import voice
+from wraithd.config import ConfigError, Home, load_config, set_key
 
 OPENAI_KEY, ELEVEN_KEY = 'sk-test-voice-0123456789', 'eleven-test-key-0123456789'
 
@@ -82,7 +82,7 @@ def test_auto_is_openai_with_its_key_then_whisper_then_off(home, monkeypatch):
     monkeypatch.setattr(voice, 'whisper_installed', lambda: False)
     config = load_config(home)  # the default config: auto
     off = voice.choose_transcriber(config)
-    assert off.name == '' and 'local-agent key set openai' in off.why and 'local-agent[whisper]' in off.why
+    assert off.name == '' and 'wraithd key set openai' in off.why and 'wraithd[whisper]' in off.why
     assert voice.transcriber(config) is None
 
     monkeypatch.setattr(voice, 'whisper_installed', lambda: True)
@@ -100,7 +100,7 @@ def test_a_chosen_provider_needs_its_key_or_install(home, monkeypatch):
     monkeypatch.setattr(voice, 'whisper_installed', lambda: False)
     set_key('openai', OPENAI_KEY)  # not used when another provider is chosen
     eleven = configured(home, 'elevenlabs')
-    assert voice.choose_transcriber(eleven).why == 'off: elevenlabs needs a key (local-agent key set elevenlabs)'
+    assert voice.choose_transcriber(eleven).why == 'off: elevenlabs needs a key (wraithd key set elevenlabs)'
     set_key('elevenlabs', ELEVEN_KEY)
     assert isinstance(voice.transcriber(eleven), voice.ElevenLabsTranscriber)
     assert 'about $0.004 per minute' in voice.choose_transcriber(eleven).why

@@ -12,12 +12,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from local_agent import __version__
-from local_agent.cli import build_parser
-from local_agent.daemon import commands as daemon_commands
-from local_agent.daemon import service as service_module
-from local_agent.daemon.service import LABEL, Launchd, ServiceError, Systemd, service_for
 from tests.fixtures.services import FakeServiceManager
+from wraithd import __version__
+from wraithd.cli import build_parser
+from wraithd.daemon import commands as daemon_commands
+from wraithd.daemon import service as service_module
+from wraithd.daemon.service import LABEL, Launchd, ServiceError, Systemd, service_for
 
 
 @pytest.fixture
@@ -45,24 +45,24 @@ def test_the_launchd_agent_runs_the_daemon_at_login_and_logs_into_the_home(home,
     assert service.path == tmp_path / 'user' / 'Library' / 'LaunchAgents' / f'{LABEL}.plist'  # conftest's HOME
     service.install()
     plist = plistlib.loads(service.path.read_bytes())
-    assert plist['Label'] == 'com.local-agent.daemon'
-    assert plist['ProgramArguments'] == [sys.executable, '-m', 'local_agent', 'daemon']
+    assert plist['Label'] == 'com.wraithd.daemon'
+    assert plist['ProgramArguments'] == [sys.executable, '-m', 'wraithd', 'daemon']
     assert plist['RunAtLoad'] is True and plist['KeepAlive'] == {'SuccessfulExit': False}
     assert plist['StandardOutPath'] == plist['StandardErrorPath'] == str(home.root / 'logs' / 'daemon.log')
     environment = plist['EnvironmentVariables']
-    assert environment['LOCAL_AGENT_HOME'] == str(home.root) and environment['PATH'] == os.environ['PATH']
+    assert environment['WRAITHD_HOME'] == str(home.root) and environment['PATH'] == os.environ['PATH']
     assert environment['PYTHONUNBUFFERED'] == '1'
     assert (home.root / 'logs').is_dir()
 
 
 def test_the_systemd_unit_runs_the_daemon_quoted_and_logs_into_the_home(home, manager):
-    service = Systemd(home, runner=manager, program=['/opt/my tools/python', '-m', 'local_agent', 'daemon'],
-                      environment={'LOCAL_AGENT_HOME': '/home/me/100% agent', 'PATH': '/usr/bin'})
-    assert service.path == Path.home() / '.config' / 'systemd' / 'user' / 'local-agent.service'
+    service = Systemd(home, runner=manager, program=['/opt/my tools/python', '-m', 'wraithd', 'daemon'],
+                      environment={'WRAITHD_HOME': '/home/me/100% agent', 'PATH': '/usr/bin'})
+    assert service.path == Path.home() / '.config' / 'systemd' / 'user' / 'wraithd.service'
     service.install()
     unit = service.path.read_text()
-    assert 'ExecStart="/opt/my tools/python" "-m" "local_agent" "daemon"\n' in unit
-    assert 'Environment="LOCAL_AGENT_HOME=/home/me/100%% agent" "PATH=/usr/bin"\n' in unit  # % is a specifier
+    assert 'ExecStart="/opt/my tools/python" "-m" "wraithd" "daemon"\n' in unit
+    assert 'Environment="WRAITHD_HOME=/home/me/100%% agent" "PATH=/usr/bin"\n' in unit  # % is a specifier
     assert 'Restart=on-failure\n' in unit and 'WantedBy=default.target\n' in unit
     log = home.root / 'logs' / 'daemon.log'
     assert f'StandardOutput=append:{log}\n' in unit and f'StandardError=append:{log}\n' in unit
@@ -81,7 +81,7 @@ def test_launchd_install_start_stop_status_uninstall(home, manager):
     service = Launchd(home, runner=manager)
     target = f'gui/{os.getuid()}/{LABEL}'
     assert service.status() == service_module.Status(installed=False, running=False)
-    with pytest.raises(ServiceError, match='local-agent daemon install'):
+    with pytest.raises(ServiceError, match='wraithd daemon install'):
         service.start()
 
     service.install()
@@ -106,7 +106,7 @@ def test_launchd_install_start_stop_status_uninstall(home, manager):
 def test_systemd_install_start_stop_status_uninstall(home, manager):
     service = Systemd(home, runner=manager)
     service.install()
-    unit = 'local-agent.service'
+    unit = 'wraithd.service'
     assert manager.commands('systemctl') == [['systemctl', '--user', 'daemon-reload'],
                                              ['systemctl', '--user', 'enable', unit],
                                              ['systemctl', '--user', 'restart', unit]]
@@ -153,7 +153,7 @@ def test_status_reports_the_service_and_whether_the_daemon_answers(home, manager
     service, said = Launchd(home, runner=manager), []
     assert daemon_commands.main(home, args('status'), service=service, transport=health_transport(),
                                 say=said.append) == 1
-    assert said == ['Background service: not installed (local-agent daemon install)',
+    assert said == ['Background service: not installed (wraithd daemon install)',
                     'Daemon: not answering on port 7878']
     service.install()
     said.clear()
@@ -183,7 +183,7 @@ def test_logs_shows_the_end_of_the_log(home):
     assert said == ['two', 'three']
 
 
-def test_health_is_only_a_local_agent_answer():
+def test_health_is_only_a_wraithd_answer():
     assert service_module.health(7878, health_transport({'ok': True, 'version': '1'})) == {'ok': True, 'version': '1'}
     assert service_module.health(7878, health_transport({'something': 'else'})) is None
     assert service_module.health(7878, health_transport()) is None

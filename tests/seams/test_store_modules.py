@@ -4,8 +4,8 @@ import sqlite3
 
 import pytest
 
-from local_agent.store import SQLiteStore
-from local_agent.store.modules import MIGRATIONS, Migration, ModuleTables, check
+from wraithd.store import SQLiteStore
+from wraithd.store.modules import MIGRATIONS, Migration, ModuleTables, check
 
 REVIEWS = [
     Migration('security_001', 'CREATE TABLE security_reviews (id INTEGER PRIMARY KEY, text TEXT NOT NULL);'),

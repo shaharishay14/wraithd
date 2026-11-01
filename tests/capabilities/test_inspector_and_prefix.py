@@ -1,11 +1,11 @@
 """runs show nests subagents; between-runs events read as one line; the new tools keep the prompt prefix stable."""
 
-from local_agent.core import events as ev
-from local_agent.core import inspector
-from local_agent.core.events import Event
-from local_agent.tools.browser import JsonSiteDriver
 from tests.capabilities.fakes import enable
 from tests.scripted import ScriptedModel, call, of_type, run_once, say
+from wraithd.core import events as ev
+from wraithd.core import inspector
+from wraithd.core.events import Event
+from wraithd.tools.browser import JsonSiteDriver
 
 
 async def test_runs_show_nests_the_subagent_under_its_delegate_call(make_runtime, home):
@@ -58,8 +58,8 @@ async def test_the_prefix_is_stable_with_the_new_tools_on(make_runtime, home):
 
 
 async def test_off_the_prefix_is_what_it_was(make_runtime, monkeypatch):
-    from local_agent.core import delegate
-    from local_agent.tools import browser
+    from wraithd.core import delegate
+    from wraithd.tools import browser
 
     off = ScriptedModel([[say('ok')]])
     _, events = await run_once(make_runtime(off), 'hi')

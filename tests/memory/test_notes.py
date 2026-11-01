@@ -7,8 +7,8 @@ import os
 
 import pytest
 
-from local_agent.memory import vault
-from local_agent.memory.notes import SOURCE_AGENT, SOURCE_USER, Note, Vault
+from wraithd.memory import vault
+from wraithd.memory.notes import SOURCE_AGENT, SOURCE_USER, Note, Vault
 
 
 @pytest.fixture

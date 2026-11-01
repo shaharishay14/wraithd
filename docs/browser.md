@@ -10,7 +10,7 @@
 
 ## How it works
 
-- **On:** `[browser] enabled = true`, plus the optional extra: `uv tool install 'local-agent[browser]'` and
+- **On:** `[browser] enabled = true`, plus the optional extra: `uv tool install 'wraithd[browser]'` and
   `playwright install chromium`. Without either, the tools aren't offered and nothing imports Playwright. Only the
   owner's runs get it.
 - **Tools.** `browser_open(url)`, `browser_read()`, `browser_screenshot()` are reads. `browser_click(ref, to_site)`,
@@ -43,7 +43,7 @@ documents (`title`, `text`, `elements`, and `requests` standing for what the pag
 through the same router and egress checks from an `httpx.MockTransport`. Set `rt.browser_driver = JsonSiteDriver`
 and `rt.web_transport`. The test-only egress override lives in `tests/capabilities/fakes.py`: `*.example` hosts
 resolve to a public address, everything else goes through the real check. The real-Chromium test runs with
-`LOCAL_AGENT_REAL_BROWSER=1`.
+`WRAITHD_REAL_BROWSER=1`.
 
 ## On a laptop
 

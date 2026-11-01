@@ -4,7 +4,7 @@
 
 ## One-liner
 
-> The agent can list, read, write and edit files in `~/.local-agent/workspace/files/` (PDF, Word and spreadsheets
+> The agent can list, read, write and edit files in `~/.wraithd/workspace/files/` (PDF, Word and spreadsheets
 > read as text), and nowhere else. The boundary is a real-path check in code, so `..`, absolute paths and symlinks
 > can't talk their way out of it.
 

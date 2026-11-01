@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from local_agent.daemon.app import Daemon
+from wraithd.daemon.app import Daemon
 
 BASE = 'http://127.0.0.1:7878'
 

@@ -24,11 +24,11 @@
 - **The same fact once.** An item can carry a key; adding one whose key matches a pending item of the same kind
   returns that item. The agent saving a fact and distill finding it again make one item.
 - **The owner hears about it** in one short message on the notify path (Telegram, or the inbox): "2 items wait for
-  your review (2 memory). Nothing from them is used until you approve: local-agent review list". It carries
+  your review (2 memory). Nothing from them is used until you approve: wraithd review list". It carries
   counts only, never the queued text, which is someone else's. A run tells the owner when it queues something
   (when it's given the run's notifier). The daemon's `review_notify` job (every minute) covers everything else:
   distill, and items queued by another process. Each item is announced once.
-- **Commands:** `local-agent review list [--all] [--kind K]`, `show ID`, `approve ID`, `reject ID [--reason ...]`.
+- **Commands:** `wraithd review list [--all] [--kind K]`, `show ID`, `approve ID`, `reject ID [--reason ...]`.
   The API has the same ([api](api.md#review-queue)).
 - **Events**, all between runs and none with the content: `review_queued`, `review_approved`, `review_rejected`,
   `review_notified`.

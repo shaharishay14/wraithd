@@ -19,9 +19,9 @@ from openai.types.responses import (
     ResponseTextDeltaEvent,
 )
 
-from local_agent.channels.terminal import Terminal
-from local_agent.core.gate import parse_arguments
-from local_agent.run import run
+from wraithd.channels.terminal import Terminal
+from wraithd.core.gate import parse_arguments
+from wraithd.run import run
 
 set_tracing_disabled(True)
 

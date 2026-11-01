@@ -2,7 +2,7 @@
 
 **Files:** `daemon/api.py`, `daemon/security.py`, `daemon/app.py`
 
-The daemon (`local-agent daemon`) serves this API and the web UI from one address: `http://127.0.0.1:7878`
+The daemon (`wraithd daemon`) serves this API and the web UI from one address: `http://127.0.0.1:7878`
 (port set by `[daemon] port`). It's for the owner's own browser on this machine and nothing else. Changes to this
 contract go through the coordinator; this file is the source of truth for the frontend.
 
@@ -15,12 +15,12 @@ and always-allowing a destructive one is `409 conflict`.
 
 ## Auth: the token
 
-- On first start the daemon creates a random token in `~/.local-agent/api-token` (mode 600).
-- `local-agent daemon` prints the UI's address with the token in the URL fragment:
+- On first start the daemon creates a random token in `~/.wraithd/api-token` (mode 600).
+- `wraithd daemon` prints the UI's address with the token in the URL fragment:
   `http://127.0.0.1:7878/#token=<token>`. A fragment is never sent to a server, so it doesn't end up in logs.
-- The UI reads `location.hash`, keeps the token (`localStorage`, key `local-agent-token`), removes it from the
+- The UI reads `location.hash`, keeps the token (`localStorage`, key `wraithd-token`), removes it from the
   address bar (`history.replaceState`), and sends it on every API call: `Authorization: Bearer <token>`.
-- No token, or a wrong one: `401`. The UI then shows "Open the link printed by `local-agent daemon`".
+- No token, or a wrong one: `401`. The UI then shows "Open the link printed by `wraithd daemon`".
 - The token never goes in a query string, and there are no cookies.
 
 ## Origin and Host (any website can call localhost)
@@ -47,7 +47,7 @@ With `[remote] allowed_hosts = ["box.tail1234.ts.net"]` and `tailscale serve` in
   machines still get `403`.
 - Everything else is unchanged: the token is required, there's no CORS, and the daemon still binds to `127.0.0.1`.
   No routes are added, and the UI needs no change (it calls `/api/...` on its own origin).
-- `local-agent daemon` and `daemon status` print the tailnet link with the token in the fragment.
+- `wraithd daemon` and `daemon status` print the tailnet link with the token in the fragment.
 
 ## Errors
 
@@ -200,7 +200,7 @@ a comma list of the three types, anything else is `400`)
   "summary": "Ignored a Telegram message from chat 42 (@stranger), which isn't yours",
   "details": {"chat": 42, "username": "stranger"}}]
 ```
-`summary` is one line to show as is; `details` is the stored payload. `local-agent events` prints the same list.
+`summary` is one line to show as is; `details` is the stored payload. `wraithd events` prints the same list.
 
 ### Memory
 
@@ -340,14 +340,14 @@ bot within 10 minutes; that chat becomes the owner's. A new pairing replaces the
 
 - The UI is a static single-page app. Its build output (`index.html` and an `assets/` folder) uses relative paths
   (`base: './'` in Vite) and calls the API at `/api/...`.
-- The daemon serves the first of these that has an `index.html`: `$LOCAL_AGENT_UI_DIR`, then the `ui/` folder
-  inside the installed package (`src/local_agent/ui/`, which a release build fills from `frontend/dist`). If
+- The daemon serves the first of these that has an `index.html`: `$WRAITHD_UI_DIR`, then the `ui/` folder
+  inside the installed package (`src/wraithd/ui/`, which a release build fills from `frontend/dist`). If
   neither exists, it serves a short placeholder page that says how to build the UI.
 - The UI uses hash routes (`/#/runs/r1...`, `/#/memory`): with relative asset paths, a path route like `/runs/r1`
   would load `./assets` from `/runs/assets`. Any GET that isn't `/api/...` and isn't a file in the folder still
   returns `index.html`, which is harmless, but links should use the hash form.
 - During development, build with `vite build --watch` and run the daemon with
-  `LOCAL_AGENT_UI_DIR=frontend/dist`, so the UI and the API share one origin; or use a dev server and set
+  `WRAITHD_UI_DIR=frontend/dist`, so the UI and the API share one origin; or use a dev server and set
   `[daemon] dev_origin`.
 
 ## On a laptop

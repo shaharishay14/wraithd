@@ -1,5 +1,5 @@
 """
-`local-agent audit`: the live setup against the security rules. A fresh home passes; each broken rule is a FAIL
+`wraithd audit`: the live setup against the security rules. A fresh home passes; each broken rule is a FAIL
 with its fix, and the exit code says so. Standing permissions show as info.
 """
 
@@ -7,12 +7,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from local_agent import audit, cli
-from local_agent.config import Home
-from local_agent.core import gate
-from local_agent.daemon import app as daemon_app
-from local_agent.doctor import FAIL, INFO, OK
-from local_agent.store import SQLiteStore
+from wraithd import audit, cli
+from wraithd.config import Home
+from wraithd.core import gate
+from wraithd.daemon import app as daemon_app
+from wraithd.doctor import FAIL, INFO, OK
+from wraithd.store import SQLiteStore
 
 
 def states(found):
@@ -51,7 +51,7 @@ def test_each_broken_rule_is_a_fail_with_its_fix(home, monkeypatch, capsys):
         'API token is too short': f'rm {home.root / "api-token"} and restart the daemon (it makes a new one)',
         'Shell: on, and not every command asks first': f'set shell_enabled = false in {home.config_path}',
         'config.toml holds what looks like a key (openai_key)':
-            f'remove it from {home.config_path}; keep it with local-agent key set <provider> or mcp add --env',
+            f'remove it from {home.config_path}; keep it with wraithd key set <provider> or mcp add --env',
     }
     assert cli.main(['audit']) == 1 and '5 problems found.' in capsys.readouterr().out
 
@@ -68,7 +68,7 @@ def test_a_private_token_and_a_gated_shell_pass(home):
 def test_an_api_on_every_interface_fails(home, monkeypatch):
     monkeypatch.setattr(daemon_app, 'HOST', '0.0.0.0')
     assert fixes(audit.checks(home)) == {
-        'The API binds to 0.0.0.0, which other machines can reach': 'reinstall Local Agent'}
+        'The API binds to 0.0.0.0, which other machines can reach': 'reinstall wraithd'}
 
 
 @pytest.mark.parametrize('origin, state', [('http://localhost:5173', INFO), ('http://127.0.0.1:3000/', INFO),
@@ -86,11 +86,11 @@ def test_standing_permissions_are_listed(home):
     store.close()
     info = [check.text for check in audit.checks(home) if check.state == INFO]
     assert any('gmail send_email' in text for text in info)
-    assert '1 schedule runs unattended: local-agent schedules list' in info
+    assert '1 schedule runs unattended: wraithd schedules list' in info
 
 
 def test_without_a_home_or_with_a_broken_config(home, tmp_path, capsys):
     home.config_path.write_text('not toml [')
     assert any(text.startswith('Settings don\'t load') for text in fixes(audit.checks(home)))
     assert fixes(audit.checks(Home(tmp_path / 'nowhere'))) == {f'No state folder at {tmp_path / "nowhere"}':
-                                                               'local-agent onboard'}
+                                                               'wraithd onboard'}

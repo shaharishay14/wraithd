@@ -14,7 +14,7 @@
   and the third-party sources it had read. A flagged item's summary starts `⚠ from a run that read ...`, and
   `review show` says to read the instructions first. A newer draft of the same name replaces the pending one.
 - **Approving**, any of three ways, settles the others:
-  - `local-agent review approve ID` (or `POST /api/review/{id}/approve`) moves the folder into `workspace/skills/`;
+  - `wraithd review approve ID` (or `POST /api/review/{id}/approve`) moves the folder into `workspace/skills/`;
   - the web UI's Skills page (`POST /api/skills/proposals/{name}/approve`) moves it, then settles the item;
   - moving the folder by hand: the daemon's `skill_settle` job (every minute) marks the item approved.
 - **Rejecting** (or deleting on the Skills page) deletes the draft; nothing is written.

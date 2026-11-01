@@ -8,12 +8,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from local_agent.core import events as ev
-from local_agent.core import gate as gate_module
-from local_agent.store import base as store_base
-from local_agent.tools.browser import JsonSiteDriver
 from tests.capabilities.fakes import FakeSite, enable, public_example_hosts
 from tests.scripted import ScriptedModel, call, of_type, run_once, say
+from wraithd.core import events as ev
+from wraithd.core import gate as gate_module
+from wraithd.store import base as store_base
+from wraithd.tools.browser import JsonSiteDriver
 
 SHOP = 'https://shop.example/'
 POISONED = {
@@ -179,7 +179,7 @@ async def test_every_run_gets_a_fresh_browser_that_closes_with_the_run(browser_r
 
 
 async def test_the_browser_is_off_by_default_and_needs_playwright(make_runtime, monkeypatch):
-    from local_agent.tools import browser
+    from wraithd.tools import browser
 
     model = ScriptedModel([[say('hi')]])
     await run_once(make_runtime(model), 'hi')

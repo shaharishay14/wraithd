@@ -74,5 +74,5 @@ All offline, in `tests/efficiency/test_caching.py`:
 - **Usage.** Canned usage (1,500 written, 300 read) comes back as `cache_write=1500`, `cache_read=300` and
   `input_tokens=1840`, and the budget counts 1,840 once.
 
-The owner's one paid check: run two turns on Claude and look at `local-agent runs tokens <id>`. The second call
+The owner's one paid check: run two turns on Claude and look at `wraithd runs tokens <id>`. The second call
 should show a cache read about the size of the tool list plus the system prompt.

@@ -66,7 +66,7 @@ only ([api](api.md)).
 
 ## Checking the setup
 
-`local-agent audit` checks the live setup against these rules: the state folder private and nothing in it
+`wraithd audit` checks the live setup against these rules: the state folder private and nothing in it
 writable by others, the store (`state.db`, which holds the review queue and the pins) readable by the owner alone,
 the API bound to loopback with a long, private token, every remote-access host a tailnet name (`*.ts.net`), the shell
 off or gated, every always-allowed MCP tool pinned and unchanged ([MCP](mcp.md)), no keys in
@@ -92,7 +92,7 @@ reports none for Anthropic otherwise, and the budgets would count zero.
   httpx's network stream instead of urllib3's socket.
 - **Server secrets became the owner's secrets.** agent-studio redacted its Django settings keys by value.
   Here the owner's keys come from the keychain or the environment ([keys](keys.md)): the key variables,
-  `OP_SERVICE_ACCOUNT_TOKEN` and every `LOCAL_AGENT_MCP_*` value are read from the environment (and kept out of
+  `OP_SERVICE_ACCOUNT_TOKEN` and every `WRAITHD_MCP_*` value are read from the environment (and kept out of
   shell commands), and anything else the process loads (keychain keys, MCP tokens) is added with
   `register_secret`.
 - **No Composio.** The verb rules that classify `APP_VERB_OBJECT` names stay as the fallback, but the

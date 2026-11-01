@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from local_agent.core import events as ev
-from local_agent.core import reminders, replay
-from local_agent.core.stop import StopPolicy
+from wraithd.core import events as ev
+from wraithd.core import reminders, replay
+from wraithd.core.stop import StopPolicy
 
 RUNS = sorted((Path(__file__).parent / 'runs').glob('*.json'))
 

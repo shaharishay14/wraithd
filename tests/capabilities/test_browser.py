@@ -6,9 +6,9 @@ import os
 import httpx
 import pytest
 
-from local_agent.tools import browser
-from local_agent.tools.browser import Blocked, BrowserSession, EgressRouter, Element, Fulfill, PassThrough, Snapshot
 from tests.capabilities.fakes import FakeSite, public_example_hosts
+from wraithd.tools import browser
+from wraithd.tools.browser import Blocked, BrowserSession, EgressRouter, Element, Fulfill, PassThrough, Snapshot
 
 
 @pytest.fixture
@@ -77,8 +77,8 @@ async def test_an_idle_browser_closes_itself():
     assert closed == [True] and session.driver is None
 
 
-REAL_BROWSER = pytest.mark.skipif(not os.environ.get('LOCAL_AGENT_REAL_BROWSER'),
-                                  reason='real Chromium: set LOCAL_AGENT_REAL_BROWSER=1')
+REAL_BROWSER = pytest.mark.skipif(not os.environ.get('WRAITHD_REAL_BROWSER'),
+                                  reason='real Chromium: set WRAITHD_REAL_BROWSER=1')
 
 
 @REAL_BROWSER

@@ -25,7 +25,7 @@
 - **Silent or not:** an answer of `HEARTBEAT_OK`, or a run that failed, sends nothing: `heartbeat_run` with
   `sent: false`, plus `heartbeat_silent`. Anything else goes to the owner through the notifier (Telegram, or the
   inbox), and `heartbeat_run` keeps the message (500 characters) so the next one doesn't repeat it.
-- **Commands:** `local-agent heartbeat status`, `local-agent heartbeat now` (one now, whatever the interval). For
+- **Commands:** `wraithd heartbeat status`, `wraithd heartbeat now` (one now, whatever the interval). For
   evals: `await heartbeat.run_once(rt, mcp=None, now=None)`.
 
 ## On a laptop

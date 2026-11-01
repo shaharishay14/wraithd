@@ -1,7 +1,7 @@
 """
 MCP end to end, with a fake Gmail server run as a real stdio process (tests/fixtures/fake_mcp.py):
 
-- `local-agent mcp add` keeps the server in config.toml and its secret in the keychain
+- `wraithd mcp add` keeps the server in config.toml and its secret in the keychain
 - the morning brief skill appears once a server provides "email"
 - a scripted run goes find -> describe -> run through the gate: read-only runs, a send asks y/N, an always-allowed
   send doesn't (but still only to recipients the owner wrote, once the inbox is in the context)
@@ -16,16 +16,16 @@ from pathlib import Path
 
 import pytest
 
-from local_agent import cli
-from local_agent.channels import terminal
-from local_agent.config import load_config
-from local_agent.core import events as ev
-from local_agent.core import gate as gate_module
-from local_agent.mcp import commands as mcp_commands
-from local_agent.mcp import config as mcp_config
-from local_agent.mcp.client import McpConnections, neutralize, tool_name
-from local_agent.tools.shell import shell_tool
 from tests.scripted import ScriptedModel, ScriptedTerminal, call, of_type, run_once, say, tool_json, unwrapped_json
+from wraithd import cli
+from wraithd.channels import terminal
+from wraithd.config import load_config
+from wraithd.core import events as ev
+from wraithd.core import gate as gate_module
+from wraithd.mcp import commands as mcp_commands
+from wraithd.mcp import config as mcp_config
+from wraithd.mcp.client import McpConnections, neutralize, tool_name
+from wraithd.tools.shell import shell_tool
 
 FAKE = str(Path(__file__).parent.parent / 'fixtures' / 'fake_mcp.py')
 GMAIL_TOKEN = 'gmail-secret-token-0123456789'
@@ -43,7 +43,7 @@ def outbox(tmp_path):
 
 
 async def allow(server, tool):
-    """`local-agent mcp allow`, from a thread: it connects to the server to check the tool, with its own loop."""
+    """`wraithd mcp allow`, from a thread: it connects to the server to check the tool, with its own loop."""
     return await asyncio.to_thread(cli.main, ['mcp', 'allow', server, tool])
 
 
@@ -53,7 +53,7 @@ def sent(outbox):
 
 @pytest.fixture
 def gmail(home, outbox, capsys):
-    """`local-agent mcp add gmail --provides email --env GMAIL_TOKEN=... -- python fake_mcp.py --app gmail`"""
+    """`wraithd mcp add gmail --provides email --env GMAIL_TOKEN=... -- python fake_mcp.py --app gmail`"""
     assert cli.main(['mcp', 'add', 'gmail', '--provides', 'email', '--env', f'GMAIL_TOKEN={GMAIL_TOKEN}', '--',
                      sys.executable, FAKE, '--app', 'gmail', '--outbox', str(outbox)]) == 0
     capsys.readouterr()
@@ -80,8 +80,8 @@ def discovery_turns(*, to='dana@co.com', start=1):
 def test_add_keeps_the_secret_out_of_the_config(gmail, isolated, capsys):
     text = gmail.config_path.read_text()
     assert '[mcp.servers.gmail]' in text and 'env = ["GMAIL_TOKEN"]' in text and 'provides = ["email"]' in text
-    assert GMAIL_TOKEN not in text and text.startswith('# Local Agent settings')  # the rest of the file is kept
-    assert isolated.passwords[('local-agent', 'mcp/gmail/env/GMAIL_TOKEN')] == GMAIL_TOKEN
+    assert GMAIL_TOKEN not in text and text.startswith('# wraithd settings')  # the rest of the file is kept
+    assert isolated.passwords[('wraithd', 'mcp/gmail/env/GMAIL_TOKEN')] == GMAIL_TOKEN
     [server] = load_config(gmail).mcp_servers
     assert (server.transport, server.command, server.args[-4:-2]) == ('stdio', sys.executable, ('--app', 'gmail'))
 
@@ -91,9 +91,9 @@ def test_add_keeps_the_secret_out_of_the_config(gmail, isolated, capsys):
 
 
 def test_a_secret_without_a_value_is_asked_for(home, monkeypatch, isolated):
-    monkeypatch.setattr('local_agent.mcp.commands.getpass.getpass', lambda prompt: 'typed-in-secret-123')
+    monkeypatch.setattr('wraithd.mcp.commands.getpass.getpass', lambda prompt: 'typed-in-secret-123')
     assert cli.main(['mcp', 'add', 'notes', '--url', 'https://notes.example/mcp', '--header', 'Authorization']) == 0
-    assert isolated.passwords[('local-agent', 'mcp/notes/header/Authorization')] == 'typed-in-secret-123'
+    assert isolated.passwords[('wraithd', 'mcp/notes/header/Authorization')] == 'typed-in-secret-123'
     [server] = load_config(home).mcp_servers
     assert (server.transport, server.url, server.headers) == ('http', 'https://notes.example/mcp', ('Authorization',))
 
@@ -126,7 +126,7 @@ def test_allow_disallow_and_remove(gmail, isolated, capsys):
     assert load_config(gmail).mcp_servers[0].always_allow == ()
     assert cli.main(['mcp', 'remove', 'gmail']) == 0
     assert load_config(gmail).mcp_servers == () and '[mcp.servers.gmail]' not in gmail.config_path.read_text()
-    assert ('local-agent', 'mcp/gmail/env/GMAIL_TOKEN') not in isolated.passwords
+    assert ('wraithd', 'mcp/gmail/env/GMAIL_TOKEN') not in isolated.passwords
     assert cli.main(['mcp', 'remove', 'gmail']) == 1
 
 
@@ -332,7 +332,7 @@ async def test_connections_close_after_the_run(home, capsys):
 
 
 def test_a_remote_servers_headers_go_only_to_that_server(home, isolated, capsys):
-    from local_agent.mcp.client import sdk_server
+    from wraithd.mcp.client import sdk_server
     cli.main(['mcp', 'add', 'notes', '--url', 'https://notes.example/mcp',
               '--header', 'Authorization: Bearer n-123456789012'])
     cli.main(['mcp', 'add', 'drive', '--url', 'https://drive.example/mcp', '--header', 'X-Api-Key: d-123456789012'])

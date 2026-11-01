@@ -1,5 +1,5 @@
 [project]
-name = "local-agent"
+name = "wraithd"
 version = "0.0.1"
 description = "A personal agent that runs on your own machine."
 readme = "README.md"
@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-local-agent = "local_agent.cli:main"
+wraithd = "wraithd.cli:main"
 
 [project.optional-dependencies]
 whisper = [
@@ -37,7 +37,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build]
 # scripts/release.sh builds the web UI into this gitignored folder; without it the daemon shows a placeholder page
-artifacts = ["src/local_agent/ui/"]
+artifacts = ["src/wraithd/ui/"]
 
 [dependency-groups]
 dev = [

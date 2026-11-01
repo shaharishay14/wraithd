@@ -1,5 +1,5 @@
 """
-The sandbox's lines in `local-agent audit` (and doctor): each broken sandbox setting is a FAIL with its fix, and the
+The sandbox's lines in `wraithd audit` (and doctor): each broken sandbox setting is a FAIL with its fix, and the
 audit exits 1 on it.
 """
 
@@ -7,12 +7,12 @@ import os
 
 import pytest
 
-from local_agent import audit, cli, doctor
-from local_agent.config import load_config
-from local_agent.doctor import FAIL, INFO, OK
-from local_agent.mcp import config as mcp_config
-from local_agent.mcp.config import McpServer
-from local_agent.sandbox.audit import doctor_checks, sandbox_rules
+from wraithd import audit, cli, doctor
+from wraithd.config import load_config
+from wraithd.doctor import FAIL, INFO, OK
+from wraithd.mcp import config as mcp_config
+from wraithd.mcp.config import McpServer
+from wraithd.sandbox.audit import doctor_checks, sandbox_rules
 
 DOCKER = '[sandbox]\nbackend = "docker"\n'
 
