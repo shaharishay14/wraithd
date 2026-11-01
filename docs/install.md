@@ -55,6 +55,18 @@
   `pipx_metadata.json` for pipx), runs `uv tool upgrade wraithd` or `pipx upgrade wraithd`, and restarts the
   service if it's installed. Any other install (a checkout, plain pip) is left to the owner rather than guessed at.
 
+## Coming from Local Agent
+
+wraithd was called Local Agent. Installing wraithd over it moves things across once, by itself (`rename.py`):
+
+- `~/.local-agent` is moved to `~/.wraithd` (or `$WRAITHD_HOME`) the first time wraithd runs, with one line saying
+  so. If both folders exist, neither is touched: wraithd uses the new one and `wraithd doctor` names the old one.
+  `$LOCAL_AGENT_HOME` still works for now when `$WRAITHD_HOME` isn't set.
+- Keys saved in the keychain under `local-agent` are still read (after `wraithd`); new ones are saved under
+  `wraithd`. `LOCAL_AGENT_MCP_*` variables are still read after `WRAITHD_MCP_*`.
+- `wraithd daemon install` stops and removes the old `local-agent.service` or `com.local-agent.daemon` agent;
+  `wraithd doctor` says when one is still there.
+
 ## On a laptop
 
 agent-studio was deployed: a server, Celery workers, Redis, a database, all started by the operator. Here the
