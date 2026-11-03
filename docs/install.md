@@ -1,11 +1,28 @@
 # Installing and running
 
-**Files:** `scripts/release.sh`, `onboard.py`, `daemon/service.py`, `daemon/commands.py`, `doctor.py`, `update.py`
+**Files:** `scripts/release.sh`, `scripts/install.sh`, `packaging/homebrew/wraithd.rb`, `.github/workflows/release.yml`, `onboard.py`, `daemon/service.py`, `daemon/commands.py`, `doctor.py`, `update.py`
 
 ## One-liner
 
-> One package, one wizard: `uv tool install wraithd`, then `wraithd onboard` asks for a model and key,
+> One package, one wizard: `uv tool install --python 3.12 wraithd`, then `wraithd onboard` asks for a model and key,
 > sets up Telegram, installs a background service that starts at login, and prints the web UI's link.
+
+## Install options
+
+*After the first release* (wraithd isn't on PyPI yet; until then, install from a checkout, below). All of them are
+per-user and need no sudo. macOS or Linux, Python 3.12+.
+
+| How | Command | Notes |
+|---|---|---|
+| The script | `curl -LsSf https://raw.githubusercontent.com/shaharishay14/wraithd/main/scripts/install.sh \| sh` | Installs uv if missing (Astral's installer, into `~/.local/bin`), then `uv tool install --python 3.12 wraithd`, or upgrades an existing install. `WRAITHD_VERSION` and `WRAITHD_EXTRAS` (`whisper`, `browser`) pin a version or add extras. Short and commented: read it first. |
+| uv | `uv tool install --python 3.12 wraithd` | Without `--python`, uv may pick an older system Python and fail to resolve. |
+| pipx | `pipx install wraithd` | pipx's default Python must be 3.12+ (or add `--python python3.12`). |
+| Homebrew | `brew install shaharishay14/tap/wraithd` | The owner's tap. Upgrade with `brew upgrade wraithd`, then `wraithd daemon install` if the service is installed (it points at the old version's Python). |
+| pip | `pip install wraithd` | Into a virtualenv you manage. |
+| A checkout | `git clone https://github.com/shaharishay14/wraithd && cd wraithd && uv sync && uv run wraithd onboard` | For development; works today. |
+
+`wraithd update` upgrades uv and pipx installs; Homebrew, pip and checkouts are upgraded with their own tool.
+Releasing is in [Releasing](release.md).
 
 ## How it works
 
@@ -14,8 +31,8 @@
   shipped by hatch as an artifact, so the wheel carries the UI while git doesn't. The script checks the wheel for
   `wraithd/ui/index.html` and fails loudly on anything missing (node, npm, uv, the lockfile). Without a UI build
   the wheel still builds, and the daemon serves a placeholder page. CI's `wheel` job runs the script, installs the
-  wheel as a uv tool in a temp folder, and checks the no-UI build too. Publishing (`uv publish`) is the owner's step.
-- **Install:** `uv tool install wraithd` or `pipx install wraithd`. Both give the command its own
+  wheel as a uv tool in a temp folder, and checks the no-UI build too. Publishing is `.github/workflows/release.yml` on a version tag ([Releasing](release.md)).
+- **Install:** `uv tool install --python 3.12 wraithd` or `pipx install wraithd` (all the options are above). Both give the command its own
   environment; nothing goes into the system Python.
 - **`wraithd onboard`** asks, in order: the provider and models, the key (typed without echo, into the
   keychain) and whether to check it with one request for the provider's model list, which web search is active (nothing to
