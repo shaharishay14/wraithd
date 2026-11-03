@@ -23,6 +23,10 @@
 - **Discovery:** MCP tools are app tools: past a dozen in total, the model gets `find_app_actions` ->
   `describe_app_action` -> `run_app_action` instead of the schemas, so the prompt doesn't grow with each server
   (a one-line note names the connected apps). A handful are still given directly.
+- **Only the tools you name:** `mcp add ... --tools a,b` (stored as `tools = [...]` in the server's block) offers
+  the model only those tools, whatever the server lists; the rest are never shown, run or pinned. `mcp tools` lists
+  them as `not offered`, `mcp allow` refuses them, and `audit` names each server's list. Without it, every tool the
+  server lists is offered ([lockdown](lockdown.md)).
 - **Gate tiers:** a tool the server annotates read-only runs freely. Anything else is a write, so the approval card
   asks, until the owner runs `wraithd mcp allow <server> <tool>` (undo with `mcp disallow`). An always-allowed
   tool runs without asking, but like any pre-approval, once the run has read third-party content it may only go to

@@ -184,3 +184,19 @@ async def test_removing_everything(calendar, home, isolated, capsys):
     assert 'Deleted the openai key' in capsys.readouterr().out
     assert isolated.passwords == {} and load_config(home).mcp_servers == ()
     assert cli.main(['key', 'rm', 'openai']) == 0 and 'No openai key' in capsys.readouterr().out
+
+
+def test_web_read_must_be_true_or_false(home):
+    home.config_path.write_text('[web]\nread = "no"\n')
+    with pytest.raises(config.ConfigError, match='read must be true or false'):
+        load_config(home)
+    home.config_path.write_text('')
+    assert load_config(home).web_read is True  # on unless turned off
+
+
+def test_a_tools_list_survives_the_config_round_trip(home, capsys):
+    assert cli.main(['mcp', 'add', 'cal', '--tools', 'list-events, create-event,list-events', '--', 'npx', 'x']) == 0
+    [server] = load_config(home).mcp_servers
+    assert server.tools == ('list-events', 'create-event')
+    assert server.offers('list-events') and not server.offers('delete-event')
+    assert cli.main(['mcp', 'list']) == 0 and 'only these tools: list-events, create-event' in capsys.readouterr().out

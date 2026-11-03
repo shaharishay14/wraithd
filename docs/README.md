@@ -33,6 +33,8 @@ says what changed for running on one person's laptop.
 
 | Note | In one line |
 |---|---|
+| [First launch](first-launch.md) | Start here: on your Mac, a Google Calendar, Telegram, locked down; stop and remove it all. |
+| [Lockdown](lockdown.md) | The safest setup: a separate macOS user, one config block, two tool lists, approvals, and what's not protected. |
 | [One run](run.md) | `run()`, config and keys, providers, the terminal chat. |
 | [Keys](keys.md) | Keychain, else environment variables: an env file, systemd or a password manager such as 1Password. |
 | [Event log](event-log.md) | Every step is an event; the run's state is a query over them. |
