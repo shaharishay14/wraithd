@@ -26,7 +26,7 @@ from wraithd.tools.base import clamp_int, function_tool, tool_error
 
 SEARCH, READ = 'web_search', 'read_website'
 PAGE_CHARS = 3500  # one part per call, below the result cap (render.py) once the JSON is around it
-USER_AGENT = 'Mozilla/5.0 (compatible; wraithd/0.1; +https://github.com/shaharishay14/local-agent-harness)'
+USER_AGENT = 'Mozilla/5.0 (compatible; wraithd/0.1; +https://github.com/shaharishay14/wraithd)'
 SEARCH_TIMEOUT_SECONDS = 10
 
 
