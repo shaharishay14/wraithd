@@ -89,6 +89,7 @@ class Connected:
     errors: dict[str, str] = field(default_factory=dict)  # server -> why it didn't connect
     origin: dict[str, tuple[str, str]] = field(default_factory=dict)  # registered name -> (server, tool)
     pins: dict[str, pinning.Verdict] = field(default_factory=dict)  # registered name -> what pinning decided
+    hidden: dict[str, list[str]] = field(default_factory=dict)  # server -> its tools left out by its `tools` list
 
     def marked_destructive(self, server: str, tool: str) -> bool:
         """The server marks its tool (by the server's own name for it) destructive."""
@@ -160,6 +161,11 @@ class McpConnections:
             if instructions:
                 connected.guides[server.name.upper()] = neutralize(instructions, INSTRUCTIONS_CHARS)
             connected.provides |= set(server.provides)
+            # The owner's allow-list: a tool not on it is never offered, run or pinned (it's not part of the setup)
+            hidden = [tool.name for tool in listed if not server.offers(tool.name)]
+            if hidden:
+                connected.hidden[server.name] = hidden
+                listed = [tool for tool in listed if server.offers(tool.name)]
             verdicts = pinning.check(self.store, server, listed) if self.store is not None else {}
             for tool in listed:
                 registered = tool_name(server.name, tool.name)

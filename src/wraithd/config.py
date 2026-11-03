@@ -64,6 +64,7 @@ run_tool_calls = 40          # per run
 [web]
 search = "auto"              # your model provider's own search, on your model key; DuckDuckGo for local models
                              # or openai | anthropic | duckduckgo | serpapi (needs a key) | "" (off)
+# read = false               # the agent can't open web pages (read_website); true is the default
 
 [voice]
 transcribe = "auto"          # Telegram voice notes: openai if its key is set, else local whisper if installed
@@ -147,6 +148,7 @@ class Config:
     owner_email: str = ''
     timezone: str = ''  # IANA name; empty: the system's (schedules.local_timezone)
     search: str = 'auto'  # a SEARCH_BACKENDS name; '' turns web search off
+    web_read: bool = True  # [web] read: false takes read_website away from every run
     transcribe: str = 'auto'  # a TRANSCRIBERS name; '' turns voice notes off
     shell_enabled: bool = False
     shell_timeout: int = 30
@@ -271,6 +273,8 @@ def load_config(home: Home) -> Config:
     transcribe = voice.get('transcribe', Config.transcribe) or ''
     if transcribe and transcribe not in TRANSCRIBERS:
         raise ConfigError(f'[voice] transcribe must be one of {", ".join(TRANSCRIBERS)}, or "" for none.')
+    if not isinstance(web.get('read', True), bool):
+        raise ConfigError('[web] read must be true or false.')
     if not isinstance(shell.get('enabled', False), bool):
         raise ConfigError('[shell] enabled must be true or false.')
     if 'answer_strangers' in telegram:
@@ -299,6 +303,7 @@ def load_config(home: Home) -> Config:
         owner_email=owner.get('email', ''),
         timezone=timezone,
         search=search,
+        web_read=web.get('read', True),
         transcribe=transcribe,
         shell_enabled=shell.get('enabled', False),
         shell_timeout=_positive_or_none(shell.get('timeout_seconds', Config.shell_timeout), 'timeout_seconds')
@@ -385,6 +390,20 @@ def set_key(provider: str, value: str) -> None:
         keyring.set_password(APP, provider, value)
     except keyring.errors.NoKeyringError as e:
         raise NoKeychain(no_keychain_message(provider)) from e
+
+
+def delete_key(provider: str) -> bool:
+    """Removes the provider's key from the keychain (and any left under the old name). True if one was there.
+    A key in an environment variable stays: wraithd didn't set it."""
+    found = False
+    for service in (APP, rename.OLD_APP):
+        try:
+            if keyring.get_password(service, provider) is not None:
+                keyring.delete_password(service, provider)
+                found = True
+        except (keyring.errors.NoKeyringError, keyring.errors.PasswordDeleteError):
+            pass
+    return found
 
 
 def get_key(provider: str) -> str | None:

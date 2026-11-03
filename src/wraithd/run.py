@@ -252,6 +252,8 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
             given = {tool.name for tool in tools}
             tools = [tool for tool in builtin_tools(rt, owner=owner, attended=callback is not None)
                      if tool.name not in given] + list(tools)
+            if not rt.config.web_read:  # [web] read = false: no page reading at all, not even asked about
+                tools = [tool for tool in tools if tool.name != 'read_website']
         if mcp is not None:
             app_tools = [*app_tools, *mcp.tools]
             app_guides = {**mcp.guides, **(app_guides or {})}

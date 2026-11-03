@@ -16,6 +16,7 @@ The `wraithd` command.
     wraithd update                   upgrade (with uv or pipx) and restart the service
     wraithd telegram pair            a code that makes your Telegram chat the owner's
     wraithd key set <provider>       store an API key in the OS keychain
+    wraithd key rm <provider>        delete it from the keychain
 """
 
 import argparse
@@ -26,7 +27,7 @@ import logging
 import sys
 
 from wraithd import __version__
-from wraithd.config import KEY_NAMES, ConfigError, Home, NoKeychain, set_key
+from wraithd.config import KEY_NAMES, ConfigError, Home, NoKeychain, delete_key, set_key
 from wraithd.core import events as ev
 from wraithd.core import inspector
 from wraithd.daemon import commands as daemon_commands
@@ -79,6 +80,8 @@ def build_parser() -> argparse.ArgumentParser:
                                                                                            required=True)
     key_set = key.add_parser('set', help='store a key (asked for without echo)')
     key_set.add_argument('provider', choices=KEY_NAMES)
+    key_rm = key.add_parser('rm', help='delete a key from the keychain')
+    key_rm.add_argument('provider', choices=KEY_NAMES)
     # New commands: each worker adds its subparser to `commands` inside its own block only
     # >>> security
     from wraithd.review import cli as review_cli
@@ -219,6 +222,14 @@ def key_set(provider: str) -> int:
     return 0
 
 
+def key_rm(provider: str) -> int:
+    if not delete_key(provider):
+        print(f'No {provider} key in the keychain.')
+        return 0
+    print(f'Deleted the {provider} key from the keychain.')
+    return 0
+
+
 def chat(home: Home) -> int:
     from wraithd.channels.terminal import chat as chat_session
     from wraithd.run import Runtime
@@ -275,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'mcp':
         return mcp_commands.main(home, args)
     if args.command == 'key':
-        return key_set(args.provider)
+        return key_set(args.provider) if args.key_command == 'set' else key_rm(args.provider)
     # New commands: each worker dispatches its own inside its block only
     # >>> security
     if args.command == 'review':

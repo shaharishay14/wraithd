@@ -10,6 +10,7 @@ the OS keychain under that server's name, so each one goes only to its own serve
     env = ["GMAIL_TOKEN"]            # names only
     provides = ["email"]             # what skills can count on once it's connected
     always_allow = ["send_email"]    # tools that run without asking (wraithd mcp allow)
+    tools = ["fetch_emails"]         # optional: only these tools are offered; the rest are never shown or run
     sandbox = true                   # optional, stdio only: runs in docker (wraithd mcp add --sandbox)
 
 The blocks are generated, so the CLI rewrites a server's block whole; the rest of the file (and its comments) is
@@ -53,6 +54,11 @@ class McpServer:
     provides: tuple[str, ...] = ()
     always_allow: tuple[str, ...] = field(default=())
     sandbox: bool = False  # a stdio server that runs inside docker (docs/sandbox.md)
+    tools: tuple[str, ...] = ()  # the only tools offered (wraithd mcp add --tools); empty: every tool it lists
+
+    def offers(self, tool: str) -> bool:
+        """The owner's allow-list lets this tool through (no list: every tool does)."""
+        return not self.tools or tool in self.tools
 
 
 def _strings(value, where: str) -> tuple[str, ...]:
@@ -80,7 +86,8 @@ def parse_servers(data: dict) -> tuple[McpServer, ...]:
                            headers=_strings(table.get('headers'), f'{where} headers'),
                            provides=_strings(table.get('provides'), f'{where} provides'),
                            always_allow=_strings(table.get('always_allow'), f'{where} always_allow'),
-                           sandbox=table.get('sandbox', False))
+                           sandbox=table.get('sandbox', False),
+                           tools=_strings(table.get('tools'), f'{where} tools'))
         if not isinstance(server.sandbox, bool) or server.sandbox and transport != 'stdio':
             raise McpConfigError(f'{where} sandbox must be true or false, and only a local (stdio) server has one.')
         if transport == 'stdio' and not server.command:
@@ -161,6 +168,8 @@ def render_block(server: McpServer) -> str:
             lines.append(f'headers = {_toml_list(server.headers)}    # names only: the values are in the keychain')
     lines.append(f'provides = {_toml_list(server.provides)}')
     lines.append(f'always_allow = {_toml_list(server.always_allow)}')
+    if server.tools:
+        lines.append(f'tools = {_toml_list(server.tools)}    # only these tools are offered')
     if server.sandbox:
         lines.append('sandbox = true                   # runs inside docker ([sandbox] image and network)')
     return '\n'.join(lines) + '\n'
@@ -195,4 +204,7 @@ def validated(server: McpServer) -> McpServer:
     for capability in server.provides:
         if not CAPABILITY.match(capability):
             raise McpConfigError(f'{capability!r} is not a capability name, e.g. "email" or "calendar".')
-    return replace(server, provides=tuple(dict.fromkeys(server.provides)))
+    for tool in server.tools:
+        if not tool.strip():
+            raise McpConfigError('A tool name in --tools is empty.')
+    return replace(server, provides=tuple(dict.fromkeys(server.provides)), tools=tuple(dict.fromkeys(server.tools)))

@@ -124,6 +124,16 @@ def checks(home: Home) -> list[Check]:
         f'config.toml holds what looks like a key ({", ".join(kinds)})',
         f'remove it from {home.config_path}; keep it with wraithd key set <provider> or mcp add --env')
 
+    # --- reach: what the agent can open on its own (docs/lockdown.md) -------------------------------------------
+    from wraithd.tools import choose_search
+
+    browser = config.section('browser')['enabled']
+    add(INFO, f'Web: search {choose_search(config).backend or "off"}, page reading '
+              f'{"on" if config.web_read else "off"}, browser {"on" if browser else "off"}')
+    for server in config.mcp_servers:
+        add(INFO, f'MCP {server.name}: ' + (f'only {", ".join(server.tools)}' if server.tools else
+                                            'every tool it lists (no tools list)'))
+
     # --- standing permissions: not problems, but the owner should know they exist -----------------------------
     allowed = [f'{server.name} {tool}' for server in config.mcp_servers for tool in server.always_allow]
     if allowed:
