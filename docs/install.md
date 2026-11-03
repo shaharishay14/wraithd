@@ -1,27 +1,27 @@
 # Installing and running
 
-**Files:** `scripts/release.sh`, `scripts/install.sh`, `packaging/homebrew/wraithd.rb`, `.github/workflows/release.yml`, `onboard.py`, `daemon/service.py`, `daemon/commands.py`, `doctor.py`, `update.py`
+**Files:** `scripts/release.sh`, `scripts/install.sh`, `.github/workflows/release.yml`, `onboard.py`, `daemon/service.py`, `daemon/commands.py`, `doctor.py`, `update.py`
 
 ## One-liner
 
-> One package, one wizard: `uv tool install --python 3.12 wraithd`, then `wraithd onboard` asks for a model and key,
+> One package, one wizard: `curl -LsSf https://raw.githubusercontent.com/shaharishay14/wraithd/main/scripts/install.sh | sh`
+> (or `uv tool install --python 3.12 wraithd`), then `wraithd onboard` asks for a model and key,
 > sets up Telegram, installs a background service that starts at login, and prints the web UI's link.
 
 ## Install options
 
-*After the first release* (wraithd isn't on PyPI yet; until then, install from a checkout, below). All of them are
-per-user and need no sudo. macOS or Linux, Python 3.12+.
+From [PyPI](https://pypi.org/project/wraithd/). All of them are per-user and need no sudo. macOS or Linux, Python 3.12+.
 
 | How | Command | Notes |
 |---|---|---|
 | The script | `curl -LsSf https://raw.githubusercontent.com/shaharishay14/wraithd/main/scripts/install.sh \| sh` | Installs uv if missing (Astral's installer, into `~/.local/bin`), then `uv tool install --python 3.12 wraithd`, or upgrades an existing install. `WRAITHD_VERSION` and `WRAITHD_EXTRAS` (`whisper`, `browser`) pin a version or add extras. Short and commented: read it first. |
 | uv | `uv tool install --python 3.12 wraithd` | Without `--python`, uv may pick an older system Python and fail to resolve. |
 | pipx | `pipx install wraithd` | pipx's default Python must be 3.12+ (or add `--python python3.12`). |
-| Homebrew | `brew install shaharishay14/tap/wraithd` | The owner's tap. Upgrade with `brew upgrade wraithd`, then `wraithd daemon install` if the service is installed (it points at the old version's Python). |
 | pip | `pip install wraithd` | Into a virtualenv you manage. |
-| A checkout | `git clone https://github.com/shaharishay14/wraithd && cd wraithd && uv sync && uv run wraithd onboard` | For development; works today. |
+| A checkout | `git clone https://github.com/shaharishay14/wraithd && cd wraithd && uv sync && uv run wraithd onboard` | For development. |
 
-`wraithd update` upgrades uv and pipx installs; Homebrew, pip and checkouts are upgraded with their own tool.
+`wraithd update` upgrades uv and pipx installs (the script installs with uv); pip and checkouts are upgraded with
+their own tool. Homebrew isn't available.
 Releasing is in [Releasing](release.md).
 
 ## How it works

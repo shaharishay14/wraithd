@@ -1,11 +1,11 @@
 # Releasing
 
-**Files:** `scripts/release.sh`, `.github/workflows/release.yml`, `scripts/install.sh`, `packaging/homebrew/wraithd.rb`, `pyproject.toml`
+**Files:** `scripts/release.sh`, `.github/workflows/release.yml`, `scripts/install.sh`, `pyproject.toml`
 
 ## One-liner
 
 > Bump the version, tag `v<version>`, push the tag: CI builds the wheel (with the web UI) and publishes it to PyPI
-> with trusted publishing, no token anywhere. Then update the Homebrew formula's `url` and `sha256`.
+> with trusted publishing, no token anywhere.
 
 ## How it works
 
@@ -23,11 +23,8 @@
     token through OIDC (`id-token: write`). No API token is stored in GitHub.
 - **The curl installer** (`scripts/install.sh`) is served from `main` on raw.githubusercontent.com, so it's live
   as soon as it's merged; it installs whatever PyPI has.
-- **Homebrew** (`packaging/homebrew/wraithd.rb`) is a thin formula for the owner's tap: it downloads the release
-  wheel from PyPI and has uv install it, with its dependencies, into a virtualenv under the formula's `libexec` on
-  `python@3.12`. A classic virtualenv formula would list each of the ~75 dependencies as a resource (several are
-  Rust builds) and need them refreshed every release; this one changes two lines. The trade-off: dependencies are
-  resolved from PyPI at install time, like `uv tool install`, rather than pinned in the formula.
+- **Homebrew:** none (the owner skipped it on 2026-11-03). A thin formula draft (PyPI wheel installed by uv into
+  `libexec`) is in git history at `packaging/homebrew/wraithd.rb`, commit b9b2491, if it's ever wanted.
 
 ## One time (the owner)
 
@@ -40,10 +37,8 @@
    Do the same on test.pypi.org with environment `testpypi`.
 3. **GitHub environments.** Repo > Settings > Environments: create `pypi` (optionally: required reviewer = you, and
    deployment tags `v*` only) and `testpypi`.
-4. **The tap.** Create the public repo `shaharishay14/homebrew-tap` with a `Formula/` folder. Users then run
-   `brew install shaharishay14/tap/wraithd`.
-5. Check the name is still free just before: `curl -s -o /dev/null -w '%{http_code}' https://pypi.org/pypi/wraithd/json`
-   prints `404` while nobody has it (it was free on 2026-11-03).
+4. Check the name is still free just before: `curl -s -o /dev/null -w '%{http_code}' https://pypi.org/pypi/wraithd/json`
+   prints `404` while nobody has it (it was free on 2026-11-03; 0.0.1 was published the same day).
 
 ## Each release
 
@@ -51,22 +46,12 @@
    `uv tool install --python 3.12 --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ --index-strategy unsafe-best-match wraithd`
    in a throwaway `UV_TOOL_DIR`.
 2. Set `version` in `pyproject.toml` (and run `uv lock`), merge to `main`.
-3. Tag and push: `git tag v0.0.1 && git push origin v0.0.1`. Watch the Release workflow; approve the `pypi`
+3. Tag and push: `git tag v<version> && git push origin v<version>`. Watch the Release workflow; approve the `pypi`
    environment if you set a reviewer.
 4. Check: `uvx --python 3.12 wraithd --version` prints the new version.
-5. Homebrew: in `packaging/homebrew/wraithd.rb` set `url` to the new wheel
-   (`https://files.pythonhosted.org/packages/py3/w/wraithd/wraithd-<version>-py3-none-any.whl`) and `sha256` to
-   ```sh
-   curl -s https://pypi.org/pypi/wraithd/<version>/json | jq -r '.urls[] | select(.packagetype=="bdist_wheel") | .digests.sha256'
-   ```
-   commit it here, copy it to `homebrew-tap/Formula/wraithd.rb`, push the tap, then
-   `brew update && brew install shaharishay14/tap/wraithd && brew test wraithd`.
-6. First release only: drop the "after the first release" notes from the README and [install.md](install.md), and add
-   the PyPI badge (`https://img.shields.io/pypi/v/wraithd.svg?color=111111`, linking to pypi.org/project/wraithd).
-7. Optional: a GitHub release from the tag, with `dist/` from the workflow's artifact.
+5. Optional: a GitHub release from the tag, with `dist/` from the workflow's artifact.
 
 ## Limits
 
 - A version on PyPI can't be replaced, only yanked: a broken release means a new version.
-- The formula's placeholder `sha256` (all zeros) fails `brew install` until step 5 of the first release.
-- `wraithd update` doesn't upgrade Homebrew or pip installs; it says so and leaves them to their own tool.
+- `wraithd update` doesn't upgrade pip installs; it says so and leaves them to their own tool.

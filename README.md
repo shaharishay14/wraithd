@@ -11,6 +11,7 @@
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/wraithd/"><img alt="PyPI" src="https://img.shields.io/pypi/v/wraithd.svg?color=111111"></a>
   <a href="https://github.com/shaharishay14/wraithd/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/shaharishay14/wraithd/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/shaharishay14/wraithd/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-111111.svg"></a>
   <img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-111111.svg">
@@ -23,12 +24,11 @@ local model through Ollama), Telegram if you pair it, and web searches. The rule
 gate, taint tracking, the egress guard, budgets) live in code, not in the prompt, and every step of every run is an
 event you can inspect.
 
-> **Status:** v0.0.1, in development. The package installs below work after the first PyPI release; until then,
-> [install from a checkout](#from-a-checkout).
+> **Status:** v0.0.1 on [PyPI](https://pypi.org/project/wraithd/), early and in development.
 
 ## Install
 
-Needs macOS or Linux. *After the first release:*
+Needs macOS or Linux.
 
 ```sh
 curl -LsSf https://raw.githubusercontent.com/shaharishay14/wraithd/main/scripts/install.sh | sh
@@ -40,9 +40,10 @@ The script ([read it first](https://github.com/shaharishay14/wraithd/blob/main/s
 ```sh
 uv tool install --python 3.12 wraithd     # uv (downloads Python 3.12 if needed)
 pipx install wraithd                      # pipx, with a Python 3.12+
-brew install shaharishay14/tap/wraithd    # Homebrew
 pip install wraithd                       # into a venv you manage, Python 3.12+
 ```
+
+Then run `wraithd onboard`. Homebrew isn't available.
 
 Extras: `wraithd[whisper]` transcribes voice notes locally, `wraithd[browser]` adds a real browser.
 
