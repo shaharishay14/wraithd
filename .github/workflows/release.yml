@@ -1,0 +1,91 @@
+name: Release
+
+# A tag v<version> (matching pyproject.toml) builds the sdist and wheel with scripts/release.sh and publishes them
+# to PyPI with trusted publishing (no token). Run it by hand (Actions > Release > Run workflow) to publish the
+# current commit to TestPyPI instead. One-time setup and the per-release steps are in docs/release.md.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to publish a manual run
+        type: choice
+        options: [testpypi]
+        default: testpypi
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: The tag matches the version in pyproject.toml
+        if: github.event_name == 'push'
+        run: |
+          version=$(uv run --no-project python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but pyproject.toml says $version"; exit 1; }
+      - run: uv sync --locked
+      - run: uv run ruff check
+      - run: uv run pytest
+      - run: scripts/release.sh
+      - run: uvx twine check --strict dist/*
+      - name: It installs as a tool and runs
+        env:
+          UV_TOOL_DIR: ${{ runner.temp }}/uv-tools
+          UV_TOOL_BIN_DIR: ${{ runner.temp }}/uv-bin
+          WRAITHD_HOME: ${{ runner.temp }}/home
+        run: |
+          uv tool install --python 3.12 dist/*.whl
+          "$UV_TOOL_BIN_DIR/wraithd" --version
+          "$UV_TOOL_BIN_DIR/wraithd" --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  pypi:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/wraithd/
+    permissions:
+      id-token: write   # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  testpypi:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/wraithd/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/

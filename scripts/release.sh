@@ -5,7 +5,7 @@
 #
 # npm runs on a copy of frontend/ in a temp folder, never in the checkout. The built UI goes to src/wraithd/ui/
 # (gitignored); hatch ships it as an artifact. The wheel is checked for ui/index.html before the script says done.
-# Publishing is a separate, manual step (uv publish).
+# Publishing is .github/workflows/release.yml on a version tag (docs/release.md).
 set -euo pipefail
 
 fail() { echo "release: $*" >&2; exit 1; }
