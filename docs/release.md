@@ -23,8 +23,7 @@
     token through OIDC (`id-token: write`). No API token is stored in GitHub.
 - **The curl installer** (`scripts/install.sh`) is served from `main` on raw.githubusercontent.com, so it's live
   as soon as it's merged; it installs whatever PyPI has.
-- **Homebrew:** none (the owner skipped it on 2026-11-03). A thin formula draft (PyPI wheel installed by uv into
-  `libexec`) is in git history at `packaging/homebrew/wraithd.rb`, commit b9b2491, if it's ever wanted.
+- **Homebrew:** none (skipped on 2026-11-03).
 
 ## One time (the owner)
 

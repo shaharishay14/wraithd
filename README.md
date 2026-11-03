@@ -94,7 +94,7 @@ it again any time: Enter keeps what's set.
 [Security](https://github.com/shaharishay14/wraithd/blob/main/docs/security.md) ·
 [Evals](https://github.com/shaharishay14/wraithd/blob/main/docs/evals.md) ·
 [Releasing](https://github.com/shaharishay14/wraithd/blob/main/docs/release.md) ·
-[Roadmap](https://github.com/shaharishay14/wraithd/blob/main/PLAN.md)
+[Contributing](https://github.com/shaharishay14/wraithd/blob/main/CONTRIBUTING.md)
 
 ## Development
 
@@ -105,8 +105,8 @@ uv run ruff check
 scripts/release.sh   # the web UI (frontend/) built into the wheel, in dist/
 ```
 
-The web UI is in `frontend/` and the landing page in `site/` (`npm ci && npm run dev` in either). Issues and pull
-requests are welcome; please keep tests offline.
+The web UI is in `frontend/` (`npm ci && npm run dev`). Issues and pull requests are welcome: see
+[CONTRIBUTING.md](https://github.com/shaharishay14/wraithd/blob/main/CONTRIBUTING.md).
 
 The harness design follows Michael Livshits' writing on agent harnesses
 ([michaellivs.com/blog](https://michaellivs.com/blog)). [MIT](https://github.com/shaharishay14/wraithd/blob/main/LICENSE) © 2026 Shahar Ishay
