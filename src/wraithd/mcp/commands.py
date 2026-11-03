@@ -3,6 +3,7 @@
 
     wraithd mcp add gmail --provides email --env GMAIL_TOKEN -- npx -y some-gmail-mcp
     wraithd mcp add notes --url https://notes.example/mcp --header Authorization
+    wraithd mcp add calendar --tools list-events,create-event -- npx ...   only these tools are ever offered
     wraithd mcp tools gmail              connect and show each tool's tier
     wraithd mcp allow gmail send_email   run it without asking from now on
     wraithd mcp disallow gmail send_email
@@ -44,6 +45,8 @@ def add_arguments(subparsers) -> None:
     # dest isn't "command": that's the top-level subcommand
     add.add_argument('--sandbox', action='store_true',
                      help='run this local server inside docker ([sandbox] image; see docs/sandbox.md)')
+    add.add_argument('--tools', default='', metavar='TOOL,TOOL',
+                     help='offer only these tools (the server\'s names, comma-separated); the rest never run')
     add.set_defaults(server_command=[])
     mcp.add_parser('list', help='the configured servers')
     tools = mcp.add_parser('tools', help='connect to a server and show its tools and their tiers')
@@ -98,7 +101,8 @@ def add(home: Home, args, ask=None) -> int:
             name=args.name, transport='http' if args.url else 'stdio', command=command[0] if command else '',
             args=tuple(command[1:]), env=tuple(env), url=args.url, headers=tuple(headers),
             provides=tuple(p.strip().lower() for p in args.provides.split(',') if p.strip()),
-            sandbox=bool(getattr(args, 'sandbox', False))))
+            sandbox=bool(getattr(args, 'sandbox', False)),
+            tools=tuple(t.strip() for t in (getattr(args, 'tools', '') or '').split(',') if t.strip())))
         if args.url and server.sandbox:
             raise McpConfigError('--sandbox is for local servers (a command after --), not --url.')
         if args.url and env or command and headers:
@@ -136,6 +140,8 @@ def list_servers(home: Home) -> int:
             print(f'    provides: {", ".join(server.provides)}')
         if server.env or server.headers:
             print(f'    secrets in the keychain: {", ".join(server.env + server.headers)}')
+        if server.tools:
+            print(f'    only these tools: {", ".join(server.tools)}')
         if server.always_allow:
             print(f'    always allowed: {", ".join(server.always_allow)}')
     return 0
@@ -160,6 +166,11 @@ async def _tools(server: McpServer, store) -> int:
             _, original = connected.origin[tool.name]
             summary = (tool.description or '').strip().splitlines()[0][:70] if (tool.description or '').strip() else ''
             print(f'{original:<28} {_tier(connected, tool.name):<15} {summary}')
+        for name in connected.hidden.get(server.name, []):
+            print(f'{name:<28} {"not offered":<15} (not in this server\'s tools list)')
+        missing = [name for name in server.tools if name not in {o for _, o in connected.origin.values()}]
+        if missing:
+            print(f'In the tools list but not on the server: {", ".join(missing)}', file=sys.stderr)
     return 0
 
 
@@ -169,6 +180,9 @@ async def _check(server: McpServer, tool: str, store) -> str | None:
         if server.name in connected.errors:
             return (f'{server.name} did not connect ({connected.errors[server.name]}), so {tool} can\'t be checked '
                     'and pinned. Try again once it starts.')
+        if not server.offers(tool):
+            return (f'{tool} is not in {server.name}\'s tools list, so it is never offered. Add it there first '
+                    f'(wraithd mcp add {server.name} --tools ...).')
         if connected.marked_destructive(server.name, tool):
             return (f'{server.name} marks {tool} as destructive: it asks every time and never runs unattended, so '
                     'it can\'t be always allowed.')
