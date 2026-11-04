@@ -91,8 +91,10 @@ class Tty(io.StringIO):
 
 @pytest.fixture
 def no_plain_env(monkeypatch):
-    monkeypatch.delenv('NO_COLOR', raising=False)
-    monkeypatch.delenv(tui.PLAIN_ENV, raising=False)
+    """Neither variable set; afterwards they're as they were (--plain sets WRAITHD_PLAIN for the whole process)."""
+    for name in ('NO_COLOR', tui.PLAIN_ENV):
+        monkeypatch.setenv(name, '')  # recorded, so the test's own changes are undone
+        monkeypatch.delenv(name)
 
 
 def test_plain_whenever_it_is_not_a_terminal_or_the_owner_says_so(no_plain_env, monkeypatch):
