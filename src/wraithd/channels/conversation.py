@@ -21,6 +21,6 @@ async def reply(rt: Runtime, conversation_id: str, message: str, **run_options) 
     async with lock_for(conversation_id):
         rt.store.add_message(conversation_id, 'user', message)
         history = await compaction.history_for(rt.store, conversation_id, rt.completer('compaction'))
-        result = await run(rt, message, history=history, **run_options)
+        result = await run(rt, message, history=history, conversation=conversation_id, **run_options)
         rt.store.add_message(conversation_id, 'assistant', result.answer, run_id=result.run_id)
         return result

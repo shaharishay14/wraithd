@@ -24,12 +24,13 @@ from wraithd.core import compaction, disclosure, reminders, tokens, tool_results
 from wraithd.core import events as ev
 from wraithd.core.gate import PermissionGate, guard_function_tools
 from wraithd.core.loop import RunAlreadyStartedError, run_with_step_limit
-from wraithd.core.stop import DAILY_BUDGET_MESSAGE, StopPolicy, tokens_used_today
+from wraithd.core.stop import DAILY_BUDGET_MESSAGE, StopPolicy, final_answer_instruction, tokens_used_today
+from wraithd.engines import claude_code
 from wraithd.mcp.client import Connected, McpConnections
 from wraithd.memory import tools as memory_tools
 from wraithd.memory import vault
 from wraithd.memory.notes import Vault
-from wraithd.providers import build_models, model_for, model_settings
+from wraithd.providers import engine_models, model_for, model_settings
 from wraithd.skills import registry
 from wraithd.skills.tools import skill_tools
 from wraithd.store import SQLiteStore, Store
@@ -47,6 +48,8 @@ BASE_INSTRUCTIONS = (
     'You are wraithd, a personal assistant that runs on the user\'s own computer. Be direct and useful. '
     'Use your tools when they help; never claim you did something a tool didn\'t do.\n'
 )
+# Claude Code engine, a picture and no API model to read it
+NO_IMAGES_MESSAGE = "I can't read images yet on your Claude subscription. Send me the text instead."
 # The time changes every minute, so it goes after the owner's message, never in the cached prefix
 NOW_NOTE = 'Now: {now}.'
 
@@ -58,7 +61,7 @@ class Runtime:
     home: Home
     config: Config
     store: Store
-    models: dict[str, Model]  # 'default', and 'strong' if one is configured
+    models: dict[str, Model]  # 'default', and 'strong' if one is configured; {} on claude-code without a key
     # The web tools' HTTP transports: None is the real network; tests pass httpx.MockTransport
     web_transport: object = None
     search_transport: object = None
@@ -66,6 +69,7 @@ class Runtime:
     notifier: object = None  # where notify_owner delivers; the daemon sets Telegram, else the store's inbox
     memory: Vault = field(init=False)
     skills: registry.SkillFolder = field(init=False)
+    sessions: claude_code.SessionPool = field(init=False)  # warm Claude Code sessions, by conversation id
 
     def __post_init__(self):
         # The Agents SDK uploads run traces to OpenAI by default (whenever OPENAI_API_KEY is in the environment).
@@ -74,13 +78,19 @@ class Runtime:
         self.notifier = self.notifier or StoreNotifier(self.store)
         self.memory = Vault(self.home.memory_dir)
         self.skills = registry.SkillFolder(self.home.skills_dir)
+        self.sessions = claude_code.SessionPool(self.engine['idle_minutes'])
 
     @classmethod
     def open(cls, home: Home | None = None, models: dict[str, Model] | None = None) -> 'Runtime':
         home = home or Home.locate()
         home.ensure()
         config = load_config(home)
-        return cls(home=home, config=config, store=SQLiteStore(home.db_path), models=models or build_models(config))
+        return cls(home=home, config=config, store=SQLiteStore(home.db_path), models=models or engine_models(config))
+
+    @property
+    def engine(self) -> dict:
+        """[engine]: which engine thinks (agents-sdk or claude-code), and its settings."""
+        return self.config.section('engine')
 
     def policy(self, budget: dict | None = None) -> StopPolicy:
         """The stop rules for a run. budget overrides (a subagent's share) only ever tighten the configured ones."""
@@ -101,6 +111,13 @@ class Runtime:
 
     async def complete(self, prompt: str, purpose: str = 'chat') -> str:
         """One model call without tools, for the harness's own work (summaries, distill)."""
+        if self.engine['name'] == 'claude-code':
+            try:
+                return await asyncio.wait_for(claude_code.complete(
+                    prompt, claude_code.model_for(self.engine, purpose)), timeout=60)
+            except claude_code.SubscriptionUnavailable:
+                if not (self.engine['fallback'] and self.models):  # nothing ran yet, so falling back is safe
+                    raise
         helper = Agent(name='helper', instructions='Follow the request exactly.', model=self.model_for(purpose))
         result = await asyncio.wait_for(Runner.run(helper, prompt, max_turns=1), timeout=60)
         return str(result.final_output or '')
@@ -111,7 +128,12 @@ class Runtime:
             return await self.complete(prompt, purpose)
         return complete
 
+    async def close_sessions(self) -> None:
+        """Closes the warm Claude Code sessions (they also close when the event loop running them ends)."""
+        await self.sessions.close()
+
     def close(self) -> None:
+        self.sessions.close_soon()
         self.store.close()
 
 
@@ -133,6 +155,16 @@ def honest_failure_message(completed_writes: list[str], timed_out: bool = False)
         return (f'{problem} before I could finish. These actions were already done:\n{done}\n'
                 'Check them before asking me to repeat anything.')
     return f"{problem} and I couldn't finish. Nothing was changed. Please try again."
+
+
+def subscription_message(problem: str, completed_writes: list[str]) -> str:
+    """What the owner is told when the Claude login can't be used or the plan's limit hit, and there's no fallback."""
+    if completed_writes:
+        done = '\n'.join(f'- {action}' for action in completed_writes)
+        return (f'{problem} I stopped here. These actions were already done:\n{done}\n'
+                'Check them before asking me to repeat anything.')
+    later = ' It resets after a while: try again then.' if problem == claude_code.LIMIT_MESSAGE else ''
+    return f'{problem} Nothing was changed.{later}'
 
 
 def standing_orders(home: Home) -> str:
@@ -172,11 +204,60 @@ async def _run_loop(agent, chat, callback, log, policy, upgrade):
             await asyncio.sleep(delay)
 
 
+def engine_purpose(purpose: str, source: str) -> str:
+    """What picks a run's Claude Code model: its purpose, or 'schedule' for a scheduled run (background work)."""
+    return 'schedule' if source == 'schedule' else purpose
+
+
+def warm_eligible(rt: Runtime, conversation: str | None, purpose: str, source: str) -> bool:
+    """A chat in a conversation, on Claude Code: it keeps one warm session per conversation."""
+    return (bool(conversation) and rt.engine['name'] == 'claude-code'
+            and engine_purpose(purpose, source) not in claude_code.BACKGROUND and purpose in ('chat', 'strong'))
+
+
+async def _run_claude(rt, log, gate, policy, instructions, chat, guarded, callback, model, lease=None,
+                      new_from: int = 0):
+    """
+    The run on Claude Code (engines/claude_code.py): (answer, outcome, run_end extras), or None to fall back to the
+    Agents SDK engine. Fallback happens only when the login can't be used or the plan's limit hit, [engine] fallback
+    is on, an API model exists, no write has happened and the owner saw no text: the same rule as
+    RunAlreadyStartedError, so nothing (an email) is ever done twice.
+    """
+    def stop():
+        """The run's stop rules (StopPolicy), checked before every tool call: the Agents SDK engine's run hooks."""
+        reason = policy.check(log.events)
+        if reason is None:
+            return None
+        if views.stop_reason(log.events) != reason.code:
+            log.append(ev.STOP, reason=reason.code, message=reason.message)
+        return final_answer_instruction(reason)
+
+    progress = {'streamed': False}
+    options = {'limit': policy.max_tool_calls, 'stop': stop, 'callback': callback, 'log': log, 'progress': progress}
+    try:
+        if lease is not None:
+            # A warm session: a new one gets the whole history as a transcript, a known one only this run's messages
+            session = await lease.session(instructions, guarded, model)
+            text = claude_code.transcript(chat if session.fresh else chat[new_from:])
+            call = lease.ask(session, text, guarded, untrusted_texts=lambda: gate.untrusted_texts, **options)
+        else:
+            call = claude_code.run_once(instructions, claude_code.transcript(chat), guarded, model, **options)
+        answer, result = await asyncio.wait_for(call, timeout=RUN_TIMEOUT_SECONDS)
+    except claude_code.SubscriptionUnavailable as e:
+        writes = gate.completed_writes()
+        if writes or progress['streamed'] or not rt.engine['fallback'] or not rt.models:
+            log.append(ev.STOP, reason='subscription_unavailable', message=str(e))
+            return subscription_message(str(e), writes), 'refused', {'engine': 'claude-code'}
+        log.append(ev.STOP, reason='engine_fallback', message=str(e))
+        return None
+    return answer, 'answered', {'engine': 'claude-code', 'claude_session': result.session_id if result else None}
+
+
 async def run(rt: Runtime, message: str, *, history=(), callback=None, source: str = 'chat', owner: bool = True,
               tools=(), app_tools=(), app_guides: dict[str, str] | None = None, builtins: bool = True,
               mcp: Connected | None = None, untrusted_source: str = '', images=(), parent_run_id: str | None = None,
               inherited_taint=(), budget: dict | None = None, purpose: str = 'chat',
-              allowed_tools=None) -> RunResult:
+              allowed_tools=None, conversation: str | None = None) -> RunResult:
     """
     Runs the agent on one message.
 
@@ -200,8 +281,15 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
     budget: {'run_tokens', 'run_tool_calls', 'daily_tokens'} limits; they only ever tighten the configured ones
     purpose: which model runs it (providers.PURPOSES)
     allowed_tools: names of the only tools the model is offered (app actions included); None offers every one
+    conversation: the conversation's id. On the Claude Code engine a chat keeps one warm Claude Code session per
+    conversation (engines/claude_code.py); third-party text its earlier messages read taints this one too.
     """
     async with AsyncExitStack() as stack:
+        lease = None
+        if warm_eligible(rt, conversation, purpose, source):
+            # Held until the answer, from before the gate is built: earlier messages' taint is this run's too
+            lease = await stack.enter_async_context(rt.sessions.conversation(conversation))
+            inherited_taint = (*inherited_taint, *(pair for pair in lease.taint if pair not in inherited_taint))
         if owner and mcp is None and rt.config.mcp_servers:
             mcp = await stack.enter_async_context(McpConnections(rt.config.mcp_servers, store=rt.store))
         return await _run(rt, message, history=history, callback=callback, source=source, owner=owner, tools=tools,
@@ -209,7 +297,7 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
                           mcp=mcp if owner else None, untrusted_source=untrusted_source, images=images,
                           parent_run_id=parent_run_id, inherited_taint=tuple(inherited_taint), budget=budget,
                           purpose=purpose, allowed_tools=None if allowed_tools is None else set(allowed_tools),
-                          stack=stack)
+                          stack=stack, lease=lease)
 
 
 def user_content(message: str, images=()):
@@ -222,7 +310,8 @@ def user_content(message: str, images=()):
 
 
 async def _run(rt, message, *, history, callback, source, owner, tools, app_tools, app_guides, builtins, mcp,
-               untrusted_source, images, parent_run_id, inherited_taint, budget, purpose, allowed_tools, stack):
+               untrusted_source, images, parent_run_id, inherited_taint, budget, purpose, allowed_tools, stack,
+               lease=None):
     started = time.monotonic()
     history = list(history)
     log = ev.EventLog(rt.store)
@@ -247,6 +336,13 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
             log.append(ev.STOP, reason='daily_budget', message='The daily usage limit was reached.')
             end('refused')
             return RunResult(DAILY_BUDGET_MESSAGE, log.run_id, 'refused')
+        engine = rt.engine
+        use_claude = engine['name'] == 'claude-code' and not (images and rt.models)  # images stay on the API
+        if engine['name'] == 'claude-code' and images and not rt.models:
+            log.append(ev.STOP, reason='images', message='No model that can read images is set up.')
+            end('refused')
+            return RunResult(NO_IMAGES_MESSAGE, log.run_id, 'refused')
+        engine_model = claude_code.model_for(engine, engine_purpose(purpose, source)) if use_claude else None
 
         if builtins:
             given = {tool.name for tool in tools}
@@ -281,7 +377,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
             message=message, events=log.events, owner=owner, skills=skills,
             previous_run=reminders.previous_run_events(rt.store, log.run_id) if owner else [],
             history_summarized=compaction.is_summarized(history),
-            context_window=reminders.context_window_of(rt.model_for(purpose)))
+            context_window=reminders.context_window_of(engine_model or rt.model_for(purpose)))
 
         def after_result(tool_name, result_text):
             situation.tool, situation.tool_output = tool_name, result_text
@@ -349,9 +445,10 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
                                                               len(app_tools))
         instructions += sections[tokens.PROFILE]
 
-        model = rt.model_for(purpose)
+        model = engine_model or rt.model_for(purpose)
         # What the model starts with: the size of this is what progressive disclosure shrinks
         log.append(ev.CONTEXT_BUILT, model=str(getattr(model, 'model', model)),
+                   **({'engine': 'claude-code'} if use_claude else {}),
                    disclosure='discovery' if use_discovery else 'direct', app_actions=len(app_tools),
                    tools_offered=[tool.name for tool in guarded], tool_schema_chars=disclosure.schema_chars(guarded),
                    memory_notes=len(notes) if owner else None, skills_offered=[skill.name for skill in skills],
@@ -371,6 +468,15 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
                                        reminders.due(reminders.REMINDERS, reminders.RUN_START, situation))
         if start_block:
             chat.append({'role': 'user', 'content': start_block})
+
+        if use_claude:
+            outcome = await _run_claude(rt, log, gate, policy, instructions, chat, guarded, callback, engine_model,
+                                        lease, new_from=len(history))
+            if outcome is not None:
+                answer, status, extra = outcome
+                end(status, **extra)
+                return RunResult(answer, log.run_id, status)
+            model = rt.model_for(purpose)  # fell back: the rest is the Agents SDK engine on [model]
 
         def metered(chosen):
             return tokens.TokenMeter(chosen, log, sections)

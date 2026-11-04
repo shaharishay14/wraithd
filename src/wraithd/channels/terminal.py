@@ -96,7 +96,7 @@ async def _session(rt: Runtime, terminal: Terminal, mcp) -> str:
             history = await compaction.history_for(rt.store, conversation.id, rt.completer('compaction'))
             state = {'streamed': False}
             result = await run(rt, message, history=history, callback=make_callback(rt, terminal, state),
-                               source='chat', mcp=mcp)
+                               source='chat', mcp=mcp, conversation=conversation.id)
             # A streamed answer is already on screen; a refusal or failure message never streamed
             terminal.say('' if state['streamed'] else result.answer)
             rt.store.add_message(conversation.id, 'assistant', result.answer, run_id=result.run_id)

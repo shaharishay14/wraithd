@@ -8,8 +8,7 @@ import pytest
 
 from wraithd.config import SUBSCRIPTION_DAILY_TOKENS, ConfigError, load_config, set_values
 from wraithd.core.loop import MAX_AGENT_STEPS
-from wraithd.engines.claude_options import (SubscriptionUnavailable, claude_options, model_for,
-                                            subscription_env_problem)
+from wraithd.engines.claude_options import SubscriptionUnavailable, claude_options, model_for, subscription_env_problem
 
 SAFE = dict(tools=[], strict_mcp_config=True, setting_sources=[], env={'ANTHROPIC_API_KEY': ''},
             extra_args={'no-session-persistence': None})

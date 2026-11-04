@@ -142,6 +142,19 @@ def build_models(config: Config) -> dict[str, Model]:
     return models
 
 
+def engine_models(config: Config) -> dict[str, Model]:
+    """
+    build_models() for the configured engine. The Claude Code engine thinks on the owner's Claude login and needs no
+    key: without one there are no API models (no image reading, no fallback) instead of an error.
+    """
+    if config.section('engine')['name'] != 'claude-code':
+        return build_models(config)
+    try:
+        return build_models(config)
+    except ProviderError:
+        return {}
+
+
 def model_for(models: dict[str, Model], purpose: str) -> Model:
     """
     The model for one purpose, from build_models(). A purpose whose model isn't configured gets the default one
@@ -149,6 +162,9 @@ def model_for(models: dict[str, Model], purpose: str) -> Model:
     """
     if purpose not in PURPOSE_MODEL:
         raise ValueError(f'Unknown model purpose {purpose!r}; one of {", ".join(PURPOSES)}')
+    if not models:
+        raise ProviderError('No API model is set up (the Claude Code engine runs without one). '
+                            'Set a key with: wraithd key set <provider>')
     return models.get(PURPOSE_MODEL[purpose]) or models['default']
 
 

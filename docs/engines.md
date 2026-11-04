@@ -1,0 +1,86 @@
+# Engines
+
+**Files:** `engines/claude_options.py`, `engines/claude_bridge.py`, `engines/claude_code.py`, `run.py`, `config.py`
+
+## One-liner
+
+> Two engines can run wraithd's thinking loop. `agents-sdk` uses your API key or a local model. `claude-code` runs
+> Anthropic's own Claude Code on your Claude Pro or Max login. The gate, approvals, taint, event log and budgets
+> work the same on both.
+
+## How they differ
+
+| | `agents-sdk` (default) | `claude-code` |
+|---|---|---|
+| Thinks with | `[model]`: OpenAI, Anthropic, Ollama, any OpenAI-compatible endpoint | Claude Code on your Claude login |
+| Needs | an API key (none for Ollama) | `pip install 'wraithd[claude]'` (~300 MB), then `claude` and `/login` |
+| Tools | wraithd's guarded tools | the same guarded tools, as one in-process MCP server; Claude Code's own are off |
+| Chat | one run per message | one warm Claude Code process per conversation, so only the first message waits ~5 s for it to start |
+| Background work | `[models]` per purpose | `background_model` for the heartbeat, schedules, memory distill and compaction |
+| Images | when the model can see | only through an API model; with no key, wraithd says it can't read images yet |
+| Stop rules | the loop's run hooks | checked by the bridge before every tool call; the tool-call limit is counted there too |
+| Daily token budget | off unless set | on by default (2,000,000), since your own Claude chats share the plan |
+
+## Config
+
+```toml
+[engine]
+name = "claude-code"         # or "agents-sdk" (the default)
+chat_model = "sonnet"        # chats
+background_model = "haiku"   # heartbeat, schedules, distill, compaction
+fallback = false             # true: when the plan's limit hits, use [model] instead, if nothing happened yet
+idle_minutes = 10            # close a conversation's Claude Code session after this long unused
+```
+
+Every Claude Code call names its model. With none set, Claude Code picks Opus, the most expensive.
+
+## The rules
+
+- wraithd never reads `~/.claude/.credentials.json` or Claude Code's keychain entry. It never sets
+  `CLAUDE_CODE_OAUTH_TOKEN` and never calls Anthropic's API with a login token. Only the unmodified Claude Code
+  program, started by `claude-agent-sdk`, talks to Anthropic.
+- `claude_options()` is the only place Claude Code's options are built. It always sets:
+  - `tools=[]`, `strict_mcp_config=True` and `setting_sources=[]`: none of Claude Code's own tools, MCP servers,
+    settings or hooks;
+  - `env={'ANTHROPIC_API_KEY': ''}`: the login, never a key;
+  - `--no-session-persistence`: nothing saved in `~/.claude`.
+
+  The doctor and the audit use the same function.
+- Claude Code must report `apiKeySource: none`, the login. Bedrock and Vertex report `none` too, so
+  `CLAUDE_CODE_USE_BEDROCK`, `_VERTEX` or `_FOUNDRY` in the environment refuses the run
+  (`subscription_env_problem()`).
+- **Fallback** happens only when all of these hold:
+  - `fallback = true`;
+  - an API model or Ollama is set up;
+  - no write has completed;
+  - no text has streamed to you.
+
+  Otherwise the run stops with a plain line: what is wrong (the plan's limit, which resets later, or the wrong
+  login) and any actions already done.
+
+## Warm sessions
+
+- Each conversation keeps one warm session. Its tools, system prompt and model are fixed when it connects, so a
+  run that needs different ones gets a new session.
+- A new session gets wraithd's compacted history as a transcript. A known session gets only the new message, the
+  time and any reminders.
+- A `RunSlot` holds the guarded tools of the run that is answering. Between runs it is empty, and any call is
+  refused.
+- Third-party text read by one message taints the conversation's next messages too. It is passed in as
+  `inherited_taint` before the gate is built.
+- Sessions close:
+  - after any error;
+  - after `idle_minutes` unused (the pool's own reaper);
+  - when wraithd's event loop ends.
+
+## Checked how
+
+`tests/engines/` runs fully offline against a fake `claude_agent_sdk`. No Claude Code process starts and the real
+login and home folder are never touched. The tests cover:
+- the options;
+- the bridge, including run 2 never using run 1's gate;
+- a chat that asks approval for a write, with `wraithd runs show` listing every call;
+- the three fallback cases;
+- warm sessions: reuse, taint carried over, changed tools, the idle reaper, ordering, shutdown.
+
+`scripts/spike_claude.py` is the one real check, on your own login: `auth: none` and `echo: hi`.
