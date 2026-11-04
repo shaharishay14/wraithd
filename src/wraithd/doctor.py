@@ -8,6 +8,7 @@ Keys are reported as present or missing, never shown. Exit code 1 if any check f
 import asyncio
 import concurrent.futures
 import contextlib
+import re
 import socket
 import stat
 import sys
@@ -25,6 +26,9 @@ OK, FAIL, INFO, WARN = 'ok', 'FAIL', 'info', 'warn'  # WARN: worth fixing, but n
 NEEDS_KEY = {'openai', 'anthropic'}
 CLAUDE_ENGINE, DEFAULT_ENGINE = 'claude-code', 'agents-sdk'
 LOGIN_OK = 'Claude subscription login in use'
+SIGNED_OUT = 'Claude Code isn\'t signed in: run `claude` and type /login'
+PLAN_LIMIT = 'Claude subscription login in use: signed in, but your plan limit is reached right now'
+AUTH_WORDS = re.compile(r'log ?in|auth|api key|credential|unauthori[sz]ed|forbidden|token', re.IGNORECASE)
 LOGIN_TIMEOUT = 60  # seconds for Claude Code to start and say which credential it chose
 CLAUDE_EXTRA = "uv tool install 'wraithd[claude]'"
 
@@ -92,10 +96,12 @@ def _login_fix(source) -> str:
 
 async def claude_login_check(home: Home | None = None) -> tuple[bool, str]:
     """
-    A tool-less one-shot on the background model (engines.claude_options.claude_options) that reads only which
-    credential Claude Code chose, the init message's apiKeySource, and stops there. Never opens Claude Code's
-    credentials (the file or the keychain entry) and never sets CLAUDE_CODE_OAUTH_TOKEN: the login stays between
-    the owner and Anthropic. Bedrock and Vertex are refused first: apiKeySource reads none there too.
+    A tool-less one-shot on the background model (engines.claude_options.claude_options): which credential Claude
+    Code chose (the init message's apiKeySource), then the result of one short reply, since apiKeySource reads none
+    even when nobody is signed in. A login that isn't the subscription stops at the init, before any reply. Never
+    opens Claude Code's credentials (the file or the keychain entry) and never sets CLAUDE_CODE_OAUTH_TOKEN: the
+    login stays between the owner and Anthropic. Bedrock and Vertex are refused first (apiKeySource reads none there
+    too).
     """
     try:
         from wraithd.engines.claude_code import SubscriptionUnavailable
@@ -110,25 +116,51 @@ async def claude_login_check(home: Home | None = None) -> tuple[bool, str]:
         options = claude_options('Reply with OK.', None, [], model_for(settings, 'heartbeat'))
     except SubscriptionUnavailable as e:
         return False, str(e)
-    from claude_agent_sdk import SystemMessage, query
+    from claude_agent_sdk import ResultMessage, SystemMessage, query
 
-    async def first_init() -> dict | None:
+    async def init_and_result() -> tuple[dict | None, object]:
+        """The init message's data, then the ResultMessage of the one short reply (or None for either)."""
+        init = None
         async with contextlib.aclosing(query(prompt='Reply with OK.', options=options)) as messages:
             async for message in messages:
                 if isinstance(message, SystemMessage) and message.subtype == 'init':
-                    return dict(message.data)
-        return None
+                    init = dict(message.data)
+                    if init.get('apiKeySource') != LOGIN:  # not the login: no need to spend a reply on it
+                        return init, None
+                elif isinstance(message, ResultMessage):
+                    return init, message
+        return init, None
 
     try:
-        init = await asyncio.wait_for(first_init(), LOGIN_TIMEOUT)
+        init, result = await asyncio.wait_for(init_and_result(), LOGIN_TIMEOUT)
     except TimeoutError:
-        return False, f'Claude Code did not start within {LOGIN_TIMEOUT} seconds'
+        return False, f'Claude Code did not answer within {LOGIN_TIMEOUT} seconds'
     except Exception as e:  # the SDK's own errors: the program is missing, or it exited at once
         return False, f'Claude Code did not start ({type(e).__name__}: {e})'
     if init is None:
         return False, 'Claude Code did not start: is it installed?'
     source = init.get('apiKeySource')
-    return (True, LOGIN_OK) if source == LOGIN else (False, _login_fix(source))
+    if source != LOGIN:
+        return False, _login_fix(source)
+    if result is None:
+        return False, 'Claude Code started but never answered'
+    return _result_check(result)
+
+
+def _result_check(result) -> tuple[bool, str]:
+    """The one reply's ResultMessage: signed in, signed out, the plan's limit, or another error."""
+    if not getattr(result, 'is_error', False):
+        return True, LOGIN_OK
+    status = getattr(result, 'api_error_status', None)
+    errors = getattr(result, 'errors', None) or []
+    text = '; '.join(str(error) for error in errors) if isinstance(errors, list | tuple) else str(errors)
+    text = text or str(getattr(result, 'result', '') or '')
+    if status == 429:
+        return True, PLAN_LIMIT
+    if status in (401, 403) or AUTH_WORDS.search(text):
+        return False, SIGNED_OUT
+    detail = text or (f'HTTP {status}' if status else 'no details')
+    return False, f'Claude Code answered with an error: {detail}'
 
 
 def _wait(coroutine):
@@ -146,6 +178,8 @@ def subscription_checks(home: Home, login_check=None) -> list[Check]:
     if engine_name(home) != CLAUDE_ENGINE:
         return []
     ok, message = _wait((login_check or claude_login_check)(home))
+    if message == PLAN_LIMIT:
+        return [Check(WARN, message, 'wait for the limit to reset (claude.ai shows when), or set [engine] fallback')]
     return [Check(OK, message) if ok else Check(FAIL, message, 'see docs/claude-subscription.md')]
 
 

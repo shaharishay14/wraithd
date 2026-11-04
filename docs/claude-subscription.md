@@ -84,8 +84,10 @@ subscriptions, ask Anthropic first.
 7. API keys and Ollama keep working: the subscription is one option, never the only one.
 8. Its tests fake the Claude side and never touch the real login or your home folder.
 
-The doctor and audit checks only start Claude Code (with no tools) and read which credential it chose
-(`apiKeySource` in its first message). A test checks that they never open Claude Code's credentials file, never
+Doctor starts Claude Code with no tools, reads which credential it chose (`apiKeySource` in its first message),
+and, only if that's your login, sends one short message on the cheap background model: Claude Code reports no key
+when nobody is signed in too, so only the reply shows the login works. Audit only builds the options and never
+starts Claude Code. A test checks that they never open Claude Code's credentials file, never
 read its keychain entry and never set `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## The checks
@@ -94,10 +96,12 @@ read its keychain entry and never set `CLAUDE_CODE_OAUTH_TOKEN`.
 
 | Line | Means |
 |---|---|
-| `ok   Claude subscription login in use` | Claude Code started on the background model and chose your login |
+| `ok   Claude subscription login in use` | Claude Code chose your login and answered one short message on the background model |
 | `FAIL Claude Code is using ANTHROPIC_API_KEY, not your login` | a key won: unset it, then `claude` and `/login` |
 | `FAIL Claude Code is using an apiKeyHelper` | remove `apiKeyHelper` from your Claude Code settings |
 | `FAIL Claude Code is signed in with an Anthropic Console account` | that bills the API: `/logout`, then `/login` with your Claude account |
+| `FAIL Claude Code isn't signed in` | run `claude` and type `/login` |
+| `warn ... signed in, but your plan limit is reached right now` | the login works; wait for the limit to reset |
 | `FAIL CLAUDE_CODE_USE_BEDROCK is set` (or `_VERTEX`) | unset it where wraithd runs |
 | `FAIL Claude Code extra not installed` | `uv tool install 'wraithd[claude]'` |
 

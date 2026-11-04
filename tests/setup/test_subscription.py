@@ -40,15 +40,17 @@ class SystemMessage:
 
 
 class ResultMessage:
-    pass
+    def __init__(self, is_error=False, api_error_status=None, result='OK', errors=None):
+        self.is_error, self.api_error_status, self.result, self.errors = is_error, api_error_status, result, errors
 
 
 class FakeClaude:
     """claude_agent_sdk and engines.claude_code as the contract has them. `source` is the init's apiKeySource;
     `installed=False` makes claude_options raise SubscriptionUnavailable, like a missing extra."""
 
-    def __init__(self, source='none', installed=True, options=None):
+    def __init__(self, source='none', installed=True, options=None, result=None):
         self.source, self.installed, self.queries, self.closed = source, installed, [], 0
+        self.result, self.read = result or ResultMessage(), []
         self.options = options or {}
 
     def claude_options(self, instructions, server, names, model, stream=False):
@@ -79,8 +81,11 @@ class FakeClaude:
 
         async def messages():
             try:
+                fake.read.append('init')
                 yield SystemMessage('init', {'apiKeySource': fake.source, 'model': 'claude-haiku-5-5'})
-                raise AssertionError('the check reads past the init message')
+                fake.read.append('result')
+                yield fake.result
+                raise AssertionError('the check reads past the result')
             finally:
                 fake.closed += 1
         return messages()
@@ -153,16 +158,50 @@ def test_doctor_reports_the_subscription_login_and_needs_no_key(home, claude):
     [(prompt, options)] = claude.queries
     assert prompt == options.system_prompt == 'Reply with OK.' and options.model == 'haiku'
     assert (options.tools, options.mcp_servers, options.allowed_tools) == ([], {}, [])
-    assert claude.closed == 1  # stopped at the init message: Claude Code is closed, no answer waited for
+    assert claude.read == ['init', 'result'] and claude.closed == 1  # one short reply, then Claude Code is closed
+
+
+@pytest.mark.parametrize('result', [
+    ResultMessage(is_error=True, api_error_status=401, result='Invalid API key · Please run /login'),
+    ResultMessage(is_error=True, api_error_status=403),
+    ResultMessage(is_error=True, result='Not logged in · Please run /login'),
+    ResultMessage(is_error=True, errors=['OAuth token has expired']),
+])
+def test_doctor_says_when_claude_code_is_not_signed_in_at_all(home, monkeypatch, result):
+    """apiKeySource reads none with nobody signed in, so only the reply tells: this must never pass."""
+    fake = FakeClaude(result=result).install(monkeypatch)
+    on(home)
+    [check] = doctor.subscription_checks(home)
+    assert check == doctor.Check(FAIL, 'Claude Code isn\'t signed in: run `claude` and type /login',
+                                 'see docs/claude-subscription.md')
+    assert fake.read == ['init', 'result']
+
+
+def test_doctor_at_the_plan_limit_is_signed_in_with_a_warning(home, monkeypatch):
+    FakeClaude(result=ResultMessage(is_error=True, api_error_status=429, result='rate limited')).install(monkeypatch)
+    on(home)
+    [check] = doctor.subscription_checks(home)
+    assert check.state == WARN and 'signed in, but your plan limit is reached right now' in check.text
+    lines, text = doctor_lines(home)
+    assert 'Claude subscription login in use: signed in, but your plan limit is reached right now' in lines
+    assert 'fix: wait for the limit to reset' in text
+
+
+def test_doctor_shows_any_other_error_as_it_came(home, monkeypatch):
+    FakeClaude(result=ResultMessage(is_error=True, api_error_status=529, errors=['Overloaded'])).install(monkeypatch)
+    on(home)
+    [check] = doctor.subscription_checks(home)
+    assert check.state == FAIL and check.text == 'Claude Code answered with an error: Overloaded'
 
 
 def test_doctor_fails_when_a_key_wins_over_the_login(home, monkeypatch):
-    FakeClaude(source='ANTHROPIC_API_KEY').install(monkeypatch)
+    fake = FakeClaude(source='ANTHROPIC_API_KEY').install(monkeypatch)
     on(home)
     lines, text = doctor_lines(home)
     assert lines['Claude Code is using ANTHROPIC_API_KEY, not your login: unset ANTHROPIC_API_KEY where wraithd '
                  'runs, then run `claude` and type /login'] == FAIL
     assert 'fix: see docs/claude-subscription.md' in text
+    assert fake.read == ['init'] and fake.closed == 1  # not the login: no reply is spent on it
 
 
 @pytest.mark.parametrize('source, fix', [
