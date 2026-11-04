@@ -288,7 +288,10 @@ def checks(home: Home, service=None, transport=None, port_free=port_free, login_
     # >>> efficiency
     from wraithd.providers import doctor_checks
 
-    found += doctor_checks(home, config, transport)
+    model_checks = doctor_checks(home, config, transport)
+    if engine_name(home) == CLAUDE_ENGINE:  # Claude Code thinks; [model] is only what a run falls back to
+        model_checks = [fallback_label(check) for check in model_checks]
+    found += model_checks
     # <<< efficiency
     # >>> capabilities
     # <<< capabilities
@@ -302,6 +305,13 @@ def checks(home: Home, service=None, transport=None, port_free=port_free, login_
     found += sandbox_checks(home, config)
     # <<< sandbox
     return found
+
+
+def fallback_label(check: Check) -> Check:
+    """'Model gpt-4o (strong): ...' as 'Fallback model gpt-4o (strong): ...' (and 'Models:' likewise)."""
+    if not check.text.startswith('Model'):
+        return check
+    return Check(check.state, 'Fallback m' + check.text[1:], check.fix)
 
 
 def render(found: list[Check]) -> str:

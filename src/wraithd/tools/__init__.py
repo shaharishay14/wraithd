@@ -26,6 +26,7 @@ from wraithd.tools.web import (
 )
 
 NATIVE = {'openai': OpenAISearch, 'anthropic': AnthropicSearch}  # the model provider's own search, on its key
+KEY_NAMES = {'openai': 'OpenAI', 'anthropic': 'Anthropic'}
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,10 @@ def choose_search(config) -> SearchChoice:
         local = ', since a local model has no provider search' if setting == 'auto' else ''
         return SearchChoice(backend, f'duckduckgo ({COST[backend]}{local})')
     key = get_key(backend)
-    whose = 'your model key' if backend == provider else f'your {backend} key'
+    # On Claude Code the thinking runs on the login, so "your model key" would be unclear: name the provider's key
+    on_claude = config.section('engine')['name'] == 'claude-code'
+    whose = (f'your {KEY_NAMES.get(backend, backend)} key' if on_claude
+             else 'your model key' if backend == provider else f'your {backend} key')
     if not key:
         return SearchChoice('', f'off: {backend} search needs {whose}, which is missing', missing_key=backend)
     return SearchChoice(backend, f'{backend} ({whose}), {COST[backend]}', key)

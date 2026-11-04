@@ -344,6 +344,58 @@ def test_sessions_close_when_wraithd_shuts_down(claude_rt, claude_sdk):
     assert fake.ClaudeSDKClient.instances[0].disconnects == 1 and rt.sessions.sessions == {}
 
 
+@pytest.mark.parametrize('typed', [('hello', '/quit'), ('hello',)], ids=['quit', 'ctrl-d'])
+def test_quitting_chat_with_an_open_session_prints_nothing(claude_rt, claude_sdk, capfd, typed):
+    """`wraithd chat`, one message on a warm session, then /quit or Ctrl-D: the session closes before the event loop
+    ends, and the SDK's generators were closed in order, so nothing reports "aclose(): ... already running"."""
+    fake = claude_sdk()
+    rt = claude_rt()
+    terminal, problems = ScriptedTerminal(*typed), []
+
+    async def chat():
+        asyncio.get_running_loop().set_exception_handler(lambda loop, context: problems.append(context))
+        await terminal_module.chat(rt, terminal)
+        assert rt.sessions.sessions == {}  # closed by chat itself, not by the loop's shutdown
+
+    asyncio.run(chat())
+    assert problems == []
+    assert capfd.readouterr() == ('', '')
+    assert len(fake.calls) >= 1 and fake.ClaudeSDKClient.instances[0].disconnects == 1
+
+
+async def test_close_waits_for_an_answering_message(claude_sdk):
+    """close() during an answer: the answer is cancelled and its messages closed, then the session disconnects."""
+    started = asyncio.Event()
+
+    async def slow(options):
+        started.set()
+        await asyncio.sleep(30)
+
+    fake = claude_sdk([init(), slow, result()])
+    session = claude_code.WarmSession('prompt', [], 'sonnet')
+    asking = asyncio.create_task(session.ask('a', []))
+    await started.wait()
+    await session.close()
+    assert asking.cancelled() or asking.done()
+    assert fake.ClaudeSDKClient.instances[0].disconnects == 1 and not session.lock.locked()
+
+
+async def test_engine_connect_is_logged_with_its_ms(claude_rt, claude_sdk):
+    """Claude Code's start is its own event: the warm session's connect once, and each one-shot's start."""
+    claude_sdk()
+    rt = claude_rt()
+    first = await run(rt, 'one', conversation='c1')
+    second = await run(rt, 'two', conversation='c1')
+    once = await run(rt, 'three')
+    connects = {result.run_id: [e.payload for e in rt.store.run_events(result.run_id)
+                                if e.type == ev.ENGINE_CONNECT] for result in (first, second, once)}
+    assert [p['kind'] for p in connects[first.run_id]] == ['session']
+    assert connects[second.run_id] == []  # warm: no new start
+    assert [p['kind'] for p in connects[once.run_id]] == ['once']
+    for payload in connects[first.run_id] + connects[once.run_id]:
+        assert payload['engine'] == 'claude-code' and isinstance(payload['ms'], int) and payload['ms'] >= 0
+
+
 async def test_close_sessions_closes_them_all(claude_rt, claude_sdk):
     fake = claude_sdk()
     rt = claude_rt()

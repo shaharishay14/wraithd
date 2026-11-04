@@ -201,3 +201,25 @@ def test_doctor_says_how_voice_notes_are_transcribed_or_how_to_turn_them_on(home
     monkeypatch.setattr(voice, 'whisper_installed', lambda: True)
     found = states(doctor.checks(home, service=Launchd(home, runner=manager), transport=silent()))
     assert found['Voice notes: whisper (installed, no OpenAI key), free, runs on this computer'] == doctor.OK
+
+
+def test_doctor_in_subscription_mode_names_the_search_key_and_the_fallback_models(home, healthy):
+    """On claude-code, [model] is only what a run falls back to, and 'your model key' would be unclear."""
+    from wraithd.config import set_values
+
+    set_values(home, 'engine', {'name': 'claude-code'})
+
+    async def signed_in(home):
+        return True, 'Claude Code uses your Claude login'
+
+    text = doctor.render(doctor.checks(home, service=healthy, transport=answering(), port_free=lambda port: True,
+                                       login_check=signed_in))
+    assert 'Web search: openai (your OpenAI key), about $10 per 1,000 searches on your OpenAI account' in text
+    assert 'your model key' not in text
+    model_lines = [line.strip() for line in text.splitlines() if 'gpt-4o' in line]
+    assert model_lines and all(line.split(maxsplit=1)[1].startswith('Fallback model') for line in model_lines)
+
+
+def test_doctor_on_the_api_engine_keeps_the_model_labels(home, healthy):
+    text = doctor.render(doctor.checks(home, service=healthy, transport=answering(), port_free=lambda port: True))
+    assert 'Fallback model' not in text and 'your model key' in text
