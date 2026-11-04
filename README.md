@@ -70,7 +70,8 @@ wraithd doctor      # check everything, with a fix for anything wrong
 
 `onboard` asks for a provider (OpenAI, Anthropic, Ollama or any OpenAI-compatible endpoint), stores the key in your
 OS keychain, optionally sets up your own Telegram bot and installs a background service that starts at login. Run
-it again any time: Enter keeps what's set.
+it again any time: Enter keeps what's set. On a terminal every choice is a picker (arrow keys and Enter) and the
+chat draws answers as Markdown; `--plain` or `NO_COLOR` keeps it plain ([docs/cli.md](docs/cli.md)).
 
 ## What it does
 

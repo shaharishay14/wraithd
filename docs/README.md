@@ -52,6 +52,7 @@ says what changed for running on one person's laptop.
 | [The web](web.md) | Pages through the egress guard, search through the model provider's own (no extra key), all third-party content. |
 | [Schedules](schedules.md) | Cron or one time in the owner's timezone, approved, fired at most once per slot. |
 | [MCP](mcp.md) | Your apps as MCP servers: secrets per server, discovery, read-only runs, the rest asks. |
+| [The terminal](cli.md) | Pickers, tables, live Markdown chat with /commands; plain mode for scripts, NO_COLOR and `--plain`. |
 | [Installing and running](install.md) | The release build, `onboard`, the background service, `doctor`, `update`. |
 | [The daemon](daemon.md) | One process: the API and UI, the scheduler, Telegram, MCP, background distill. |
 | [The local API](api.md) | The contract the web UI is built on: token, Origin and Host checks, endpoints. |
