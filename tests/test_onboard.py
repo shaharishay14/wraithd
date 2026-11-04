@@ -251,9 +251,10 @@ def subscription_wizard(term, manager, login=None, installed=(True, True)):
     return found
 
 
-def engine_table(home):
+def engine_of(home):
+    """[engine] name as written in config.toml; a new config may or may not spell out the default."""
     import tomllib
-    return tomllib.loads(home.config_path.read_text()).get('engine', {})
+    return tomllib.loads(home.config_path.read_text()).get('engine', {}).get('name', 'agents-sdk')
 
 
 async def test_the_subscription_writes_claude_code_and_never_asks_for_a_key(manager):
@@ -269,7 +270,7 @@ async def test_the_subscription_writes_claude_code_and_never_asks_for_a_key(mana
     assert await found.run() == 0
     assert term.lines == []
     home = onboard_home()
-    assert engine_table(home) == {'name': 'claude-code'}  # the model keys stay at the engine's defaults
+    assert engine_of(home) == 'claude-code'
     assert login.calls == 1 and check.calls == []
     asked = term.prompts[1:]  # after "How should wraithd think? (subscription | api-key | local)"
     assert not [prompt for prompt in asked if 'not shown' in prompt or 'key' in prompt.lower() or 'token' in prompt]
@@ -287,7 +288,7 @@ async def test_the_login_is_checked_again_until_it_works(manager):
     assert await subscription_wizard(term, manager, login).run() == 0
     assert term.lines == [] and login.calls == 2
     assert 'Not yet: Claude Code is using ANTHROPIC_API_KEY, not your login.' in term.text
-    assert engine_table(onboard_home()) == {'name': 'claude-code'}
+    assert engine_of(onboard_home()) == 'claude-code'
 
 
 async def test_a_skipped_login_writes_nothing_and_asks_again(manager):
@@ -295,7 +296,7 @@ async def test_a_skipped_login_writes_nothing_and_asks_again(manager):
     login = LoginCheck()
     assert await subscription_wizard(term, manager, login).run() == 0
     assert term.lines == [] and login.calls == 0
-    assert engine_table(onboard_home()) == {}
+    assert engine_of(onboard_home()) == 'agents-sdk'  # stays as it was
     assert load_config(onboard_home()).model.provider == 'ollama'
     assert 'The login isn\'t checked yet, so wraithd stays as it was.' in term.text
 
@@ -305,7 +306,8 @@ async def test_without_the_claude_extra_it_says_how_to_install_it(manager):
     login = LoginCheck()
     assert await subscription_wizard(term, manager, login, installed=(False, True)).run() == 0
     assert term.lines == [] and login.calls == 0
-    assert "uv tool install 'wraithd[claude]'" in term.text and engine_table(onboard_home()) == {}
+    assert "uv tool install 'wraithd[claude]'" in term.text
+    assert engine_of(onboard_home()) == 'agents-sdk'  # stays as it was
 
 
 async def test_no_claude_command_says_where_to_get_it(manager):
@@ -322,9 +324,9 @@ async def test_running_it_again_keeps_the_subscription_and_can_switch_back(manag
     assert await subscription_wizard(term, manager).run() == 0
     assert term.lines == [] and 'How should wraithd think? (subscription | api-key | local) [subscription]: ' \
         in term.prompts
-    assert engine_table(home) == {'name': 'claude-code'}
+    assert engine_of(home) == 'claude-code'
 
     term = ScriptedTerminal('api-key', '', '', '', OPENAI_KEY, 'n', 'n', '')
     assert await subscription_wizard(term, manager).run() == 0
     assert term.lines == []
-    assert engine_table(home) == {'name': 'agents-sdk'} and get_key('openai') == OPENAI_KEY
+    assert engine_of(home) == 'agents-sdk' and get_key('openai') == OPENAI_KEY
