@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 RUN_START = 'run_start'
 CONTEXT_BUILT = 'context_built'  # what the model was given: tools offered, size of the instructions
+ENGINE_CONNECT = 'engine_connect'  # Claude Code started for this run: ms until it was ready (engines/claude_code.py)
 TURN_START = 'turn_start'  # one model call
 MODEL_OUTPUT = 'model_output'  # what that call returned, with token usage
 TOOL_CALL = 'tool_call'  # the model asked for a tool; payload says what the gate decided
