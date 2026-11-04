@@ -79,7 +79,11 @@ async def chat(rt: Runtime, terminal: Terminal | None = None) -> str:
     async with McpConnections(rt.config.mcp_servers, store=rt.store) as mcp:  # once per session, not once per message
         for name, problem in mcp.errors.items():
             terminal.say(f'(MCP server {name} is not available this session: {problem})')
-        return await _session(rt, terminal, mcp)
+        try:
+            return await _session(rt, terminal, mcp)
+        finally:
+            # /quit, Ctrl-D or Ctrl-C: the warm Claude Code sessions close now, while the event loop still runs
+            await rt.close_sessions()
 
 
 async def _session(rt: Runtime, terminal: Terminal, mcp) -> str:

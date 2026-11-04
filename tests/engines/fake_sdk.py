@@ -4,8 +4,13 @@ No Claude Code process starts, no model is called, nothing in ~/.claude is touch
 
 A script is a list of steps for one query() call. Each step is a message to yield, or an async function
 step(options) that may call the bridge's tools (options.mcp_servers) and returns a message (or None).
+
+query() and receive_response() are nested async generators whose cleanup awaits, as the real SDK's are
+(InternalClient.process_query closes _process_query_inner, which awaits query.close()). So a caller that leaves
+one open when the event loop ends gets the same "aclose(): asynchronous generator is already running" error.
 """
 
+import asyncio
 import types
 from dataclasses import dataclass, field
 from typing import Any
@@ -150,12 +155,34 @@ class FakeClient:
         self.script = self.next_script()
 
     async def receive_response(self):
-        for step in self.script:
-            message = await step(self.options) if callable(step) else step
+        async for message in _messages(self.script, self.options):
+            yield message
+
+
+CLEANUP_SECONDS = 0.005  # the real cleanup ends a process; any await long enough to span a loop iteration will do
+
+
+async def _play(script, options):
+    """Like _process_query_inner: plays the script; its cleanup awaits."""
+    try:
+        for step in script:
+            message = await step(options) if callable(step) else step
             if isinstance(message, BaseException):
                 raise message
             if message is not None:
                 yield message
+    finally:
+        await asyncio.sleep(CLEANUP_SECONDS)
+
+
+async def _messages(script, options):
+    """Like process_query: closes the inner generator itself when it is closed."""
+    inner = _play(script, options)
+    try:
+        async for message in inner:
+            yield message
+    finally:
+        await inner.aclose()
 
 
 def module(*scripts):
@@ -170,12 +197,8 @@ def module(*scripts):
     async def query(*, prompt, options):
         fake.calls.append({'prompt': prompt, 'options': options})
         script = remaining.pop(0) if remaining else [init(), result()]
-        for step in script:
-            message = await step(options) if callable(step) else step
-            if isinstance(message, BaseException):
-                raise message
-            if message is not None:
-                yield message
+        async for message in _messages(script, options):
+            yield message
 
     fake.query = query
 

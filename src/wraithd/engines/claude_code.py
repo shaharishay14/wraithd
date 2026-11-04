@@ -34,6 +34,7 @@ NOT_SIGNED_IN = "Claude Code isn't signed in: run `claude` and type /login."
 AUTH_STATUSES = (401, 403)
 HELPER_PROMPT = 'Follow the request exactly.'
 REAP_EVERY_SECONDS = 60
+CLOSE_WAIT_SECONDS = 5  # how long close() waits for a message that is answering to stop
 
 
 class EngineError(Exception):
@@ -69,11 +70,21 @@ def _limit_hit(claude, message) -> bool:
     return False
 
 
-async def _consume(claude, messages, callback=None, log=None, progress: dict | None = None):
+def _connected(log, started: float, kind: str) -> None:
+    """engine_connect: how long Claude Code took to start (run_end's duration_ms doesn't show it apart)."""
+    from wraithd.core import events as ev
+
+    if log is not None:
+        log.append(ev.ENGINE_CONNECT, engine='claude-code', kind=kind, ms=int((time.monotonic() - started) * 1000))
+
+
+async def _consume(claude, messages, callback=None, log=None, progress: dict | None = None,
+                   started: float | None = None):
     """
     (answer, ResultMessage) from one run's messages. The login is checked on init, before any model call; the plan's
     limit raises SubscriptionUnavailable. Text goes to callback as content_delta events; progress['streamed'] turns
-    True on the first. Each model call is a turn_start in log, and the result's usage a model_output.
+    True on the first. Each model call is a turn_start in log, and the result's usage a model_output. started: when
+    a one-shot process was asked to start; its init is then logged as engine_connect.
     """
     from wraithd.core import events as ev
 
@@ -84,6 +95,9 @@ async def _consume(claude, messages, callback=None, log=None, progress: dict | N
     try:
         async for message in messages:
             if isinstance(message, claude.SystemMessage) and message.subtype == 'init':
+                if started is not None:
+                    _connected(log, started, 'once')
+                    started = None
                 source = message.data.get('apiKeySource')
                 if source != LOGIN:
                     raise SubscriptionUnavailable(NOT_LOGIN.format(source=source or 'no login'))
@@ -130,7 +144,10 @@ async def run_once(instructions: str, prompt: str, guarded, model: str, callback
     slot.attach(guarded, limit, stop)
     options = claude_options(instructions, server, names, model, stream=callback is not None)
     try:
-        return await _consume(claude, claude.query(prompt=prompt, options=options), callback, log, progress)
+        # Closed here, in order, before returning: left open, the event loop closes the SDK's nested generators
+        # all at once when it ends, and one of them is still closing ("aclose(): ... already running").
+        async with contextlib.aclosing(claude.query(prompt=prompt, options=options)) as messages:
+            return await _consume(claude, messages, callback, log, progress, started=time.monotonic())
     finally:
         slot.detach()
 
@@ -154,6 +171,7 @@ class WarmSession:
                                                                     stream=True))
         self.lock = asyncio.Lock()
         self.connected, self.fresh, self.last_used = False, True, time.monotonic()
+        self.answering: asyncio.Task | None = None  # the task in ask(), while it runs
 
     def fits(self, instructions: str, guarded, model: str) -> bool:
         return self.key == (tuple(tool_names(guarded)), instructions, model)
@@ -162,22 +180,37 @@ class WarmSession:
         """One message: the run's guarded tools in the slot for exactly as long as it runs. Messages wait their
         turn (the lock), so two never share a slot."""
         async with self.lock:
+            self.answering = asyncio.current_task()
             claude = sdk()
             if not self.connected:
                 _ready()
+                started = time.monotonic()
                 await self.client.connect()
                 self.connected = True
+                _connected(log, started, 'session')
             self.slot.attach(guarded, limit, stop)
             try:
                 await self.client.query(text)
-                found = await _consume(claude, self.client.receive_response(), callback, log, progress)
+                # Closed before the lock is released, so close() never disconnects under a running receive_response
+                async with contextlib.aclosing(self.client.receive_response()) as messages:
+                    found = await _consume(claude, messages, callback, log, progress)
                 self.fresh = False
                 return found
             finally:
                 self.slot.detach()
+                self.answering = None
                 self.last_used = time.monotonic()
 
     async def close(self) -> None:
+        """Disconnects, after any message still answering has stopped (cancelled) and closed its messages."""
+        answering = self.answering
+        if answering is not None and answering is not asyncio.current_task() and not answering.done():
+            answering.cancel()
+        if self.lock.locked() and answering is not asyncio.current_task():
+            with contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(CLOSE_WAIT_SECONDS):
+                    await self.lock.acquire()
+                    self.lock.release()
         if self.connected:
             self.connected = False
             with contextlib.suppress(Exception):

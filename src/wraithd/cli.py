@@ -188,12 +188,20 @@ def daemon(home: Home) -> int:
         print(e, file=sys.stderr)
         return 1
     try:
-        asyncio.run(Daemon(rt).serve())
+        asyncio.run(_serve(Daemon(rt), rt))
     except KeyboardInterrupt:
         pass
     finally:
         rt.close()
     return 0
+
+
+async def _serve(daemon, rt) -> None:
+    """The daemon until it stops; then its warm Claude Code sessions close, before the event loop ends."""
+    try:
+        await daemon.serve()
+    finally:
+        await rt.close_sessions()
 
 
 def telegram_pair(home: Home) -> int:
