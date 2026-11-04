@@ -240,7 +240,7 @@ class LoginCheck:
     def __init__(self, *results):
         self.results, self.calls = list(results) or [(True, 'Claude subscription login in use')], 0
 
-    async def __call__(self):
+    async def __call__(self, home):
         self.calls += 1
         return self.results.pop(0) if len(self.results) > 1 else self.results[0]
 

@@ -20,7 +20,6 @@ import asyncio
 import importlib.util
 import shutil
 import sys
-import tomllib
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
@@ -38,6 +37,7 @@ from wraithd.config import (
 )
 from wraithd.daemon import service as service_module
 from wraithd.daemon.service import ServiceError
+from wraithd.doctor import CLAUDE_ENGINE, CLAUDE_EXTRA, DEFAULT_ENGINE, engine_name
 from wraithd.providers import OLLAMA_URL
 
 # What a new provider starts with; the owner can type any model name instead
@@ -49,10 +49,8 @@ DAEMON_PAIRING_WAIT = 15  # seconds to wait for a running daemon to see the /pai
 # How wraithd thinks: Claude Code on the owner's own Claude login, a provider's API key, or a local model
 SUBSCRIPTION, API_KEY, LOCAL = 'subscription', 'api-key', 'local'
 ENGINES = (SUBSCRIPTION, API_KEY, LOCAL)
-CLAUDE_ENGINE, DEFAULT_ENGINE = 'claude-code', 'agents-sdk'
 KEY_PROVIDERS = tuple(p for p in PROVIDERS if p != 'ollama')
 LOGIN_CHECKS = 3  # how many times the owner can press Enter before the login is left for later
-CLAUDE_EXTRA = "uv tool install 'wraithd[claude]'"
 
 
 class Stopped(Exception):
@@ -62,16 +60,6 @@ class Stopped(Exception):
 def claude_installed() -> tuple[bool, bool]:
     """(the Claude Agent SDK is importable, a `claude` command is on PATH). Looks, doesn't import or start it."""
     return importlib.util.find_spec('claude_agent_sdk') is not None, shutil.which('claude') is not None
-
-
-def engine_name(home: Home) -> str:
-    """[engine] name as config.toml has it, or the default. Read raw, so it works before [engine] is a section."""
-    try:
-        data = tomllib.loads(home.config_path.read_text()) if home.config_path.exists() else {}
-    except tomllib.TOMLDecodeError:
-        return DEFAULT_ENGINE
-    table = data.get('engine', {})
-    return table.get('name', DEFAULT_ENGINE) if isinstance(table, dict) else DEFAULT_ENGINE
 
 
 def check_key(provider: str, key: str | None, base_url: str = '') -> tuple[bool, str]:
@@ -101,7 +89,7 @@ class Wizard:
     term: object  # channels.terminal.Terminal: ask, secret, say
     service: object | None = None  # daemon.service.Service; None: this system's, if it has one
     check_key: object = check_key
-    check_login: object = None  # async () -> (ok, message); None: doctor.claude_login_check
+    check_login: object = None  # async (home) -> (ok, message); None: doctor.claude_login_check
     claude_installed: object = claude_installed
     telegram_transport: httpx.AsyncBaseTransport | None = None
     health_transport: httpx.BaseTransport | None = None
@@ -207,7 +195,7 @@ class Wizard:
         for _ in range(LOGIN_CHECKS):
             if (await self.ask('Press Enter once you\'ve signed in (or type "skip")')).lower() == 'skip':
                 break
-            ok, message = await check()
+            ok, message = await check(self.home)
             if ok:
                 set_values(self.home, 'engine', {'name': CLAUDE_ENGINE})
                 self.term.say(f'Check: {message}. wraithd will think with your Claude plan.')

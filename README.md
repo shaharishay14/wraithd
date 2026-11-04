@@ -11,8 +11,7 @@
 </p>
 
 <p align="center">
-  Pay for Claude? wraithd needs no API key: it runs on your own Claude Pro or Max login
-  (<a href="https://github.com/shaharishay14/wraithd/blob/main/docs/claude-subscription.md">how</a>).
+  <a href="https://github.com/shaharishay14/wraithd/blob/main/docs/claude-subscription.md">Pay for Claude? wraithd needs no API key.</a>
 </p>
 
 <p align="center">
