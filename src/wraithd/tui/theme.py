@@ -9,14 +9,22 @@ from rich.console import Console
 from rich.theme import Theme
 
 ACCENT = '#a78bfa'  # violet; rich steps it down on 256- and 16-color terminals
-# The same names for prompt_toolkit (the picker and the chat input)
+# The same names for prompt_toolkit (the picker and the chat input). Its own classes that set a background (the
+# completion menu, 'selected') are reset, so nothing paints behind the text
 PT_STYLE = {
     'accent': f'{ACCENT} bold',
     'muted': '#888888',
     'question': 'bold',
-    'selected': f'{ACCENT} bold',
+    'picked': f'{ACCENT} bold',
     'typed': f'{ACCENT}',
     'nomatch': 'ansired',
+    'completion-menu': 'noinherit',
+    'completion-menu.completion': 'noinherit',
+    'completion-menu.completion.current': f'noinherit {ACCENT} bold',
+    'completion-menu.meta.completion': 'noinherit #888888',
+    'completion-menu.meta.completion.current': f'noinherit {ACCENT}',
+    'scrollbar.background': 'noinherit',
+    'scrollbar.button': 'noinherit',
 }
 
 THEME = Theme({

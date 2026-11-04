@@ -3,10 +3,11 @@ A picker: arrow keys and Enter, a letter shortcut, and typing still works.
 
     ↑ ↓ (or Ctrl-P, Ctrl-N)   move
     Enter                     pick the highlighted one (or, with free=True, what was typed)
-    1-9                       pick that one
-    typing                    jumps to the first option that starts with it, and picks it as soon as only one
-                              option does ("y" picks yes, "openai-" picks openai-compatible). With free=True
-                              (model names) it only jumps: Enter takes what was typed, or the exact option
+    1-9                       pick that one, at once
+    a letter, or more         jumps to the first option that starts with it: "y" Enter is yes, "d" Enter is
+                              Deny, "anthropic" Enter is anthropic. A letter never picks by itself, so the rest of
+                              a typed word can't spill into the next question. With free=True (model names), when
+                              what's typed matches no option, Enter takes the typed text
     Backspace                 undo a typed letter
     Ctrl-D                    no answer (None); Ctrl-C raises KeyboardInterrupt, like everywhere else
 
@@ -65,29 +66,26 @@ class Picker:
         if char.isdigit() and not self.typed and int(char) and int(char) <= min(len(self.options), 9):
             return self.options[int(char) - 1].value
         self.typed += char
-        return self._jump()
+        self._jump()
+        return None
 
     def backspace(self) -> None:
         self.typed = self.typed[:-1]
-        self._jump(settle=False)
+        self._jump()
 
-    def _jump(self, settle: bool = True) -> str | None:
+    def _jump(self) -> None:
         if not self.typed:
-            return None
+            return
         found = self.matches()
         exact = [i for i in found if self.options[i].value.lower() == self.typed.lower()]
         if found:
             self.index = exact[0] if exact else found[0]
-        if settle and len(found) == 1 and not self.free:  # free: the owner may be typing a name of their own
-            return self.options[found[0]].value
-        return None
 
     def enter(self) -> str | None:
-        if self.typed and self.free:
-            exact = [o.value for o in self.options if o.value.lower() == self.typed.lower()]
-            return exact[0] if exact else self.typed
+        """The highlighted option; when what's typed matches none, nothing is highlighted and (free only) the
+        typed text is the answer."""
         if self.typed and not self.matches():
-            return None
+            return self.typed if self.free else None
         return self.options[self.index].value
 
     def fragments(self, question: str) -> FormattedText:
@@ -96,13 +94,14 @@ class Picker:
             out.append(('class:typed' if self.matches() else 'class:nomatch', f'  {self.typed}'))
         out.append(('', '\n'))
         width = max(len(o.shown) for o in self.options)
+        lost = bool(self.typed) and not self.matches()  # nothing matches what's typed: nothing is highlighted
         for i, option in enumerate(self.options):
-            here = i == self.index
-            out.append(('class:selected' if here else '', f'  {"❯" if here else " "} {option.shown:<{width}}'))
+            here = i == self.index and not lost
+            out.append(('class:picked' if here else '', f'  {"❯" if here else " "} {option.shown:<{width}}'))
             if option.hint:
                 out.append(('class:muted', f'  {option.hint}'))
             out.append(('', '\n'))
-        out.append(('class:muted', '  ↑↓ move · Enter picks · or type' + (' any name' if self.free else '')))
+        out.append(('class:muted', '  ↑↓ move · Enter picks · type to jump' + (' or a name' if self.free else '')))
         return FormattedText(out)
 
 

@@ -237,7 +237,8 @@ class RichTerminal(Terminal):
     def welcome(self, rt: Runtime) -> None:
         from rich.markup import escape
 
-        self.show(f'[accent]◆ wraithd[/accent]  {escape(thinks_with(rt))}  [dim]{escape(str(rt.home.workspace))}[/dim]')
+        self.show(f'[accent]◆ wraithd[/accent]  {escape(thinks_with(rt))}  [dim]{escape(short_path(rt.home.workspace))}'
+                  '[/dim]', overflow='ellipsis', no_wrap=True)
         self.show('[dim]/help for commands · Esc Enter for a new line · Ctrl-D or /quit to end[/dim]')
 
     async def message(self) -> str | None:
@@ -253,7 +254,7 @@ class RichTerminal(Terminal):
                 event.current_buffer.insert_text('\n')
 
             self._chat = self._session(history=InMemoryHistory(), key_bindings=keys,
-                                       completer=WordCompleter(list(COMMANDS), sentence=True),
+                                       completer=WordCompleter(list(COMMANDS), meta_dict=COMMANDS, sentence=True),
                                        complete_while_typing=True, prompt_continuation='  ')
         self.console.print()
         try:
@@ -336,6 +337,16 @@ class RichTerminal(Terminal):
         events = rt.store.run_events(result.run_id)
         seconds = time.monotonic() - view.started if view else 0.0
         self.show(footer(views.tokens_used(events), seconds))
+
+
+def short_path(path) -> str:
+    """~/.wraithd/workspace rather than the whole path."""
+    from pathlib import Path
+
+    try:
+        return '~/' + str(Path(path).relative_to(Path.home()))
+    except ValueError:
+        return str(path)
 
 
 def run_outcome(store, run_id: str) -> str:
