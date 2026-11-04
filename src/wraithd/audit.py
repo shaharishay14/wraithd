@@ -9,6 +9,7 @@ reports one line for all of it.
 import contextlib
 import ipaddress
 import os
+import re
 import stat
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -18,12 +19,25 @@ from wraithd.core import gate
 from wraithd.core.secrets import redact
 from wraithd.daemon import app as daemon_app
 from wraithd.daemon.security import TOKEN_FILE
-from wraithd.doctor import FAIL, INFO, OK, Check, render
+from wraithd.doctor import (
+    CLAUDE_ENGINE,
+    CLAUDE_EXTRA,
+    FAIL,
+    INFO,
+    OK,
+    WARN,
+    Check,
+    engine_name,
+    engine_settings,
+    render,
+)
 
 MIN_TOKEN_LENGTH = 32
 MAX_LISTED = 3  # offending paths named per rule
 DB_FILES = ('', '-wal', '-shm')  # state.db and SQLite's side files: the event log, the review queue, the pins
 TAILNET = '.ts.net'
+# A Claude login (OAuth) token, as `claude setup-token` prints it. wraithd must never hold one
+CLAUDE_TOKEN = re.compile(r'sk-ant-oat\d*-[A-Za-z0-9_-]{10,}')
 
 
 def _shown(home: Home, paths: list[Path]) -> str:
@@ -153,6 +167,7 @@ def checks(home: Home) -> list[Check]:
     # New rules: each worker adds `found += its_rules(home, config)` (a list of Check) inside its block only
     # >>> security
     found += security_rules(home, config)
+    found += subscription_rules(home, config)  # subscription mode
     # <<< security
     # >>> efficiency
     # <<< efficiency
@@ -242,6 +257,79 @@ def security_rules(home: Home, config) -> list[Check]:
                 'use your tailnet name from `tailscale status`')
         else:
             add(INFO, f'Reachable remotely at https://{host.strip().rstrip(".")} (token still required)')
+    return found
+
+
+def _wraithd_keychain(config) -> list[tuple[str, str]]:
+    """(account, value) for wraithd's own keychain entries: its keys and its MCP servers' values. Only wraithd's
+    service names (and the old Local Agent one); never Claude Code's entry."""
+    import keyring
+    import keyring.errors
+
+    from wraithd import rename
+    from wraithd.config import APP, KEY_NAMES
+    from wraithd.mcp.config import _account
+
+    accounts = list(KEY_NAMES) + [_account(server.name, kind, key) for server in config.mcp_servers
+                                  for kind, names in (('env', server.env), ('header', server.headers))
+                                  for key in names]
+    found = []
+    for service in (APP, rename.OLD_APP):
+        for account in accounts:
+            try:
+                value = keyring.get_password(service, account)
+            except keyring.errors.NoKeyringError:
+                return found
+            if value:
+                found.append((account, value))
+    return found
+
+
+def subscription_rules(home: Home, config) -> list[Check]:
+    """The Claude subscription's rules (docs/claude-subscription.md). Looks only at wraithd's own config and keychain
+    entries: never at ~/.claude or Claude Code's keychain entry."""
+    found = []
+
+    def add(state: str, text: str, fix: str = '') -> None:
+        found.append(Check(state, text, fix))
+
+    # --- wraithd never holds a Claude login token, whichever engine runs ----------------------------------------
+    held = ['config.toml'] if home.config_path.exists() and CLAUDE_TOKEN.search(home.config_path.read_text()) else []
+    held += [f'keychain {account}' for account, value in _wraithd_keychain(config) if CLAUDE_TOKEN.search(value)]
+    add(OK if not held else FAIL, 'wraithd holds no Claude login token' if not held else
+        f'wraithd holds a Claude login token ({", ".join(held)}): it must never have one',
+        'remove it (wraithd key rm <name>, or edit the config); Claude Code keeps its own login')
+
+    if engine_name(home) != CLAUDE_ENGINE:
+        return found
+    # --- Claude Code only gets wraithd's guarded tools, and none of the owner's other Claude Code settings --------
+    try:
+        from wraithd.engines.claude_code import SubscriptionUnavailable
+        from wraithd.engines.claude_options import claude_options, model_for, subscription_env_problem
+    except ImportError as e:  # the claude extra (claude-agent-sdk) isn't installed
+        add(FAIL, f'Claude Code extra not installed ({e.name or e}), so the engine can\'t run', CLAUDE_EXTRA)
+        return found
+    # Claude Code is on the owner's own login, not Bedrock or Vertex (apiKeySource reads none there too)
+    problem = subscription_env_problem()
+    add(OK if not problem else FAIL, problem or 'Claude Code isn\'t sent to Bedrock or Vertex',
+        'unset that variable where wraithd runs (or set it to 0)')
+    try:
+        options = claude_options('', None, [], model_for(engine_settings(home), 'chat'))
+    except SubscriptionUnavailable as e:
+        add(FAIL, f'The engine can\'t run: {e}', CLAUDE_EXTRA)
+        return found
+    env = dict(getattr(options, 'env', None) or {})
+    loose = [name for name, safe in (
+        ('its own tools are on (tools is not [])', getattr(options, 'tools', None) == []),
+        ('other MCP servers may load (strict_mcp_config is off)', getattr(options, 'strict_mcp_config', None) is True),
+        ('your Claude Code settings load (setting_sources is not [])', getattr(options, 'setting_sources', None) == []),
+        ('it is handed a login token (CLAUDE_CODE_OAUTH_TOKEN)', 'CLAUDE_CODE_OAUTH_TOKEN' not in env),
+    ) if not safe]
+    add(OK if not loose else FAIL, 'Claude Code gets only wraithd\'s guarded tools, no other settings' if not loose
+        else f'Claude Code isn\'t locked down: {"; ".join(loose)}', 'reinstall wraithd')
+    if os.environ.get('ANTHROPIC_API_KEY'):
+        add(WARN, 'ANTHROPIC_API_KEY is set: wraithd blanks it for Claude Code, but elsewhere it quietly wins over '
+                  'your Claude login', 'unset ANTHROPIC_API_KEY where wraithd runs, unless you want the key')
     return found
 
 

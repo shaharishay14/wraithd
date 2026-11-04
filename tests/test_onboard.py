@@ -89,6 +89,7 @@ def wizard(term, manager, fake=None, check=None, health=None):
 async def test_onboard_from_nothing_to_a_paired_bot_and_a_running_service(manager):
     fake, check = FakeTelegram(), KeyCheck()
     term = ScriptedTerminal(
+        '',             # how wraithd thinks [api-key]
         '',             # provider [openai]
         '',             # model [gpt-4o-mini]
         '',             # strong model [gpt-4o]
@@ -128,13 +129,13 @@ async def test_onboard_from_nothing_to_a_paired_bot_and_a_running_service(manage
 
 
 async def test_running_it_again_with_enter_everywhere_changes_nothing(manager):
-    assert await wizard(ScriptedTerminal('', '', '', OPENAI_KEY, 'n', 'y', BOT_TOKEN, '', '', ''),
+    assert await wizard(ScriptedTerminal('', '', '', '', OPENAI_KEY, 'n', 'y', BOT_TOKEN, '', '', ''),
                         manager).run() == 0
     home = onboard_home()
     config_before = home.config_path.read_text()
 
     term = ScriptedTerminal(
-        '', '', '',  # provider, model, strong model: as they are
+        '', '', '', '',  # how it thinks, provider, model, strong model: as they are
         '',          # replace the openai key? [y/N]
         'n',         # check it
         '',          # replace the bot token? [y/N]
@@ -150,7 +151,7 @@ async def test_running_it_again_with_enter_everywhere_changes_nothing(manager):
 
 async def test_ollama_needs_no_key_and_the_settings_keep_their_comments(manager):
     check = KeyCheck((False, 'could not reach ollama (ConnectError)'))
-    term = ScriptedTerminal('ollama', '', '', 'none', 'y', 'n', 'n')
+    term = ScriptedTerminal('local', '', '', 'none', 'y', 'n', 'n')
     assert await wizard(term, manager, check=check).run() == 0
     assert term.lines == []
     home = onboard_home()
@@ -165,7 +166,7 @@ async def test_ollama_needs_no_key_and_the_settings_keep_their_comments(manager)
 
 
 async def test_a_bad_bot_token_is_not_saved(manager):
-    term = ScriptedTerminal('', '', '', OPENAI_KEY, 'n', 'y', '999:wrong-token', '', 'n')
+    term = ScriptedTerminal('', '', '', '', OPENAI_KEY, 'n', 'y', '999:wrong-token', '', 'n')
     assert await wizard(term, manager).run() == 0
     assert term.lines == []
     assert get_key('telegram') is None
@@ -174,10 +175,10 @@ async def test_a_bad_bot_token_is_not_saved(manager):
 
 
 async def test_an_invalid_answer_is_asked_again(manager):
-    term = ScriptedTerminal('gemini', 'anthropic', '', '', '', 'maybe', 'n', 'n')
+    term = ScriptedTerminal('', 'gemini', 'anthropic', '', '', '', 'maybe', 'n', 'n')
     assert await wizard(term, manager).run() == 0
     assert term.lines == []
-    assert 'That isn\'t one of: openai, anthropic, ollama, openai-compatible.' in term.text
+    assert 'That isn\'t one of: openai, anthropic, openai-compatible.' in term.text
     assert 'Please answer y or n.' in term.text
     config = load_config(onboard_home())
     assert (config.model.provider, config.model.default) == ('anthropic', 'claude-haiku-5-5')
@@ -185,7 +186,7 @@ async def test_an_invalid_answer_is_asked_again(manager):
 
 
 async def test_ctrl_d_stops_and_keeps_what_was_saved(manager):
-    term = ScriptedTerminal('', '', '', OPENAI_KEY)  # then input ends
+    term = ScriptedTerminal('', '', '', '', OPENAI_KEY)  # then input ends
     assert await wizard(term, manager).run() == 1
     assert get_key('openai') == OPENAI_KEY and 'Stopped. What was saved stays saved' in term.text
 
@@ -207,7 +208,7 @@ async def test_with_a_daemon_running_pairing_waits_for_it(manager, monkeypatch):
             return await super().ask(prompt)
 
     fake = FakeTelegram()
-    term = OwnerPairsOnTheirPhone('', '', '', '', 'n', '', 'n', '', '')
+    term = OwnerPairsOnTheirPhone('', '', '', '', '', 'n', '', 'n', '', '')
     assert await wizard(term, manager, fake, health=running).run() == 0
     assert term.lines == []
     assert 'Paired. The bot answers you, and only you.' in term.text
@@ -215,7 +216,7 @@ async def test_with_a_daemon_running_pairing_waits_for_it(manager, monkeypatch):
 
 
 async def test_ollama_gets_duckduckgo_and_serpapi_is_asked_for_only_when_chosen(manager):
-    term = ScriptedTerminal('ollama', '', '', 'none', 'n', 'n', 'n')
+    term = ScriptedTerminal('local', '', '', 'none', 'n', 'n', 'n')
     assert await wizard(term, manager).run() == 0
     assert term.lines == []
     assert 'Web search: duckduckgo (free, no key, since a local model has no provider search).' in term.text
@@ -229,3 +230,103 @@ async def test_ollama_gets_duckduckgo_and_serpapi_is_asked_for_only_when_chosen(
     assert get_key('serpapi') == SERP_KEY and SERP_KEY not in term.text
     assert 'Web search: off: serpapi search needs your serpapi key, which is missing.' in term.text
     assert 'Search:    serpapi' in term.text
+
+
+# --- the Claude subscription: the owner signs in to Claude Code themselves; no key or token is ever asked for ----
+
+class LoginCheck:
+    """Stands in for doctor.claude_login_check (which starts Claude Code): plays back one answer per check."""
+
+    def __init__(self, *results):
+        self.results, self.calls = list(results) or [(True, 'Claude subscription login in use')], 0
+
+    async def __call__(self, home):
+        self.calls += 1
+        return self.results.pop(0) if len(self.results) > 1 else self.results[0]
+
+
+def subscription_wizard(term, manager, login=None, installed=(True, True)):
+    found = wizard(term, manager)
+    found.check_login, found.claude_installed = login or LoginCheck(), lambda: installed
+    return found
+
+
+def engine_of(home):
+    """[engine] name as written in config.toml; a new config may or may not spell out the default."""
+    import tomllib
+    return tomllib.loads(home.config_path.read_text()).get('engine', {}).get('name', 'agents-sdk')
+
+
+async def test_the_subscription_writes_claude_code_and_never_asks_for_a_key(manager):
+    login, check = LoginCheck(), KeyCheck()
+    term = ScriptedTerminal(
+        'subscription',  # how wraithd thinks
+        '',              # Enter once signed in
+        'n',             # Telegram
+        'n',             # background service
+    )
+    found = subscription_wizard(term, manager, login)
+    found.check_key = check
+    assert await found.run() == 0
+    assert term.lines == []
+    home = onboard_home()
+    assert engine_of(home) == 'claude-code'
+    assert login.calls == 1 and check.calls == []
+    asked = term.prompts[1:]  # after "How should wraithd think? (subscription | api-key | local)"
+    assert not [prompt for prompt in asked if 'not shown' in prompt or 'key' in prompt.lower() or 'token' in prompt]
+    assert (get_key('openai'), get_key('anthropic')) == (None, None)
+    text = term.text
+    assert 'claude\n' in text and '/login' in text and 'open it on any device' in text
+    assert 'Check: Claude subscription login in use. wraithd will think with your Claude plan.' in text
+    assert 'Model:     Claude subscription (Claude Code, your own login)' in text
+
+
+async def test_the_login_is_checked_again_until_it_works(manager):
+    login = LoginCheck((False, 'Claude Code is using ANTHROPIC_API_KEY, not your login'),
+                       (True, 'Claude subscription login in use'))
+    term = ScriptedTerminal('subscription', '', '', 'n', 'n')
+    assert await subscription_wizard(term, manager, login).run() == 0
+    assert term.lines == [] and login.calls == 2
+    assert 'Not yet: Claude Code is using ANTHROPIC_API_KEY, not your login.' in term.text
+    assert engine_of(onboard_home()) == 'claude-code'
+
+
+async def test_a_skipped_login_writes_nothing_and_asks_again(manager):
+    term = ScriptedTerminal('subscription', 'skip', 'local', '', '', 'none', 'n', 'n', 'n')
+    login = LoginCheck()
+    assert await subscription_wizard(term, manager, login).run() == 0
+    assert term.lines == [] and login.calls == 0
+    assert engine_of(onboard_home()) == 'agents-sdk'  # stays as it was
+    assert load_config(onboard_home()).model.provider == 'ollama'
+    assert 'The login isn\'t checked yet, so wraithd stays as it was.' in term.text
+
+
+async def test_without_the_claude_extra_it_says_how_to_install_it(manager):
+    term = ScriptedTerminal('subscription', 'local', '', '', 'none', 'n', 'n', 'n')
+    login = LoginCheck()
+    assert await subscription_wizard(term, manager, login, installed=(False, True)).run() == 0
+    assert term.lines == [] and login.calls == 0
+    assert "uv tool install 'wraithd[claude]'" in term.text
+    assert engine_of(onboard_home()) == 'agents-sdk'  # stays as it was
+
+
+async def test_no_claude_command_says_where_to_get_it(manager):
+    term = ScriptedTerminal('subscription', '', 'n', 'n')
+    assert await subscription_wizard(term, manager, installed=(True, False)).run() == 0
+    assert 'No `claude` command here yet' in term.text
+
+
+async def test_running_it_again_keeps_the_subscription_and_can_switch_back(manager):
+    assert await subscription_wizard(ScriptedTerminal('subscription', '', 'n', 'n'), manager).run() == 0
+    home = onboard_home()
+
+    term = ScriptedTerminal('', '', 'n', '')  # [subscription] is the default now; signed in; Telegram; service
+    assert await subscription_wizard(term, manager).run() == 0
+    assert term.lines == [] and 'How should wraithd think? (subscription | api-key | local) [subscription]: ' \
+        in term.prompts
+    assert engine_of(home) == 'claude-code'
+
+    term = ScriptedTerminal('api-key', '', '', '', OPENAI_KEY, 'n', 'n', '')
+    assert await subscription_wizard(term, manager).run() == 0
+    assert term.lines == []
+    assert engine_of(home) == 'agents-sdk' and get_key('openai') == OPENAI_KEY

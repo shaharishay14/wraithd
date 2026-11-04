@@ -5,9 +5,14 @@ It reads (the config, the keychain, file modes, the service manager, /api/health
 Keys are reported as present or missing, never shown. Exit code 1 if any check fails, so scripts can use it.
 """
 
+import asyncio
+import concurrent.futures
+import contextlib
+import re
 import socket
 import stat
 import sys
+import tomllib
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 
@@ -17,8 +22,15 @@ from wraithd.daemon import service as service_module
 from wraithd.daemon.security import TOKEN_FILE
 from wraithd.daemon.service import ServiceError
 
-OK, FAIL, INFO = 'ok', 'FAIL', 'info'
+OK, FAIL, INFO, WARN = 'ok', 'FAIL', 'info', 'warn'  # WARN: worth fixing, but nothing fails because of it
 NEEDS_KEY = {'openai', 'anthropic'}
+CLAUDE_ENGINE, DEFAULT_ENGINE = 'claude-code', 'agents-sdk'
+LOGIN_OK = 'Claude subscription login in use'
+SIGNED_OUT = 'Claude Code isn\'t signed in: run `claude` and type /login'
+PLAN_LIMIT = 'Claude subscription login in use: signed in, but your plan limit is reached right now'
+AUTH_WORDS = re.compile(r'log ?in|auth|api key|credential|unauthori[sz]ed|forbidden|token', re.IGNORECASE)
+LOGIN_TIMEOUT = 60  # seconds for Claude Code to start and say which credential it chose
+CLAUDE_EXTRA = "uv tool install 'wraithd[claude]'"
 
 
 @dataclass(frozen=True)
@@ -49,7 +61,129 @@ def _package(name: str) -> str:
         return 'not installed'
 
 
-def checks(home: Home, service=None, transport=None, port_free=port_free) -> list[Check]:
+ENGINE_DEFAULTS = {'name': DEFAULT_ENGINE, 'chat_model': 'sonnet', 'background_model': 'haiku', 'fallback': False,
+                   'idle_minutes': 10}
+
+
+def engine_settings(home: Home) -> dict:
+    """[engine] as config.toml has it, over the defaults. Read raw: it works whether or not [engine] is a registered
+    section yet, and a broken file is the settings check's to report."""
+    try:
+        data = tomllib.loads(home.config_path.read_text()) if home.config_path.exists() else {}
+    except (OSError, tomllib.TOMLDecodeError):
+        data = {}
+    table = data.get('engine', {})
+    return {**ENGINE_DEFAULTS, **(table if isinstance(table, dict) else {})}
+
+
+def engine_name(home: Home) -> str:
+    name = engine_settings(home)['name']
+    return name if isinstance(name, str) else DEFAULT_ENGINE
+
+
+def _login_fix(source) -> str:
+    if source == 'ANTHROPIC_API_KEY':
+        return ('Claude Code is using ANTHROPIC_API_KEY, not your login: unset ANTHROPIC_API_KEY where wraithd runs, '
+                'then run `claude` and type /login')
+    if source == 'apiKeyHelper':
+        return ('Claude Code is using an apiKeyHelper, not your login: remove apiKeyHelper from your Claude Code '
+                'settings, then run `claude` and type /login')
+    if source == '/login managed key':
+        return ('Claude Code is signed in with an Anthropic Console account (API billing), not a Claude plan: run '
+                '`claude`, type /logout, then /login and pick your Claude account')
+    return f'Claude Code is using {source or "no login"}, not your Claude login: run `claude` and type /login'
+
+
+async def claude_login_check(home: Home | None = None) -> tuple[bool, str]:
+    """
+    A tool-less one-shot on the background model (engines.claude_options.claude_options): which credential Claude
+    Code chose (the init message's apiKeySource), then the result of one short reply, since apiKeySource reads none
+    even when nobody is signed in. A login that isn't the subscription stops at the init, before any reply. Never
+    opens Claude Code's credentials (the file or the keychain entry) and never sets CLAUDE_CODE_OAUTH_TOKEN: the
+    login stays between the owner and Anthropic. Bedrock and Vertex are refused first (apiKeySource reads none there
+    too).
+    """
+    try:
+        from wraithd.engines.claude_code import SubscriptionUnavailable
+        from wraithd.engines.claude_options import LOGIN, claude_options, model_for, subscription_env_problem
+    except ImportError as e:  # the claude extra (claude-agent-sdk) isn't installed
+        return False, f'Claude Code extra not installed ({e.name or e}): {CLAUDE_EXTRA}'
+    problem = subscription_env_problem()
+    if problem:
+        return False, problem
+    settings = engine_settings(home or Home.locate())
+    try:
+        options = claude_options('Reply with OK.', None, [], model_for(settings, 'heartbeat'))
+    except SubscriptionUnavailable as e:
+        return False, str(e)
+    from claude_agent_sdk import ResultMessage, SystemMessage, query
+
+    async def init_and_result() -> tuple[dict | None, object]:
+        """The init message's data, then the ResultMessage of the one short reply (or None for either)."""
+        init = None
+        async with contextlib.aclosing(query(prompt='Reply with OK.', options=options)) as messages:
+            async for message in messages:
+                if isinstance(message, SystemMessage) and message.subtype == 'init':
+                    init = dict(message.data)
+                    if init.get('apiKeySource') != LOGIN:  # not the login: no need to spend a reply on it
+                        return init, None
+                elif isinstance(message, ResultMessage):
+                    return init, message
+        return init, None
+
+    try:
+        init, result = await asyncio.wait_for(init_and_result(), LOGIN_TIMEOUT)
+    except TimeoutError:
+        return False, f'Claude Code did not answer within {LOGIN_TIMEOUT} seconds'
+    except Exception as e:  # the SDK's own errors: the program is missing, or it exited at once
+        return False, f'Claude Code did not start ({type(e).__name__}: {e})'
+    if init is None:
+        return False, 'Claude Code did not start: is it installed?'
+    source = init.get('apiKeySource')
+    if source != LOGIN:
+        return False, _login_fix(source)
+    if result is None:
+        return False, 'Claude Code started but never answered'
+    return _result_check(result)
+
+
+def _result_check(result) -> tuple[bool, str]:
+    """The one reply's ResultMessage: signed in, signed out, the plan's limit, or another error."""
+    if not getattr(result, 'is_error', False):
+        return True, LOGIN_OK
+    status = getattr(result, 'api_error_status', None)
+    errors = getattr(result, 'errors', None) or []
+    text = '; '.join(str(error) for error in errors) if isinstance(errors, list | tuple) else str(errors)
+    text = text or str(getattr(result, 'result', '') or '')
+    if status == 429:
+        return True, PLAN_LIMIT
+    if status in (401, 403) or AUTH_WORDS.search(text):
+        return False, SIGNED_OUT
+    detail = text or (f'HTTP {status}' if status else 'no details')
+    return False, f'Claude Code answered with an error: {detail}'
+
+
+def _wait(coroutine):
+    """A coroutine's result from sync code, even when an event loop already runs in this thread."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coroutine)
+    with concurrent.futures.ThreadPoolExecutor(1) as pool:
+        return pool.submit(asyncio.run, coroutine).result()
+
+
+def subscription_checks(home: Home, login_check=None) -> list[Check]:
+    """With [engine] name = "claude-code": is Claude Code on the owner's own login (docs/claude-subscription.md)."""
+    if engine_name(home) != CLAUDE_ENGINE:
+        return []
+    ok, message = _wait((login_check or claude_login_check)(home))
+    if message == PLAN_LIMIT:
+        return [Check(WARN, message, 'wait for the limit to reset (claude.ai shows when), or set [engine] fallback')]
+    return [Check(OK, message) if ok else Check(FAIL, message, 'see docs/claude-subscription.md')]
+
+
+def checks(home: Home, service=None, transport=None, port_free=port_free, login_check=None) -> list[Check]:
     found = []
 
     def add(state: str, text: str, fix: str = '') -> None:
@@ -79,7 +213,9 @@ def checks(home: Home, service=None, transport=None, port_free=port_free) -> lis
 
     # --- keys: present or not, never their values -------------------------------------------------------------
     provider = config.model.provider
-    if provider in NEEDS_KEY:
+    if engine_name(home) == CLAUDE_ENGINE:
+        add(OK, 'Claude subscription: no API key needed (Claude Code uses your own login)')
+    elif provider in NEEDS_KEY:
         add(OK if get_key(provider) else FAIL, f'{provider} key: {"set" if get_key(provider) else "missing"}',
             f'wraithd key set {provider}')
     else:
@@ -147,6 +283,7 @@ def checks(home: Home, service=None, transport=None, port_free=port_free) -> lis
             f'stop that program, or set another port in {home.config_path} ([daemon] port)')
     # New checks: each worker adds `found += its_checks(home, config)` (a list of Check) inside its block only
     # >>> security
+    found += subscription_checks(home, login_check)  # subscription mode
     # <<< security
     # >>> efficiency
     from wraithd.providers import doctor_checks
@@ -171,7 +308,7 @@ def render(found: list[Check]) -> str:
     lines = []
     for check in found:
         lines.append(f'  {check.state:<5} {check.text}')
-        if check.state == FAIL and check.fix:
+        if check.state in (FAIL, WARN) and check.fix:
             lines.append(f'        fix: {check.fix}')
     failed = sum(check.state == FAIL for check in found)
     lines.append('\nAll good.' if not failed else f'\n{failed} problem{"s" if failed > 1 else ""} found.')

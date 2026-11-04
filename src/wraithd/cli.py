@@ -44,7 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--version', action='version', version=f'wraithd {__version__}')
     commands = parser.add_subparsers(dest='command')
 
-    commands.add_parser('onboard', help='set up the model, keys, Telegram and the background service')
+    commands.add_parser('onboard', help='set up how it thinks (Claude subscription, API key or local model), '
+                                      'Telegram and the background service')
     commands.add_parser('chat', help='talk to the agent in the terminal')
 
     runs = commands.add_parser('runs', help='look at what runs did').add_subparsers(dest='runs_command',

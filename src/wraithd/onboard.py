@@ -1,8 +1,8 @@
 """
 `wraithd onboard`: from nothing to a working agent, one question at a time.
 
-    workspace -> model and key (with an optional check) -> web search -> Telegram bot -> background service
-    -> Telegram pairing -> a summary with the web UI link
+    workspace -> how wraithd thinks (Claude subscription, or a model and key, or a local model) -> web search
+    -> Telegram bot -> background service -> Telegram pairing -> a summary with the web UI link
 
 Safe to run again: every question defaults to what's already set (Enter keeps it), a key already in the keychain
 is only replaced when the owner says so, and the config file keeps its comments (config.set_values). Ctrl-D stops
@@ -10,9 +10,15 @@ the wizard; what was saved before that stays saved.
 
 The key check makes one small request to the provider (its model list, not a model call). It's asked for, can be
 skipped, and is passed in as `check_key` so tests never make it.
+
+The Claude subscription never asks for a key or a token (docs/claude-subscription.md): the owner signs in to Claude
+Code themselves (`claude`, then /login), and wraithd only checks which credential Claude Code chose (doctor's
+claude_login_check, passed in as `check_login` so tests never start Claude Code).
 """
 
 import asyncio
+import importlib.util
+import shutil
 import sys
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -31,6 +37,7 @@ from wraithd.config import (
 )
 from wraithd.daemon import service as service_module
 from wraithd.daemon.service import ServiceError
+from wraithd.doctor import CLAUDE_ENGINE, CLAUDE_EXTRA, DEFAULT_ENGINE, engine_name
 from wraithd.providers import OLLAMA_URL
 
 # What a new provider starts with; the owner can type any model name instead
@@ -39,10 +46,20 @@ MODELS = {'openai': ('gpt-4o-mini', 'gpt-4o'), 'anthropic': ('claude-haiku-5-5',
 NEEDS_KEY = {'openai', 'anthropic'}  # ollama needs none; a self-hosted endpoint may or may not
 PAIRING_CHECKS = 3  # how many times the owner can press Enter before pairing is left for later
 DAEMON_PAIRING_WAIT = 15  # seconds to wait for a running daemon to see the /pair message
+# How wraithd thinks: Claude Code on the owner's own Claude login, a provider's API key, or a local model
+SUBSCRIPTION, API_KEY, LOCAL = 'subscription', 'api-key', 'local'
+ENGINES = (SUBSCRIPTION, API_KEY, LOCAL)
+KEY_PROVIDERS = tuple(p for p in PROVIDERS if p != 'ollama')
+LOGIN_CHECKS = 3  # how many times the owner can press Enter before the login is left for later
 
 
 class Stopped(Exception):
     """The owner ended input (Ctrl-D)."""
+
+
+def claude_installed() -> tuple[bool, bool]:
+    """(the Claude Agent SDK is importable, a `claude` command is on PATH). Looks, doesn't import or start it."""
+    return importlib.util.find_spec('claude_agent_sdk') is not None, shutil.which('claude') is not None
 
 
 def check_key(provider: str, key: str | None, base_url: str = '') -> tuple[bool, str]:
@@ -72,6 +89,8 @@ class Wizard:
     term: object  # channels.terminal.Terminal: ask, secret, say
     service: object | None = None  # daemon.service.Service; None: this system's, if it has one
     check_key: object = check_key
+    check_login: object = None  # async (home) -> (ok, message); None: doctor.claude_login_check
+    claude_installed: object = claude_installed
     telegram_transport: httpx.AsyncBaseTransport | None = None
     health_transport: httpx.BaseTransport | None = None
     summary: dict = field(default_factory=dict)
@@ -132,10 +151,69 @@ class Wizard:
         self.term.say(f'Workspace: {self.home.workspace} ({"already there" if existed else "created"})')
         self.term.say(f'Settings: {self.home.config_path}')
 
-    async def model(self) -> None:
+    async def thinking(self) -> None:
+        """How wraithd thinks: the Claude subscription, an API key, or a local model. Asked again if the
+        subscription can't be set up here yet."""
+        self.term.say('\n-- How wraithd thinks --')
+        self.term.say('subscription: your Claude Pro or Max plan, through Claude Code (no API key)\n'
+                      'api-key: an OpenAI or Anthropic key (or another OpenAI-compatible endpoint)\n'
+                      'local: a model on this machine, through Ollama')
+        current = load_config(self.home).model
+        engine = engine_name(self.home)
+        default = SUBSCRIPTION if engine == CLAUDE_ENGINE else LOCAL if current.provider == 'ollama' else API_KEY
+        while True:
+            choice = await self.choose('How should wraithd think?', ENGINES, default)
+            if choice == SUBSCRIPTION:
+                if await self.subscription():
+                    return
+                default = API_KEY
+                self.term.say('Pick another way for now (you can switch later with `wraithd onboard`), or '
+                              'press Ctrl-D and come back.')
+                continue
+            if engine != DEFAULT_ENGINE:  # back from Claude Code to the provider's engine
+                set_values(self.home, 'engine', {'name': DEFAULT_ENGINE})
+            await self.model(local=choice == LOCAL)
+            return
+
+    async def subscription(self) -> bool:
+        """Claude Code on the owner's own login. Never asks for a key or token. True once [engine] is set."""
+        sdk, cli = self.claude_installed()
+        if not sdk:
+            self.term.say(f'Claude Code isn\'t installed with wraithd yet. Install it with: {CLAUDE_EXTRA}\n'
+                          '(or pip install \'wraithd[claude]\'), then run `wraithd onboard` again.')
+            return False
+        self.term.say('Sign in to Claude Code yourself; wraithd never sees the login. In another terminal:\n'
+                      '  claude\n'
+                      'then type /login and sign in with your Claude account. On a machine with no browser, it '
+                      'prints a link: open it on any device and paste the code back.')
+        if not cli:
+            self.term.say('No `claude` command here yet: install Claude Code (https://claude.com/claude-code) '
+                          'to sign in. wraithd runs the copy that came with it.')
+        check = self.check_login
+        if check is None:
+            from wraithd.doctor import claude_login_check as check
+        for _ in range(LOGIN_CHECKS):
+            if (await self.ask('Press Enter once you\'ve signed in (or type "skip")')).lower() == 'skip':
+                break
+            ok, message = await check(self.home)
+            if ok:
+                set_values(self.home, 'engine', {'name': CLAUDE_ENGINE})
+                self.term.say(f'Check: {message}. wraithd will think with your Claude plan.')
+                self.summary['model'] = 'Claude subscription (Claude Code, your own login)'
+                return True
+            self.term.say(f'Not yet: {message}.')
+        self.term.say('The login isn\'t checked yet, so wraithd stays as it was. Once you\'ve signed in, run '
+                      '`wraithd onboard` again (or `wraithd doctor` to see what Claude Code uses).')
+        return False
+
+    async def model(self, local: bool = False) -> None:
         self.term.say('\n-- Model --')
         current = load_config(self.home).model
-        provider = await self.choose('Provider', PROVIDERS, current.provider)
+        if local:
+            provider = 'ollama'
+        else:
+            provider = await self.choose('Provider', KEY_PROVIDERS,
+                                         current.provider if current.provider in KEY_PROVIDERS else 'openai')
         default, strong = (current.default, current.strong) if provider == current.provider else MODELS[provider]
         values = {'provider': provider}
         if provider in ('ollama', 'openai-compatible'):
@@ -314,7 +392,7 @@ class Wizard:
             except ConfigError as e:
                 self.term.say(f'{e}\nFix the settings file, then run `wraithd onboard` again.')
                 return 1
-            await self.model()
+            await self.thinking()
             await self.search()
             bot_name = await self.telegram_bot()
             await self.background()

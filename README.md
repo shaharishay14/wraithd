@@ -11,6 +11,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/shaharishay14/wraithd/blob/main/docs/claude-subscription.md">Pay for Claude? wraithd needs no API key.</a>
+</p>
+
+<p align="center">
   <a href="https://pypi.org/project/wraithd/"><img alt="PyPI" src="https://img.shields.io/pypi/v/wraithd.svg?color=111111"></a>
   <a href="https://github.com/shaharishay14/wraithd/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/shaharishay14/wraithd/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/shaharishay14/wraithd/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-111111.svg"></a>
