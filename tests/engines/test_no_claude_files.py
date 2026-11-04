@@ -1,10 +1,14 @@
 """
-wraithd leaves nothing in ~/.claude. Warm sessions keep the conversation in the running Claude Code process, and a
-new session is rebuilt from wraithd's own transcript, so nothing needs Claude Code's saved sessions:
-claude_options() turns them off (--no-session-persistence).
+wraithd leaves no conversation transcripts or project files behind in ~/.claude. Warm sessions keep the conversation
+in the running Claude Code process, and a new session is rebuilt from wraithd's own transcript, so nothing needs
+Claude Code's saved sessions: claude_options() turns them off (--no-session-persistence).
 
-With the fake SDK this proves that wraithd itself writes nothing under ~/.claude. The real Claude Code binary is
-not run here; that it honors --no-session-persistence was checked in the Phase 0 spike (scripts/spike_claude.py).
+Claude Code's own bookkeeping is expected and allowed: ~/.claude.json, its plugin cache (plugins/), and temporary
+files or timestamp changes in its sessions/ and backups/ folders. The owner's smoke test on the real login saw
+exactly those change, and nothing under ~/.claude/projects.
+
+With the fake SDK this proves that wraithd itself leaves no transcript. The real Claude Code binary is not run here;
+that it honors --no-session-persistence was checked in the Phase 0 spike (scripts/spike_claude.py) and the smoke test.
 """
 
 from pathlib import Path
@@ -14,12 +18,36 @@ from wraithd.engines import claude_code
 from wraithd.engines.claude_options import claude_options
 from wraithd.run import Runtime, run
 
+TRANSCRIPT_SUFFIXES = ('.jsonl',)  # how Claude Code saves a conversation
+
 
 def files_under(folder: Path) -> set[Path]:
-    return set(folder.rglob('*')) if folder.exists() else set()
+    return {path for path in folder.rglob('*') if path.is_file()} if folder.exists() else set()
 
 
-async def test_runs_leave_no_files_under_dot_claude(tmp_path, monkeypatch, claude_sdk):
+def left_behind(claude_dir: Path, before: set[Path]) -> list[Path]:
+    """New files that break the rule: anything under projects/, or a transcript anywhere. Bookkeeping is fine."""
+    return sorted(path for path in files_under(claude_dir) - before
+                  if path.relative_to(claude_dir).parts[0] == 'projects' or path.suffix in TRANSCRIPT_SUFFIXES)
+
+
+def test_bookkeeping_is_allowed_and_transcripts_are_not(tmp_path):
+    claude_dir = tmp_path / '.claude'
+    (claude_dir / 'projects').mkdir(parents=True)
+    before = files_under(claude_dir)
+    for allowed in ('plugins/store/cc-plugin-agents-md_builtin-1.json', 'sessions/tmp-1', 'backups/x.json'):
+        (claude_dir / allowed).parent.mkdir(parents=True, exist_ok=True)
+        (claude_dir / allowed).write_text('{}')
+    (tmp_path / '.claude.json').write_text('{}')  # beside ~/.claude, not in it
+    assert left_behind(claude_dir, before) == []
+
+    (claude_dir / 'projects' / '-Users-me').mkdir()
+    (claude_dir / 'projects' / '-Users-me' / 'abc.jsonl').write_text('{}')
+    (claude_dir / 'sessions' / 'abc.jsonl').write_text('{}')
+    assert [p.name for p in left_behind(claude_dir, before)] == ['abc.jsonl', 'abc.jsonl']
+
+
+async def test_runs_leave_no_transcripts_under_dot_claude(tmp_path, monkeypatch, claude_sdk):
     user = tmp_path / 'user'
     claude_dir = user / '.claude'
     (claude_dir / 'projects').mkdir(parents=True)
@@ -43,7 +71,8 @@ async def test_runs_leave_no_files_under_dot_claude(tmp_path, monkeypatch, claud
     assert len(fake.calls) == 3 and len(fake.ClaudeSDKClient.instances) == 1  # one one-shot, one warm session
     for used in fake.calls:
         assert used['options'].extra_args == {'no-session-persistence': None}
-    assert files_under(claude_dir) == before
+    assert left_behind(claude_dir, before) == []
+    assert files_under(claude_dir / 'projects') == set()
 
 
 def test_the_options_turn_session_saving_off(claude_sdk):

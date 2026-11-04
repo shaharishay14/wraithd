@@ -37,7 +37,9 @@ memory and compaction, so you can switch engines mid-conversation.
 Chat keeps one warm Claude Code session per conversation: only the first message pays the ~4.6 seconds it takes
 Claude Code to start, and later messages send only the new text. A session nobody has used for `idle_minutes`
 (10 by default) is closed; the next message starts a fresh one and hands it the conversation so far. Outside text
-read in an earlier message still taints the next one, as on the API engine.
+read in an earlier message still taints the next one, as on the API engine. When you quit chat (`/quit` or
+Ctrl-D), its sessions close before wraithd exits. `wraithd runs show` lists each start as an `engine_connect`
+event with its milliseconds, apart from the run's own `duration_ms`.
 
 Your own Claude chats and wraithd share one plan's limits, so wraithd picks the model by the job:
 
@@ -83,6 +85,11 @@ subscriptions, ask Anthropic first.
    no key there too, but it isn't your login).
 7. API keys and Ollama keep working: the subscription is one option, never the only one.
 8. Its tests fake the Claude side and never touch the real login or your home folder.
+
+What stays on your disk: no conversation transcripts or project files are left behind (nothing under
+`~/.claude/projects`; Claude Code runs with `--no-session-persistence`). Claude Code's own bookkeeping is expected:
+`~/.claude.json`, its plugin cache (`~/.claude/plugins/`) and temporary session files (the `sessions` and `backups`
+folders' timestamps change).
 
 Doctor starts Claude Code with no tools, reads which credential it chose (`apiKeySource` in its first message),
 and, only if that's your login, sends one short message on the cheap background model: Claude Code reports no key

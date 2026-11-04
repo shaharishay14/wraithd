@@ -43,7 +43,9 @@ Every Claude Code call names its model. With none set, Claude Code picks Opus, t
   - `tools=[]`, `strict_mcp_config=True` and `setting_sources=[]`: none of Claude Code's own tools, MCP servers,
     settings or hooks;
   - `env={'ANTHROPIC_API_KEY': ''}`: the login, never a key;
-  - `--no-session-persistence`: nothing saved in `~/.claude`.
+  - `--no-session-persistence`: no conversation transcripts or project files are left behind (nothing under
+    `~/.claude/projects`). Claude Code's own bookkeeping (`~/.claude.json`, its plugin cache, temporary session
+    files) is expected.
 
   The doctor and the audit use the same function.
 - Claude Code must report `apiKeySource: none`, the login. Bedrock and Vertex report `none` too, so
@@ -71,7 +73,14 @@ Every Claude Code call names its model. With none set, Claude Code picks Opus, t
 - Sessions close:
   - after any error;
   - after `idle_minutes` unused (the pool's own reaper);
-  - when wraithd's event loop ends.
+  - when chat ends (`/quit`, Ctrl-D, Ctrl-C) or the daemon stops: closed and awaited before the event loop ends;
+  - otherwise when wraithd's event loop ends (the reaper's last step).
+- Every call closes the SDK's message generator (`query()`, `receive_response()`) itself before it returns. Left
+  open, the event loop closes the SDK's nested generators all at once when it ends, and one of them is still closing:
+  "aclose(): asynchronous generator is already running". `close()` cancels a message still answering and waits for
+  it before it disconnects.
+- Each Claude Code start is an `engine_connect` event (`kind`: `session` for a warm session's connect, `once` for a
+  one-shot's start until its init message; `ms`). `run_end`'s `duration_ms` still counts the whole run.
 
 ## Checked how
 
@@ -81,6 +90,8 @@ login and home folder are never touched. The tests cover:
 - the bridge, including run 2 never using run 1's gate;
 - a chat that asks approval for a write, with `wraithd runs show` listing every call;
 - the three fallback cases;
-- warm sessions: reuse, taint carried over, changed tools, the idle reaper, ordering, shutdown.
+- warm sessions: reuse, taint carried over, changed tools, the idle reaper, ordering, shutdown;
+- quitting chat with an open session prints nothing (the fake SDK nests its generators like the real one);
+- `engine_connect` with its ms.
 
 `scripts/spike_claude.py` is the one real check, on your own login: `auth: none` and `echo: hi`.

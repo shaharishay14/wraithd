@@ -3,8 +3,9 @@ The only place Claude Code's options are built, for the engine, the doctor and t
 
 Claude Code gets none of its own tools (tools=[]), only the MCP servers wraithd hands it (strict_mcp_config), none of
 the owner's Claude Code settings, hooks or CLAUDE.md (setting_sources=[]), the owner's Claude login rather than any
-API key in the environment, and no session files saved in ~/.claude. Every call names its model: with none set,
-Claude Code picks Opus, the priciest.
+API key in the environment, and no conversation transcripts saved in ~/.claude (--no-session-persistence; Claude
+Code's own bookkeeping, like ~/.claude.json and its plugin cache, still changes). Every call names its model: with
+none set, Claude Code picks Opus, the priciest.
 
 wraithd never reads Claude Code's credentials file or keychain entry, never sets CLAUDE_CODE_OAUTH_TOKEN, and never
 calls Anthropic's API itself: only the unmodified Claude Code program, started by claude-agent-sdk, does. It only
