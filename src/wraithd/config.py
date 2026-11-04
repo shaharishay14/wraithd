@@ -55,7 +55,7 @@ strong = "gpt-4o"            # used when a skill says `model: strong` (subtle ru
 [budget]
 run_tokens = 200000          # per run, input + output
 run_tool_calls = 40          # per run
-# daily_tokens = 2000000     # across the day's runs; off unless set
+# daily_tokens = 2000000     # across the day's runs; off unless set (claude-code engine: 2000000 unless set)
 
 [owner]
 # email = "you@example.com"  # recipients matching this count as written by you
@@ -73,6 +73,12 @@ transcribe = "auto"          # Telegram voice notes: openai if its key is set, e
 [shell]
 enabled = false              # true: the agent may run shell commands, each one only after you say yes
 timeout_seconds = 30
+
+[engine]
+name = "agents-sdk"          # agents-sdk: your API key or local model | claude-code: your Claude Pro/Max login
+# fallback = false           # claude-code only: on a plan limit before anything ran, use the [model] provider
+# chat_model = "sonnet"      # claude-code only: the model for chats
+# background_model = "haiku" # claude-code only: heartbeat, schedules, memory and summaries (cheap, saves your plan)
 
 [daemon]
 port = 7878                  # the API and web UI, on 127.0.0.1 only
@@ -121,7 +127,24 @@ SECTIONS: dict[str, Section] = {
     # The shell's (and opted-in MCP servers') sandbox: none | docker. Broken values load, and the audit names them
     'sandbox': Section({'backend': 'none', 'image': 'debian:bookworm-slim', 'network': 'none'}),
     # <<< sandbox
+    # Who thinks: the Agents SDK on [model] (agents-sdk) or Claude Code on the owner's own login (claude-code)
+    'engine': Section({'name': 'agents-sdk', 'fallback': False, 'chat_model': 'sonnet', 'background_model': 'haiku'},
+                      lambda values: _check_engine(values)),
 }
+
+ENGINES = ('agents-sdk', 'claude-code')
+# The daily token budget in subscription mode when [budget] daily_tokens isn't set: the owner's own Claude chats
+# share the plan, so background work must not use it all up
+SUBSCRIPTION_DAILY_TOKENS = 2_000_000
+
+
+def _check_engine(values: dict) -> None:
+    if values['name'] not in ENGINES:
+        raise ConfigError(f'[engine] name must be one of {", ".join(ENGINES)}, not {values["name"]!r}.')
+    for key in ('chat_model', 'background_model'):
+        if not values[key].strip():
+            raise ConfigError(f'[engine] {key} must name a model, e.g. "sonnet" or "haiku".')
+
 
 AGENTS_MD = """\
 # Standing orders
@@ -290,8 +313,12 @@ def load_config(home: Home) -> Config:
         mcp_servers = parse_servers(data)
     except McpConfigError as e:
         raise ConfigError(str(e)) from None
+    sections = load_sections(data)
+    daily_tokens = _positive_or_none(budget.get('daily_tokens'), 'daily_tokens')
+    if 'daily_tokens' not in budget and sections.get('engine', {}).get('name') == 'claude-code':
+        daily_tokens = SUBSCRIPTION_DAILY_TOKENS  # on by default in subscription mode
     return Config(
-        sections=load_sections(data),
+        sections=sections,
         mcp_servers=mcp_servers,
         daemon_port=port,
         dev_origin=dev_origin,
@@ -299,7 +326,7 @@ def load_config(home: Home) -> Config:
                           strong=model.get('strong', ModelConfig.strong), base_url=model.get('base_url', '')),
         run_tokens=_positive_or_none(budget.get('run_tokens', Config.run_tokens), 'run_tokens'),
         run_tool_calls=_positive_or_none(budget.get('run_tool_calls', Config.run_tool_calls), 'run_tool_calls'),
-        daily_tokens=_positive_or_none(budget.get('daily_tokens'), 'daily_tokens'),
+        daily_tokens=daily_tokens,
         owner_email=owner.get('email', ''),
         timezone=timezone,
         search=search,

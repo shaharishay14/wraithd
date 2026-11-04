@@ -453,6 +453,25 @@ wheels = [
 ]
 
 [[package]]
+name = "claude-agent-sdk"
+version = "0.2.178"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "jsonschema" },
+    { name = "mcp" },
+    { name = "sniffio" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bb/96/029c76e62b48c7eef3982873f6882d8e5f94a8eaa293392a91229cc0b87e/claude_agent_sdk-0.2.178.tar.gz", hash = "sha256:b59aca6ba61d43a6d78f0ad03a2230485a26a73d7f5e7b60e9d5e8a70cdba8f2", size = 400217, upload-time = "2026-11-04T00:52:25.514Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d2/cd/73bf0d3b6ec1456461e7e83e900c3bcf1ef6d767530dac1ad4590cc2ea74/claude_agent_sdk-0.2.178-py3-none-macosx_11_0_arm64.whl", hash = "sha256:7a20f490cfdd7d7cb9a70b3500cb0d9d026420d987e25a10667c638c5dfe036d", size = 138228664, upload-time = "2026-11-04T00:52:32.383Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/b6/62e1a2d67ff4561cf31758b4332594086979c849eede9ab21950601af24e/claude_agent_sdk-0.2.178-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:c944ff5f0bac523b8c77d8d2f7913d533efc983e42eece1502fe74aa3a4a0482", size = 145514246, upload-time = "2026-11-04T00:52:39.069Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/10/c5d2908e1bded45de8b69b44bc5d76f431534e18cca99d192a755d04801e/claude_agent_sdk-0.2.178-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:98fcd5ea6b591d14a65580bee3df3f5fa7c75ad68a44ff81780177d2ed8db2a3", size = 149927469, upload-time = "2026-11-04T00:52:45.46Z" },
+    { url = "https://files.pythonhosted.org/packages/49/5f/fb5dc93b604e8c55bd0da2465ba075b28e6ba4f0b0cda30cd15649c87e7d/claude_agent_sdk-0.2.178-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:1d5e6d2cced242b9d74658ec90d96936a7c9db5867b85705ae52ec0736060146", size = 150300143, upload-time = "2026-11-04T00:52:52.87Z" },
+    { url = "https://files.pythonhosted.org/packages/46/9b/2a8cf8def2c32bd296d6380d08dafef63969ca9eb0c5674a7fa8cce4d1d6/claude_agent_sdk-0.2.178-py3-none-win_amd64.whl", hash = "sha256:b31f5b4076b6a0ce138716f03d04ab9899fa8b4bde7d7760f9862bdcf9b2786b", size = 151962195, upload-time = "2026-11-04T00:53:00.908Z" },
+]
+
+[[package]]
 name = "click"
 version = "8.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1207,64 +1226,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/22/92/6ce9737554994ca8e536e5f4f6a87cc7c4774b656c9eb9add071caf7d54b/litellm-1.83.0.tar.gz", hash = "sha256:860bebc76c4bb27b4cf90b4a77acd66dba25aced37e3db98750de8a1766bfb7a", size = 17333062, upload-time = "2026-03-31T05:08:25.331Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/19/2c/a670cc050fcd6f45c6199eb99e259c73aea92edba8d5c2fc1b3686d36217/litellm-1.83.0-py3-none-any.whl", hash = "sha256:88c536d339248f3987571493015784671ba3f193a328e1ea6780dbebaa2094a8", size = 15610306, upload-time = "2026-03-31T05:08:21.987Z" },
-]
-
-[[package]]
-name = "wraithd"
-version = "0.0.1"
-source = { editable = "." }
-dependencies = [
-    { name = "croniter" },
-    { name = "httpx" },
-    { name = "keyring" },
-    { name = "openai-agents", extra = ["litellm"] },
-    { name = "openpyxl" },
-    { name = "pypdf" },
-    { name = "pyyaml" },
-    { name = "starlette" },
-    { name = "tiktoken" },
-    { name = "uvicorn" },
-]
-
-[package.optional-dependencies]
-browser = [
-    { name = "playwright" },
-]
-whisper = [
-    { name = "faster-whisper" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "python-docx" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "croniter", specifier = ">=6" },
-    { name = "faster-whisper", marker = "extra == 'whisper'", specifier = ">=1.1" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "keyring", specifier = ">=25" },
-    { name = "openai-agents", extras = ["litellm"], specifier = ">=0.24.0" },
-    { name = "openpyxl", specifier = ">=3.1" },
-    { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.48" },
-    { name = "pypdf", specifier = ">=5" },
-    { name = "pyyaml", specifier = ">=6" },
-    { name = "starlette", specifier = ">=0.40" },
-    { name = "tiktoken", specifier = ">=0.14" },
-    { name = "uvicorn", specifier = ">=0.30" },
-]
-provides-extras = ["whisper", "browser"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8" },
-    { name = "pytest-asyncio", specifier = ">=1.4.0" },
-    { name = "python-docx", specifier = ">=1.1" },
-    { name = "ruff", specifier = ">=0.6" },
 ]
 
 [[package]]
@@ -2894,6 +2855,68 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/49/b2/b6987faf330f5af5c787a2610124c2e8403d51724f9001ec4fff6311fe7a/websockets-16.1.1-cp314-cp314t-win32.whl", hash = "sha256:8483c2096363120eea8b07c06ae7304d520f686665fffd4811fad423930a65d7", size = 179729, upload-time = "2026-07-17T22:50:53.269Z" },
     { url = "https://files.pythonhosted.org/packages/a2/6e/fbac6ed878dd362fbad7d415fa4f84d38e3e33fed8cde45c64e783acf826/websockets-16.1.1-cp314-cp314t-win_amd64.whl", hash = "sha256:bcce07e23e5769375158f5efdcdafa8d5cd014b93c6683865b840ed65b96f231", size = 180072, upload-time = "2026-07-17T22:50:54.969Z" },
     { url = "https://files.pythonhosted.org/packages/be/4d/2d0d67834092e354d2b0498f014a41249a89556bc406cf86f3e1557bb463/websockets-16.1.1-py3-none-any.whl", hash = "sha256:6abbd3e82c731c8e531714466acd5d87b5e88ac3243465337ba71d68e23ae7e3", size = 173814, upload-time = "2026-07-17T22:51:04.184Z" },
+]
+
+[[package]]
+name = "wraithd"
+version = "0.0.1"
+source = { editable = "." }
+dependencies = [
+    { name = "croniter" },
+    { name = "httpx" },
+    { name = "keyring" },
+    { name = "openai-agents", extra = ["litellm"] },
+    { name = "openpyxl" },
+    { name = "pypdf" },
+    { name = "pyyaml" },
+    { name = "starlette" },
+    { name = "tiktoken" },
+    { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+browser = [
+    { name = "playwright" },
+]
+claude = [
+    { name = "claude-agent-sdk" },
+]
+whisper = [
+    { name = "faster-whisper" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "python-docx" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "claude-agent-sdk", marker = "extra == 'claude'", specifier = ">=0.2.177" },
+    { name = "croniter", specifier = ">=6" },
+    { name = "faster-whisper", marker = "extra == 'whisper'", specifier = ">=1.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "keyring", specifier = ">=25" },
+    { name = "openai-agents", extras = ["litellm"], specifier = ">=0.24.0" },
+    { name = "openpyxl", specifier = ">=3.1" },
+    { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.48" },
+    { name = "pypdf", specifier = ">=5" },
+    { name = "pyyaml", specifier = ">=6" },
+    { name = "starlette", specifier = ">=0.40" },
+    { name = "tiktoken", specifier = ">=0.14" },
+    { name = "uvicorn", specifier = ">=0.30" },
+]
+provides-extras = ["whisper", "browser", "claude"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-asyncio", specifier = ">=1.4.0" },
+    { name = "python-docx", specifier = ">=1.1" },
+    { name = "ruff", specifier = ">=0.6" },
 ]
 
 [[package]]
