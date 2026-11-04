@@ -17,6 +17,10 @@ The `wraithd` command.
     wraithd telegram pair            a code that makes your Telegram chat the owner's
     wraithd key set <provider>       store an API key in the OS keychain
     wraithd key rm <provider>        delete it from the keychain
+    wraithd --plain ...              the plain look: typed answers, no colors (also NO_COLOR, WRAITHD_PLAIN=1)
+
+On a terminal, lists are tables and a command missing its id (schedules rm, runs show, runs tokens, key rm,
+review show|approve|reject, mcp remove) offers a picker; in plain mode they're as they always were (docs/cli.md).
 """
 
 import argparse
@@ -42,6 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
         description='A personal agent that runs on your own machine.',
     )
     parser.add_argument('--version', action='version', version=f'wraithd {__version__}')
+    parser.add_argument('--plain', action='store_true',
+                        help='no colors, pickers or tables: typed answers and plain lines, as in a script')
     commands = parser.add_subparsers(dest='command')
 
     commands.add_parser('onboard', help='set up how it thinks (Claude subscription, API key or local model), '
@@ -65,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     schedules_list = schedules.add_parser('list', help='active schedules (--all: cancelled and finished too)')
     schedules_list.add_argument('--all', action='store_true')
     schedules_rm = schedules.add_parser('rm', help='cancel a schedule')
-    schedules_rm.add_argument('schedule_id', type=int)
+    schedules_rm.add_argument('schedule_id', type=int)  # on a terminal, a picker fills it in (fill_missing_id)
 
     mcp_commands.add_arguments(commands)
     daemon_commands.add_arguments(commands)
@@ -113,11 +119,28 @@ def _store(home: Home) -> SQLiteStore | None:
     return SQLiteStore(home.db_path) if home.db_path.exists() else None
 
 
+def _rich():
+    """A rich console on a terminal; None in plain mode (wraithd.tui.plain)."""
+    from wraithd import tui
+
+    if tui.plain():
+        return None
+    from wraithd.tui import theme
+
+    return theme.console()
+
+
 def runs_list(home: Home, limit: int) -> int:
     store = _store(home)
     runs = store.recent_runs(limit) if store else []
     if not runs:
         print('No runs yet.')
+        return 0
+    if console := _rich():
+        from wraithd.channels.terminal import run_outcome
+        from wraithd.tui import tables
+
+        console.print(tables.runs([(info, run_outcome(store, info.run_id)) for info in runs]))
         return 0
     for info in runs:
         message = info.message if len(info.message) <= 60 else info.message[:57] + '...'
@@ -147,6 +170,11 @@ def events_list(home: Home, limit: int, types) -> int:
     if not listed:
         print('Nothing has happened between runs yet.')
         return 0
+    if console := _rich():
+        from wraithd.tui import tables
+
+        console.print(tables.events([(event, inspector.between_runs_text(event)) for event in listed]))
+        return 0
     for event in listed:
         print(f'{event.created_at.astimezone():%Y-%m-%d %H:%M}  {event.type:<16} {inspector.between_runs_text(event)}')
     return 0
@@ -159,6 +187,11 @@ def schedules_list(home: Home, show_all: bool) -> int:
     listed = store.list_schedules(active_only=not show_all) if store else []
     if not listed:
         print('No schedules.')
+        return 0
+    if console := _rich():
+        from wraithd.tui import tables
+
+        console.print(tables.schedules([(schedule, describe(schedule)) for schedule in listed]))
         return 0
     for schedule in listed:
         state = '' if schedule.active else '  [off]'
@@ -173,6 +206,115 @@ def schedules_rm(home: Home, schedule_id: int) -> int:
         return 1
     print(f'Cancelled schedule {schedule_id}.')
     return 0
+
+
+def checks(home: Home, module) -> int:
+    """doctor or audit: their own lines in plain mode, a table on a terminal. The exit code is the same."""
+    console = _rich()
+    if console is None:
+        return module.main(home)
+    from wraithd.doctor import FAIL
+    from wraithd.tui import tables
+
+    found = module.checks(home)
+    console.print(tables.checks(found))
+    console.print(tables.checks_summary(found))
+    return 1 if any(check.state == FAIL for check in found) else 0
+
+
+# What a command left without its id can pick from: (command words, how many words, the id's choices)
+def _run_choices(home: Home) -> list[tuple[str, str]]:
+    store = _store(home)
+    return [(info.run_id[:8], f'{info.started_at.astimezone():%m-%d %H:%M}  {info.source:<9} {info.message[:50]}')
+            for info in (store.recent_runs(20) if store else [])]
+
+
+def _schedule_choices(home: Home) -> list[tuple[str, str]]:
+    from wraithd.schedules import describe
+
+    store = _store(home)
+    return [(str(s.id), f'{describe(s)}  {s.message[:50]}') for s in (store.list_schedules() if store else [])]
+
+
+def _key_choices(home: Home) -> list[tuple[str, str]]:
+    from wraithd.config import get_key
+
+    return [(name, 'in the keychain') for name in KEY_NAMES if get_key(name)]
+
+
+def _review_choices(home: Home) -> list[tuple[str, str]]:
+    from wraithd.review import queue
+
+    store = _store(home)
+    return [(str(item.id), f'{item.kind:<9} {item.summary[:50]}')
+            for item in (queue.ReviewQueue(store).list(queue.PENDING) if store else [])]
+
+
+def _mcp_choices(home: Home) -> list[tuple[str, str]]:
+    from wraithd.config import load_config
+
+    return [(server.name, server.url or ' '.join((server.command, *server.args)))
+            for server in load_config(home).mcp_servers]
+
+
+NEEDS_ID = {
+    ('schedules', 'rm'): ('Cancel which schedule?', _schedule_choices, 'No schedules.'),
+    ('runs', 'show'): ('Which run?', _run_choices, 'No runs yet.'),
+    ('runs', 'tokens'): ('Which run?', _run_choices, 'No runs yet.'),
+    ('key', 'rm'): ('Delete which key?', _key_choices, 'No keys in the keychain.'),
+    ('review', 'show'): ('Which item?', _review_choices, 'Nothing waits for your review.'),
+    ('review', 'approve'): ('Approve which item?', _review_choices, 'Nothing waits for your review.'),
+    ('review', 'reject'): ('Reject which item?', _review_choices, 'Nothing waits for your review.'),
+    ('mcp', 'remove'): ('Remove which server?', _mcp_choices, 'No MCP servers.'),
+}
+FLAGS_WITH_VALUE = {'--reason'}
+
+
+def _global_flags(argv: list[str]) -> list[str]:
+    """The flags before the command: `wraithd --plain chat`."""
+    at = next((i for i, word in enumerate(argv) if not word.startswith('-')), len(argv))
+    return argv[:at]
+
+
+def fill_missing_id(argv: list[str], locate=Home.locate, pick=None) -> list[str] | int:
+    """On a terminal, `wraithd schedules rm` (no id) asks which one with a picker and goes on with the id.
+    Returns the arguments to parse, or an exit code when there's nothing to pick or the owner stopped."""
+    at = len(_global_flags(argv))
+    if tuple(argv[at:at + 2]) not in NEEDS_ID:
+        return argv
+    rest, given = argv[at + 2:], False
+    skip = False
+    for word in rest:
+        if skip:
+            skip = False
+        elif word in FLAGS_WITH_VALUE:
+            skip = True
+        elif not word.startswith('-'):
+            given = True
+    if given or '-h' in rest or '--help' in rest:
+        return argv
+    from wraithd import tui
+
+    if tui.plain():
+        return argv  # argparse says the id is missing, as it always did
+    question, choices, nothing = NEEDS_ID[tuple(argv[at:at + 2])]
+    found = choices(locate())
+    if not found:
+        print(nothing)
+        return 0
+    from wraithd.tui.pick import Option
+
+    if pick is None:
+        from wraithd.channels.terminal import RichTerminal
+
+        pick = RichTerminal().pick
+    try:
+        value = asyncio.run(pick(question, [Option(value, hint=hint) for value, hint in found], found[0][0]))
+    except KeyboardInterrupt:
+        value = None
+    if value is None:
+        return 1
+    return argv[:at + 2] + [value] + rest
 
 
 def daemon(home: Home) -> int:
@@ -248,8 +390,10 @@ def chat(home: Home) -> int:
     except (ConfigError, ProviderError) as e:
         print(e, file=sys.stderr)
         return 1
+    from wraithd.channels.terminal import terminal_for
+
     try:
-        asyncio.run(chat_session(rt))
+        asyncio.run(chat_session(rt, terminal_for()))
     except KeyboardInterrupt:
         pass
     finally:
@@ -260,7 +404,14 @@ def chat(home: Home) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     argv, server_command = mcp_commands.split_command(sys.argv[1:] if argv is None else list(argv))
-    args = parser.parse_args(argv)
+    if '--plain' in _global_flags(argv):
+        from wraithd import tui
+
+        tui.set_plain()
+    filled = fill_missing_id(argv, Home.locate)
+    if isinstance(filled, int):
+        return filled
+    args = parser.parse_args(filled)
     if server_command:
         args.server_command = server_command
     home = Home.locate()
@@ -269,10 +420,10 @@ def main(argv: list[str] | None = None) -> int:
         return onboard.main(home)
     if args.command == 'doctor':
         from wraithd import doctor
-        return doctor.main(home)
+        return checks(home, doctor)
     if args.command == 'audit':
         from wraithd import audit
-        return audit.main(home)
+        return checks(home, audit)
     if args.command == 'update':
         from wraithd import update
         return update.update(home)

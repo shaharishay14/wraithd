@@ -4,6 +4,9 @@
     workspace -> how wraithd thinks (Claude subscription, or a model and key, or a local model) -> web search
     -> Telegram bot -> background service -> Telegram pairing -> a summary with the web UI link
 
+On a real terminal every choice is a picker (arrow keys, Enter, or type) and it opens with the wraithd icon;
+in plain mode (pipes, NO_COLOR, --plain: wraithd.tui) the questions are typed, exactly as they always were.
+
 Safe to run again: every question defaults to what's already set (Enter keeps it), a key already in the keychain
 is only replaced when the owner says so, and the config file keeps its comments (config.set_values). Ctrl-D stops
 the wizard; what was saved before that stays saved.
@@ -43,6 +46,14 @@ from wraithd.providers import OLLAMA_URL
 # What a new provider starts with; the owner can type any model name instead
 MODELS = {'openai': ('gpt-4o-mini', 'gpt-4o'), 'anthropic': ('claude-haiku-5-5', 'claude-sonnet-5-5'),
           'ollama': ('llama3.2', ''), 'openai-compatible': ('', '')}
+# What the model picker offers (with "other..." for any name); the owner's current model is always offered too
+KNOWN_MODELS = {'openai': ('gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1'),
+                'anthropic': ('claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'),
+                'ollama': ('llama3.2', 'qwen2.5:7b'), 'openai-compatible': ()}
+OTHER = 'other…'
+ENGINE_HINTS = {'subscription': 'your Claude Pro or Max plan, through Claude Code (no API key)',
+                'api-key': 'an OpenAI or Anthropic key (or another OpenAI-compatible endpoint)',
+                'local': 'a model on this machine, through Ollama'}
 NEEDS_KEY = {'openai', 'anthropic'}  # ollama needs none; a self-hosted endpoint may or may not
 PAIRING_CHECKS = 3  # how many times the owner can press Enter before pairing is left for later
 DAEMON_PAIRING_WAIT = 15  # seconds to wait for a running daemon to see the /pair message
@@ -96,6 +107,32 @@ class Wizard:
     summary: dict = field(default_factory=dict)
 
     # --- asking ----------------------------------------------------------------------------------------------
+    # On a rich terminal (channels.terminal.RichTerminal) choices are pickers; the plain one types them
+
+    @property
+    def rich(self) -> bool:
+        return getattr(self.term, 'rich', False)
+
+    async def picked(self, question: str, options, default: str | None, free: bool = False) -> str:
+        answer = await self.term.pick(question, options, default, free=free)
+        if answer is None:
+            raise Stopped
+        return answer
+
+    def section(self, title: str) -> None:
+        if self.rich:
+            self.term.section(title)
+        else:
+            self.term.say(f'\n-- {title} --')
+
+    async def ready(self, question: str, picker: str, ready: str) -> bool:
+        """'Press Enter once you've ... (or type "skip")', or the picker's question: True to check now."""
+        if self.rich:
+            from wraithd.tui.pick import Option
+
+            return await self.picked(picker, [Option('check', ready), Option('skip', 'skip for now')],
+                                     'check') == 'check'
+        return (await self.ask(question)).lower() != 'skip'
 
     async def ask(self, question: str, default: str = '') -> str:
         answer = await self.term.ask(f'{question}{f" [{default}]" if default else ""}: ')
@@ -104,6 +141,8 @@ class Wizard:
         return answer.strip() or default
 
     async def yes(self, question: str, default: bool) -> bool:
+        if self.rich:
+            return await self.picked(question, ('yes', 'no'), 'yes' if default else 'no') == 'yes'
         while True:
             answer = (await self.ask(f'{question} {"[Y/n]" if default else "[y/N]"}')).lower()
             if not answer:
@@ -112,7 +151,11 @@ class Wizard:
                 return answer.startswith('y')
             self.term.say('Please answer y or n.')
 
-    async def choose(self, question: str, choices, default: str) -> str:
+    async def choose(self, question: str, choices, default: str, hints: dict | None = None) -> str:
+        if self.rich:
+            from wraithd.tui.pick import Option
+
+            return await self.picked(question, [Option(c, hint=(hints or {}).get(c, '')) for c in choices], default)
         while True:
             answer = await self.ask(f'{question} ({" | ".join(choices)})', default)
             if answer in choices:
@@ -154,15 +197,16 @@ class Wizard:
     async def thinking(self) -> None:
         """How wraithd thinks: the Claude subscription, an API key, or a local model. Asked again if the
         subscription can't be set up here yet."""
-        self.term.say('\n-- How wraithd thinks --')
-        self.term.say('subscription: your Claude Pro or Max plan, through Claude Code (no API key)\n'
+        self.section('How wraithd thinks')
+        if not self.rich:  # the picker shows these next to each choice
+            self.term.say('subscription: your Claude Pro or Max plan, through Claude Code (no API key)\n'
                       'api-key: an OpenAI or Anthropic key (or another OpenAI-compatible endpoint)\n'
                       'local: a model on this machine, through Ollama')
         current = load_config(self.home).model
         engine = engine_name(self.home)
         default = SUBSCRIPTION if engine == CLAUDE_ENGINE else LOCAL if current.provider == 'ollama' else API_KEY
         while True:
-            choice = await self.choose('How should wraithd think?', ENGINES, default)
+            choice = await self.choose('How should wraithd think?', ENGINES, default, ENGINE_HINTS)
             if choice == SUBSCRIPTION:
                 if await self.subscription():
                     return
@@ -193,7 +237,8 @@ class Wizard:
         if check is None:
             from wraithd.doctor import claude_login_check as check
         for _ in range(LOGIN_CHECKS):
-            if (await self.ask('Press Enter once you\'ve signed in (or type "skip")')).lower() == 'skip':
+            if not await self.ready('Press Enter once you\'ve signed in (or type "skip")', 'Signed in?',
+                                    'I\'ve signed in: check'):
                 break
             ok, message = await check(self.home)
             if ok:
@@ -207,7 +252,7 @@ class Wizard:
         return False
 
     async def model(self, local: bool = False) -> None:
-        self.term.say('\n-- Model --')
+        self.section('Model')
         current = load_config(self.home).model
         if local:
             provider = 'ollama'
@@ -221,10 +266,11 @@ class Wizard:
             while not (base_url := await self.ask('Endpoint URL', base_url)):
                 self.term.say('An openai-compatible endpoint needs its URL, e.g. http://localhost:8000/v1.')
             values['base_url'] = base_url
-        while not (default := await self.ask('Model for every run', default)):
+        while not (default := await self.model_name(provider, 'Model for every run', default)):
             self.term.say('Type the model\'s name, as the endpoint knows it.')
         values['default'] = default
-        answer = await self.ask('Stronger model, for skills that need one ("none" for none)', strong or 'none')
+        answer = await self.model_name(provider, 'Stronger model, for skills that need one ("none" for none)',
+                                       strong or 'none', none=True)
         values['strong'] = '' if answer == 'none' else answer
         set_values(self.home, 'model', values)
         self.summary['model'] = f'{provider}: {default}' + (f' (strong: {values["strong"]})' if values['strong']
@@ -241,11 +287,25 @@ class Wizard:
             self.term.say(f'Check: {message}.' if ok else f'Check failed: {message}. You can fix it later with '
                                                           f'`wraithd key set {provider}` and `wraithd doctor`.')
 
+    async def model_name(self, provider: str, question: str, default: str, none: bool = False) -> str:
+        """A model's name: typed in plain mode; picked from the known ones (or "other…", or typed) on a terminal."""
+        known = [name for name in dict.fromkeys((default, *KNOWN_MODELS.get(provider, ()))) if name and name != 'none']
+        if not self.rich or not known:
+            return await self.ask(question, default)
+        from wraithd.tui.pick import Option
+
+        options = [Option(name) for name in known] + ([Option('none', hint='no stronger model')] if none else [])
+        options.append(Option(OTHER, hint='type its name'))
+        answer = await self.picked(question.split(' (')[0], options, default, free=True)
+        if answer == OTHER:
+            return await self.ask('Model name')
+        return answer
+
     async def search(self) -> None:
         """Nothing to ask by default: search uses the model provider's own (or DuckDuckGo). SerpAPI is optional."""
         from wraithd.tools import choose_search
 
-        self.term.say('\n-- Web search --')
+        self.section('Web search')
         config = load_config(self.home)
         choice = choose_search(config)
         self.term.say(f'Web search: {choice.why}.')
@@ -262,7 +322,7 @@ class Wizard:
         """The bot's @name if a working token is set."""
         from wraithd.channels.telegram import TelegramBot, TelegramError
 
-        self.term.say('\n-- Telegram (optional) --')
+        self.section('Telegram (optional)')
         if not get_key('telegram'):
             if not await self.yes('Talk to the agent from your phone through your own Telegram bot?', False):
                 return None
@@ -297,7 +357,7 @@ class Wizard:
             await bot.close()
 
     async def background(self) -> None:
-        self.term.say('\n-- Background service --')
+        self.section('Background service')
         try:
             service = self.service or service_module.service_for(self.home)
         except ServiceError as e:
@@ -337,7 +397,8 @@ class Wizard:
             channel = TelegramChannel(SimpleNamespace(store=store, config=load_config(self.home)), bot) if bot else None
             try:
                 for _ in range(PAIRING_CHECKS):
-                    if (await self.ask('Press Enter once you\'ve sent it (or type "skip")')).lower() == 'skip':
+                    if not await self.ready('Press Enter once you\'ve sent it (or type "skip")', 'Sent it?',
+                                            'I\'ve sent it: check'):
                         return
                     if await self._paired(store, channel):
                         self.summary['telegram'] = f'{bot_name}, paired with {store.get_setting(OWNER_NAME)}'
@@ -371,7 +432,7 @@ class Wizard:
 
         state = self.service.status() if self.service else None
         running = service_module.health(load_config(self.home).daemon_port, self.health_transport)
-        self.term.say('\n-- Ready --')
+        self.section('Ready')
         self.term.say(f'Model:     {self.summary.get("model", "unchanged")}')
         self.term.say(f'Search:    {self.summary.get("search", "unchanged")}')
         self.term.say(f'Telegram:  {self.summary.get("telegram", "off")}')
@@ -384,7 +445,14 @@ class Wizard:
                       'everything.')
 
     async def run(self) -> int:
-        self.term.say('wraithd setup. Enter keeps what\'s in [brackets]; Ctrl-D stops (what\'s saved stays).\n')
+        if self.rich:
+            from wraithd.tui import art
+
+            art.draw(self.term.console)
+            self.term.show('[dim]Setup. ↑↓ and Enter pick, or type; Enter keeps what\'s set now. Ctrl-D stops '
+                           '(what\'s saved stays).[/dim]\n')
+        else:
+            self.term.say('wraithd setup. Enter keeps what\'s in [brackets]; Ctrl-D stops (what\'s saved stays).\n')
         try:
             self.workspace()
             try:
@@ -406,10 +474,10 @@ class Wizard:
 
 
 def main(home: Home) -> int:
-    from wraithd.channels.terminal import Terminal
+    from wraithd.channels.terminal import terminal_for
 
     try:
-        return asyncio.run(Wizard(home, Terminal()).run())
+        return asyncio.run(Wizard(home, terminal_for()).run())
     except KeyboardInterrupt:
         print('\nStopped.', file=sys.stderr)
         return 1
