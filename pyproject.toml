@@ -34,6 +34,8 @@ dependencies = [
     "tiktoken>=0.14",
     "starlette>=0.40",
     "uvicorn>=0.30",
+    "rich>=13",
+    "prompt-toolkit>=3.0.40",
 ]
 
 [project.urls]
