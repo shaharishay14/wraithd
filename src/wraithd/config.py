@@ -79,6 +79,7 @@ name = "agents-sdk"          # agents-sdk: your API key or local model | claude-
 # fallback = false           # claude-code only: on a plan limit before anything ran, use the [model] provider
 # chat_model = "sonnet"      # claude-code only: the model for chats
 # background_model = "haiku" # claude-code only: heartbeat, schedules, memory and summaries (cheap, saves your plan)
+# idle_minutes = 10          # claude-code only: close a conversation's Claude Code session after this long unused
 
 [daemon]
 port = 7878                  # the API and web UI, on 127.0.0.1 only
@@ -128,8 +129,8 @@ SECTIONS: dict[str, Section] = {
     'sandbox': Section({'backend': 'none', 'image': 'debian:bookworm-slim', 'network': 'none'}),
     # <<< sandbox
     # Who thinks: the Agents SDK on [model] (agents-sdk) or Claude Code on the owner's own login (claude-code)
-    'engine': Section({'name': 'agents-sdk', 'fallback': False, 'chat_model': 'sonnet', 'background_model': 'haiku'},
-                      lambda values: _check_engine(values)),
+    'engine': Section({'name': 'agents-sdk', 'chat_model': 'sonnet', 'background_model': 'haiku', 'fallback': False,
+                       'idle_minutes': 10}, lambda values: _check_engine(values)),
 }
 
 ENGINES = ('agents-sdk', 'claude-code')
@@ -144,6 +145,8 @@ def _check_engine(values: dict) -> None:
     for key in ('chat_model', 'background_model'):
         if not values[key].strip():
             raise ConfigError(f'[engine] {key} must name a model, e.g. "sonnet" or "haiku".')
+    if values['idle_minutes'] <= 0:
+        raise ConfigError('[engine] idle_minutes must be a positive whole number.')
 
 
 AGENTS_MD = """\

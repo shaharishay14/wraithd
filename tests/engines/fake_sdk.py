@@ -129,11 +129,40 @@ def call(name, arguments, server='wraithd'):
     return step
 
 
+class FakeClient:
+    """ClaudeSDKClient, offline: each query() plays the next script; connects and disconnects are counted."""
+
+    instances: list = []  # replaced per module()
+
+    def __init__(self, options):
+        self.options, self.connects, self.disconnects, self.texts = options, 0, 0, []
+        self.script = None
+        type(self).instances.append(self)
+
+    async def connect(self):
+        self.connects += 1
+
+    async def disconnect(self):
+        self.disconnects += 1
+
+    async def query(self, text):
+        self.texts.append(text)
+        self.script = self.next_script()
+
+    async def receive_response(self):
+        for step in self.script:
+            message = await step(self.options) if callable(step) else step
+            if isinstance(message, BaseException):
+                raise message
+            if message is not None:
+                yield message
+
+
 def module(*scripts):
     """A fake claude_agent_sdk whose query() plays one script per call, in order. module.calls has each options."""
     fake = types.ModuleType('claude_agent_sdk')
     for name, value in globals().items():
-        if isinstance(value, type) or name in ('tool', 'create_sdk_mcp_server'):
+        if (isinstance(value, type) and value is not FakeClient) or name in ('tool', 'create_sdk_mcp_server'):
             setattr(fake, name, value)
     fake.calls = []
     remaining = list(scripts)
@@ -143,10 +172,19 @@ def module(*scripts):
         script = remaining.pop(0) if remaining else [init(), result()]
         for step in script:
             message = await step(options) if callable(step) else step
-            if isinstance(message, Exception):
+            if isinstance(message, BaseException):
                 raise message
             if message is not None:
                 yield message
 
     fake.query = query
+
+    class ClaudeSDKClient(FakeClient):
+        instances = []
+
+        def next_script(self):
+            fake.calls.append({'prompt': self.texts[-1], 'options': self.options})
+            return remaining.pop(0) if remaining else [init(), result()]
+
+    fake.ClaudeSDKClient = ClaudeSDKClient
     return fake
