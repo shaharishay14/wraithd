@@ -34,8 +34,17 @@ settings ignored, and hands it wraithd's guarded tools instead, so every action 
 a write still shows an approval card, and `wraithd runs show` lists every tool call. wraithd keeps the history,
 memory and compaction; Claude Code gets them as one prompt per run. Session files aren't saved.
 
-Background work (the heartbeat, schedules, memory distill) uses a cheap model by default, because your own Claude
-chats and wraithd share one plan's limits.
+Your own Claude chats and wraithd share one plan's limits, so wraithd picks the model by the job:
+
+```toml
+[engine]
+name = "claude-code"
+chat_model = "sonnet"        # chats from the terminal, the web UI and Telegram
+background_model = "haiku"   # the heartbeat, schedules, memory distill and compaction
+fallback = false             # true: use the API key or Ollama when the plan limit hits (see Plan limits)
+```
+
+Onboard writes only `name`; the others keep these defaults until you change them.
 
 ## Who may use it
 
