@@ -9,7 +9,9 @@ owner. Most heartbeats end silently. Off by default ([heartbeat] enabled = true 
   skill_propose, schedule_cancel...). Connected apps: only the tools their server marks read-only. The heartbeat
   never writes, not even a pre-approved write. Its run is capped at `max_tokens`.
 - The owner's checklist is workspace/HEARTBEAT.md (a default one without it). It goes in the run's message, with the
-  time and what the heartbeat already said lately, so the stable prompt prefix doesn't change.
+  time and what the owner was told lately, so the stable prompt prefix doesn't change. "Told lately" is the newest
+  messages in the Notifications inbox (heartbeats, schedules, notify_owner, review notices) merged with the
+  heartbeat_run messages, which also cover heartbeats Telegram delivered (those skip the inbox).
 - An answer of HEARTBEAT_OK (or a run that failed) sends nothing: a heartbeat_silent event. Anything else goes to the
   owner through the notifier.
 """
@@ -26,6 +28,7 @@ from wraithd.core import views
 from wraithd.core.gate import ToolAccess
 from wraithd.mcp.client import McpConnections
 from wraithd.schedules import local_timezone
+from wraithd.tools.notify import INBOX
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +36,7 @@ SOURCE = 'heartbeat'
 TICK_SECONDS = 60  # the job checks this often whether a heartbeat is due
 SILENT = 'HEARTBEAT_OK'
 MAX_TOOL_CALLS = 10
-RECENT_SENT = 3  # earlier heartbeat messages shown, so it doesn't say the same thing twice
+RECENT_SENT = 3  # earlier messages to the owner shown, so it doesn't say the same thing twice
 SENT_CHARS = 500
 CHECKLIST_CHARS = 4_000
 QUIET = re.compile(r'^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$')
@@ -118,14 +121,30 @@ class Heartbeat:
         last = self.last_run_at()
         return last is None or now - last >= timedelta(minutes=settings['every_minutes'])
 
+    def recently_told(self) -> list[str]:
+        """The last RECENT_SENT messages to the owner, newest first, each on one line and cut to SENT_CHARS: the inbox
+        (Notifications) and the heartbeat_run messages, merged, a message in both counted once."""
+        store = self.rt.store
+        told = [(event.created_at, event.payload.get('message', '')) for event in self._runs(20)
+                if event.payload.get('sent')]
+        inbox = store.find_conversation(*INBOX)
+        if inbox is not None:
+            told += [(message.created_at, message.content) for message in store.messages(inbox.id)[-RECENT_SENT * 4:]
+                     if message.role == 'assistant']
+        shown: list[str] = []
+        for _, text in sorted(told, key=lambda item: item[0], reverse=True):
+            text = ' '.join(text.split())[:SENT_CHARS]  # one line each: a schedule's answer has blank lines
+            if text and text not in shown:
+                shown.append(text)
+        return shown[:RECENT_SENT]
+
     def message(self, now: datetime) -> str:
         path = self.rt.home.workspace / 'HEARTBEAT.md'
         try:
             checklist = path.read_text().strip()[:CHECKLIST_CHARS] or DEFAULT_CHECKLIST
         except FileNotFoundError:
             checklist = DEFAULT_CHECKLIST
-        sent = [event.payload.get('message', '') for event in self._runs(20) if event.payload.get('sent')]
-        recent = '\n'.join(f'- {text}' for text in sent[:RECENT_SENT]) or '(nothing)'
+        recent = '\n'.join(f'- {text}' for text in self.recently_told()) or '(nothing)'
         local = now.astimezone(ZoneInfo(local_timezone(self.rt.config.timezone)))
         return PROMPT.format(now=f'{local:%A %d %B %Y, %H:%M} ({local.tzname()})', silent=SILENT, recent=recent,
                              checklist=checklist)

@@ -116,6 +116,23 @@ async def test_something_worth_saying_reaches_the_owner_once(make_runtime, home)
     assert '- Your dentist is at 10:00.' in model.inputs[1][0]['content']  # it knows what it already said
 
 
+async def test_a_schedule_answer_just_before_is_in_already_told(make_runtime, home):
+    """Already told: the inbox's newest messages (a schedule's answer here) and the heartbeat's own, each once."""
+    from wraithd.daemon.scheduler import Scheduler
+
+    on(home)
+    model = ScriptedModel([[say('Your dentist is at 10:00.')], [say('Rent is due Friday.')], [say('HEARTBEAT_OK')]])
+    rt = make_runtime(model)  # the default notifier: the Notifications inbox
+    beat = heartbeat.Heartbeat(rt)
+    await beat.tick(T0)
+    now = datetime.now(UTC)
+    rt.store.add_schedule('rent reminder', None, now.isoformat(), 'UTC', next_fire_at=now - timedelta(minutes=1))
+    assert await Scheduler(rt).tick(now)
+    await beat.tick(T0 + timedelta(minutes=30))
+    told = model.inputs[2][0]['content'].split('Already told them lately:\n')[1].split('\n\nChecklist')[0]
+    assert told == '- ⏰ rent reminder Rent is due Friday.\n- Your dentist is at 10:00.'
+
+
 async def test_the_owners_checklist_is_in_the_message_not_the_prompt(make_runtime, home):
     on(home)
     (home.workspace / 'HEARTBEAT.md').write_text('- Is the build green?')

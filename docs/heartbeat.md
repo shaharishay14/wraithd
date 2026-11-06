@@ -21,7 +21,11 @@
   `files_edit`, `skill_propose` and `schedule_cancel` are READ there (they need no approval) but change things. So the
   heartbeat never writes, not even a pre-approved write. A tool that isn't offered can't run.
 - **What it looks at:** `workspace/HEARTBEAT.md`, the owner's checklist (a default one without it), the time, and
-  the last three things it told the owner, all in the run's message. The system prompt stays the stable prefix.
+  the last three things the owner was told ("Already told them lately", newest first, one line each), all in the
+  run's message. Those come from the Notifications inbox (heartbeats, schedule answers, `notify_owner`, review
+  notices) merged with the `heartbeat_run` messages, which also cover heartbeats Telegram delivered; a message in
+  both is listed once. Schedules and `notify_owner` messages Telegram delivered aren't in the inbox, so they aren't
+  listed. The system prompt stays the stable prefix.
 - **Silent or not:** an answer of `HEARTBEAT_OK`, or a run that failed, sends nothing: `heartbeat_run` with
   `sent: false`, plus `heartbeat_silent`. Anything else goes to the owner through the notifier (Telegram, or the
   inbox), and `heartbeat_run` keeps the message (500 characters) so the next one doesn't repeat it.

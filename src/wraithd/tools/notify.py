@@ -10,6 +10,7 @@ Where it goes is the runtime's notifier: Telegram when the daemon has a paired o
 from wraithd.tools.base import function_tool, tool_error
 
 NOTIFY = 'notify_owner'
+INBOX = ('notify', 'inbox')  # the Notifications conversation: (source, external)
 MAX_CHARS = 3500  # Telegram's limit is 4096; leave room for the header
 
 
@@ -22,8 +23,9 @@ class StoreNotifier:
         self.store = store
 
     async def deliver(self, text: str) -> str:
-        conversation = self.store.find_conversation('notify', 'inbox') or self.store.start_conversation(
-            'notify', external='inbox')
+        source, external = INBOX
+        conversation = self.store.find_conversation(source, external) or self.store.start_conversation(
+            source, external=external)
         self.store.add_message(conversation.id, 'assistant', text)
         return self.channel
 
