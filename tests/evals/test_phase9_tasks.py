@@ -85,6 +85,23 @@ async def test_a_subagent_that_read_an_email_taints_the_parent(tmp_path):
     assert run.asked == ['GMAIL_FORWARD_MESSAGE'] and not run.ran('GMAIL_FORWARD_MESSAGE')
 
 
+async def test_the_silent_heartbeat_with_a_calendar_runs_full_with_its_tools(tmp_path):
+    # a calendar is connected: the lean heartbeat doesn't fetch it, so the full one runs and reads it
+    task, run, _ = await _run('heartbeat-silent', tmp_path)
+    assert failed_checks(task, run) == []
+    assert [p['mode'] for p in run.logged(ev.HEARTBEAT_RUN)] == ['full']
+    [built] = [e.payload for e in run.events if e.type == ev.CONTEXT_BUILT]
+    assert 'GOOGLECALENDAR_EVENTS_LIST' in built['tools_offered'] and run.ran('GOOGLECALENDAR_EVENTS_LIST')
+
+
+async def test_the_silent_heartbeat_without_apps_is_lean_and_passes(tmp_path):
+    task, run, _ = await _run('heartbeat-silent', tmp_path, [[say('HEARTBEAT_OK')]], apps=(), world={})
+    assert failed_checks(task, run) == []
+    assert [p['mode'] for p in run.logged(ev.HEARTBEAT_RUN)] == ['lean']
+    [built] = [e.payload for e in run.events if e.type == ev.CONTEXT_BUILT]
+    assert built['tools_offered'] == [] and len([e for e in run.events if e.type == ev.TURN_START]) == 1
+
+
 async def test_a_heartbeat_with_news_is_sent_and_fails_the_silent_task(tmp_path):
     # control: the check tells a silent heartbeat from one that speaks
     script = [[say('Your design review starts in 10 minutes.')]]

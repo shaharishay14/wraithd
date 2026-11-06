@@ -14,8 +14,15 @@ owner. Most heartbeats end silently. Off by default ([heartbeat] enabled = true 
   heartbeat_run messages, which also cover heartbeats Telegram delivered (those skip the inbox).
 - An answer of HEARTBEAT_OK (or a run that failed) sends nothing: a heartbeat_silent event. Anything else goes to the
   owner through the notifier.
+- Two modes, recorded on heartbeat_run and heartbeat_silent as `mode`. Lean (the usual one): the code looks up what
+  the model would (schedule_list's answer, and memory_search for "remind me" and "reminder", as those tools return
+  them) and puts it in the message; the run gets a short prompt and no tools, so it is one model turn. Full: today's
+  run with the read-only tools. Full whenever lean could miss something: a connected app offers read-only tools
+  (email, calendar...: the code doesn't fetch those), or the owner wrote a workspace/HEARTBEAT.md (their checklist
+  may ask for anything).
 """
 
+import json
 import logging
 import re
 from contextlib import AsyncExitStack
@@ -27,7 +34,10 @@ from wraithd.core import events as ev
 from wraithd.core import views
 from wraithd.core.gate import ToolAccess
 from wraithd.mcp.client import McpConnections
+from wraithd.memory import tools as memory_tools
+from wraithd.memory import vault
 from wraithd.schedules import local_timezone
+from wraithd.tools import schedules as schedule_tools
 from wraithd.tools.notify import INBOX
 
 logger = logging.getLogger(__name__)
@@ -39,6 +49,8 @@ MAX_TOOL_CALLS = 10
 RECENT_SENT = 3  # earlier messages to the owner shown, so it doesn't say the same thing twice
 SENT_CHARS = 500
 CHECKLIST_CHARS = 4_000
+LEAN, FULL = 'lean', 'full'
+REMINDER_QUERIES = ('remind me', 'reminder')  # what a full heartbeat searches memory for
 QUIET = re.compile(r'^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$')
 
 # Built-in tools that only read. Not the gate's READ tier: memory_append/write, files_write/edit, skill_propose and
@@ -63,6 +75,30 @@ Already told them lately:
 
 Checklist (the owner's):
 {checklist}"""
+
+# Lean mode: the system prompt (the standing orders and the memory profile follow it), then the message
+LEAN_PROMPT = ('You are wraithd, a personal assistant that runs on the user\'s own computer. This is a heartbeat '
+               'check: you have no tools, and what you need was looked up for you in the message. Never claim you '
+               'did something.\n')
+
+LEAN_CHECKLIST = """- Reminders and schedules coming up today
+- Anything in memory the owner asked to be reminded about"""
+
+LEAN_MESSAGE = """Heartbeat check, {now}. You are running on your own: nobody is watching, and you have no tools: \
+what you'd look up is below. If nothing needs the owner's attention now, answer exactly {silent} and nothing else. \
+Otherwise answer with the short message to send them (it is sent as written). Don't repeat what you already told them.
+
+Already told them lately:
+{recent}
+
+Checklist:
+{checklist}
+
+Schedules and reminders ({schedule_list}):
+{schedules}
+
+Memory notes about reminders ({memory_search} {queries}):
+{notes}"""
 
 
 def check(values: dict) -> None:
@@ -92,6 +128,11 @@ def allowed_tools(mcp) -> set[str]:
     apps = {name for name, access in (mcp.access if mcp else {}).items()
             if access == ToolAccess.READ and name not in mcp.destructive}
     return set(READ_ONLY_BUILTINS) | apps
+
+
+def app_tools(mcp) -> set[str]:
+    """The connected apps' tools a heartbeat may use (email, calendar...): lean mode doesn't fetch these."""
+    return allowed_tools(mcp) - READ_ONLY_BUILTINS
 
 
 class Heartbeat:
@@ -138,16 +179,58 @@ class Heartbeat:
                 shown.append(text)
         return shown[:RECENT_SENT]
 
-    def message(self, now: datetime) -> str:
-        path = self.rt.home.workspace / 'HEARTBEAT.md'
+    def checklist(self) -> str:
+        """The owner's workspace/HEARTBEAT.md, or '' when there's none (or it's empty)."""
         try:
-            checklist = path.read_text().strip()[:CHECKLIST_CHARS] or DEFAULT_CHECKLIST
+            return (self.rt.home.workspace / 'HEARTBEAT.md').read_text().strip()[:CHECKLIST_CHARS]
         except FileNotFoundError:
-            checklist = DEFAULT_CHECKLIST
-        recent = '\n'.join(f'- {text}' for text in self.recently_told()) or '(nothing)'
+            return ''
+
+    def mode(self, mcp) -> tuple[str, str]:
+        """(LEAN or FULL, why). Full whenever lean could miss what a full heartbeat would see."""
+        if app_tools(mcp):
+            return FULL, 'apps'
+        if self.checklist():
+            return FULL, 'checklist'
+        return LEAN, ''
+
+    def _now_text(self, now: datetime) -> str:
         local = now.astimezone(ZoneInfo(local_timezone(self.rt.config.timezone)))
-        return PROMPT.format(now=f'{local:%A %d %B %Y, %H:%M} ({local.tzname()})', silent=SILENT, recent=recent,
-                             checklist=checklist)
+        return f'{local:%A %d %B %Y, %H:%M} ({local.tzname()})'
+
+    def _recent_text(self) -> str:
+        return '\n'.join(f'- {text}' for text in self.recently_told()) or '(nothing)'
+
+    def message(self, now: datetime) -> str:
+        """The full heartbeat's message."""
+        return PROMPT.format(now=self._now_text(now), silent=SILENT, recent=self._recent_text(),
+                             checklist=self.checklist() or DEFAULT_CHECKLIST)
+
+    async def lookups(self) -> tuple[str, str, bool]:
+        """
+        What a full heartbeat looks up, fetched here: (schedule_list's answer, the memory_search results for
+        REMINDER_QUERIES merged, whether a low-trust note is among them), each as the tool returns it.
+        """
+        [listing] = [tool for tool in schedule_tools.schedule_tools(self.rt.store, local_timezone(
+            self.rt.config.timezone)) if tool.name == schedule_tools.LIST]
+        schedules = await listing.on_invoke_tool(None, '{}')
+        notes = self.rt.memory.load()
+        results = []
+        for query in REMINDER_QUERIES:
+            results += [result for result in vault.search(notes, query)
+                        if result['path'] not in {seen['path'] for seen in results}]
+        untrusted = any(result['trust'] == vault.LOW for result in results)
+        found = json.dumps({'results': results, 'untrusted': untrusted} if results else {'results': []},
+                           ensure_ascii=False)
+        return schedules, found, untrusted
+
+    async def lean_message(self, now: datetime) -> tuple[str, bool]:
+        """The lean heartbeat's message, with the lookups in it, and whether it holds third-party text."""
+        schedules, notes, untrusted = await self.lookups()
+        return LEAN_MESSAGE.format(
+            now=self._now_text(now), silent=SILENT, recent=self._recent_text(), checklist=LEAN_CHECKLIST,
+            schedule_list=schedule_tools.LIST, schedules=schedules, memory_search=memory_tools.SEARCH,
+            queries=', '.join(f'"{query}"' for query in REMINDER_QUERIES), notes=notes), untrusted
 
     async def tick(self, now: datetime | None = None) -> str | None:
         """Runs a heartbeat if one is due. Returns its run id, or None when none was due."""
@@ -164,19 +247,27 @@ class Heartbeat:
         async with AsyncExitStack() as stack:
             if mcp is None and self.rt.config.mcp_servers:
                 mcp = await stack.enter_async_context(self.mcp_factory(self.rt.config.mcp_servers, store=self.rt.store))
-            result = await run(self.rt, self.message(now), source=SOURCE, callback=None, mcp=mcp, purpose='heartbeat',
-                               budget={'run_tokens': self.settings['max_tokens'], 'run_tool_calls': MAX_TOOL_CALLS},
-                               allowed_tools=allowed_tools(mcp))
+            mode, why = self.mode(mcp)
+            options = {'source': SOURCE, 'callback': None, 'mcp': mcp, 'purpose': 'heartbeat',
+                       'budget': {'run_tokens': self.settings['max_tokens'], 'run_tool_calls': MAX_TOOL_CALLS}}
+            if mode == LEAN:
+                message, untrusted = await self.lean_message(now)
+                # One turn: no tools, a short prompt. A low-trust note in the lookups is labelled as such
+                result = await run(self.rt, message, builtins=False, allowed_tools=set(), system_prompt=LEAN_PROMPT,
+                                   inherited_taint=((memory_tools.SEARCH, message),) if untrusted else (), **options)
+            else:
+                result = await run(self.rt, self.message(now), allowed_tools=allowed_tools(mcp), **options)
         tokens = views.tokens_used(self.rt.store.run_events(result.run_id))
         answer = result.answer.strip()
         sent = result.outcome == 'answered' and bool(answer) and not answer.upper().startswith(SILENT)
         if sent:
             await self.rt.notifier.deliver(answer)
         ev.record_event(self.rt.store, ev.HEARTBEAT_RUN, run_id=result.run_id, at=now.isoformat(),
-                        outcome=result.outcome, tokens=tokens, sent=sent,
-                        **({'message': answer[:SENT_CHARS]} if sent else {}))
+                        outcome=result.outcome, tokens=tokens, sent=sent, mode=mode,
+                        **({'full_because': why} if why else {}), **({'message': answer[:SENT_CHARS]} if sent else {}))
         if not sent:
-            ev.record_event(self.rt.store, ev.HEARTBEAT_SILENT, run_id=result.run_id, outcome=result.outcome)
+            ev.record_event(self.rt.store, ev.HEARTBEAT_SILENT, run_id=result.run_id, outcome=result.outcome,
+                            mode=mode)
         return result.run_id
 
 

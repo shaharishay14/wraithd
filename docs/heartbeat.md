@@ -15,7 +15,18 @@
   `every_minutes` old and it isn't quiet hours, so a restart doesn't make it fire early.
 - **The run:** unattended (no approval callback), `source` and `purpose` `heartbeat` (`rt.model_for('heartbeat')`),
   capped at `max_tokens` and 10 tool calls.
-- **Read-only, by list.** `allowed_tools` is an explicit list: `memory_search`, `memory_read`, `files_list`,
+- **Two modes**, recorded as `mode` on `heartbeat_run` and `heartbeat_silent`:
+  - **Lean** (the usual one): one model turn, no tools. The code looks up what a full heartbeat would: the schedules
+    (`schedule_list`'s answer, as the tool returns it) and memory notes about reminders (`memory_search` for
+    "remind me" and "reminder", merged), and puts them in the message. The system prompt is a short heartbeat-only
+    one (`LEAN_PROMPT`, then the standing orders and the memory profile; no skills list, no reminders), via
+    `run(..., system_prompt=...)`. A low-trust note among the lookups marks the run's input as third-party
+    (`untrusted_inputs: ["memory_search"]`). About 3k tokens instead of ~11.5k over 3-4 turns.
+  - **Full**: the run with the read-only tools below, as before. It runs whenever lean could miss something a full
+    heartbeat would see: a connected app offers read-only tools (email, calendar...: lean doesn't fetch those;
+    `full_because: "apps"`), or the owner wrote a non-empty `workspace/HEARTBEAT.md` (their checklist may ask for
+    anything; `full_because: "checklist"`).
+- **Read-only, by list** (full mode). `allowed_tools` is an explicit list: `memory_search`, `memory_read`, `files_list`,
   `files_read`, `schedule_list`, `web_search`, `read_website`, `skill_load`, the discovery tools, and the apps' tools
   their server marks read-only. Not the gate's READ tier: `memory_append`, `memory_write`, `files_write`,
   `files_edit`, `skill_propose` and `schedule_cancel` are READ there (they need no approval) but change things. So the
