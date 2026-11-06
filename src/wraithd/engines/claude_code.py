@@ -79,12 +79,13 @@ def _connected(log, started: float, kind: str) -> None:
 
 
 async def _consume(claude, messages, callback=None, log=None, progress: dict | None = None,
-                   started: float | None = None):
+                   started: float | None = None, kind: str = 'once'):
     """
     (answer, ResultMessage) from one run's messages. The login is checked on init, before any model call; the plan's
     limit raises SubscriptionUnavailable. Text goes to callback as content_delta events; progress['streamed'] turns
     True on the first. Each model call is a turn_start in log, and the result's usage a model_output. started: when
-    a one-shot process was asked to start; its init is then logged as engine_connect.
+    Claude Code was asked to start (a one-shot's query, a warm session's connect); its init, or the first answer
+    when no init comes, is then logged as engine_connect of this kind.
     """
     from wraithd.core import events as ev
 
@@ -94,10 +95,12 @@ async def _consume(claude, messages, callback=None, log=None, progress: dict | N
     not_found = getattr(claude, 'CLINotFoundError', ())
     try:
         async for message in messages:
+            if started is not None and (isinstance(message, (claude.AssistantMessage, claude.StreamEvent,
+                                                             claude.ResultMessage))
+                                        or (isinstance(message, claude.SystemMessage) and message.subtype == 'init')):
+                _connected(log, started, kind)
+                started = None
             if isinstance(message, claude.SystemMessage) and message.subtype == 'init':
-                if started is not None:
-                    _connected(log, started, 'once')
-                    started = None
                 source = message.data.get('apiKeySource')
                 if source != LOGIN:
                     raise SubscriptionUnavailable(NOT_LOGIN.format(source=source or 'no login'))
@@ -182,18 +185,20 @@ class WarmSession:
         async with self.lock:
             self.answering = asyncio.current_task()
             claude = sdk()
+            started = None
             if not self.connected:
                 _ready()
+                # Ready at Claude Code's init (or first answer) on this first message, not when connect() returns
                 started = time.monotonic()
                 await self.client.connect()
                 self.connected = True
-                _connected(log, started, 'session')
             self.slot.attach(guarded, limit, stop)
             try:
                 await self.client.query(text)
                 # Closed before the lock is released, so close() never disconnects under a running receive_response
                 async with contextlib.aclosing(self.client.receive_response()) as messages:
-                    found = await _consume(claude, messages, callback, log, progress)
+                    found = await _consume(claude, messages, callback, log, progress, started=started,
+                                           kind='session')
                 self.fresh = False
                 return found
             finally:

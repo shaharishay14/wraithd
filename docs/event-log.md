@@ -12,8 +12,9 @@
 
 - **Events**: `run_start`, `context_built`, `turn_start`, `model_output` (with token usage), `tool_call`
   (with access level and allowed/blocked), `tool_result` (ok/error/denied, untrusted, redacted), `reminder`,
-  `stop`, `model_upgrade`, `engine_connect` (on Claude Code: how long it took to start, `ms`, apart from
-  `run_end`'s `duration_ms`), `run_end`; between runs (no run id), `compaction`, `distill` and `telegram_ignored`,
+  `stop`, `model_upgrade`, `engine_connect` (on Claude Code: how long it took to start, `ms`, until its
+  init message or first answer, apart from `run_end`'s `duration_ms`; `kind` `session` on a warm session's first
+  message, `once` for a one-shot; `runs show` prints both), `run_end`; between runs (no run id), `compaction`, `distill` and `telegram_ignored`,
   shown by `wraithd events` and `GET /api/events`. Kept in memory during the run and saved in one batch at
   the end, so logging never slows the loop. Long strings are cut and secrets redacted before anything is stored.
 - **Views** are plain functions over the list: `consecutive_tool_errors`, `most_repeated_call`,

@@ -396,6 +396,27 @@ async def test_engine_connect_is_logged_with_its_ms(claude_rt, claude_sdk):
         assert payload['engine'] == 'claude-code' and isinstance(payload['ms'], int) and payload['ms'] >= 0
 
 
+async def test_a_warm_sessions_connect_lasts_until_claude_code_is_ready(claude_rt, claude_sdk):
+    """connect() returns before Claude Code is ready: engine_connect runs on to its init on the first message."""
+    async def slow_start(options):
+        await asyncio.sleep(0.2)
+
+    claude_sdk([slow_start, init(), result()], [slow_start, init(), result()])
+    rt = claude_rt()
+    first = await run(rt, 'one', conversation='c1')
+    second = await run(rt, 'two', conversation='c1')
+    [connect] = [e.payload for e in rt.store.run_events(first.run_id) if e.type == ev.ENGINE_CONNECT]
+    assert connect['kind'] == 'session' and connect['ms'] >= 200
+    assert not [e for e in rt.store.run_events(second.run_id) if e.type == ev.ENGINE_CONNECT]  # once per session
+
+
+async def test_without_an_init_the_first_answer_ends_the_connect(claude_rt, claude_sdk):
+    claude_sdk([text_delta('hi'), result('hi')])
+    rt = claude_rt()
+    first = await run(rt, 'one', conversation='c1')
+    assert [e.payload['kind'] for e in rt.store.run_events(first.run_id) if e.type == ev.ENGINE_CONNECT] == ['session']
+
+
 async def test_close_sessions_closes_them_all(claude_rt, claude_sdk):
     fake = claude_sdk()
     rt = claude_rt()

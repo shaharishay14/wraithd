@@ -85,6 +85,7 @@ HEADLINE = {
     ev.MODEL_UPGRADE: ('skill', 'model'),
     ev.RUN_END: ('outcome', 'turns', 'tokens', 'duration_ms', 'stop_reason'),
     ev.SUBAGENT_RESULT: ('child_run_id', 'outcome', 'tokens', 'untrusted_sources'),
+    ev.ENGINE_CONNECT: ('engine', 'kind', 'ms'),
 }
 VALUE_CHARS = 80
 

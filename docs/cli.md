@@ -56,7 +56,8 @@ When the id is left out, these offer a list instead of failing: `wraithd schedul
 
 A line at the top says what thinks (`Claude subscription · sonnet`, or `openai · gpt-4o-mini`) and the
 workspace. Each tool call is one dim line with a spinner, then `✓ tool  allowed` or `approved by you`, or
-`✗ tool  denied by you`. An approval is a box naming the tool and its arguments; a recipient that came from
+`✗ tool  denied by you`; a tool that failed is `✗ tool  allowed · error`, and one a rule refused `✗ tool  denied`
+(the gate's `tool_result` callback: ok, error or denied; plain mode ignores it). An approval is a box naming the tool and its arguments; a recipient that came from
 third-party text, or third-party text read earlier in the run, is a red warning at the top of the box. After each
 answer, a dim footer: tokens and time.
 

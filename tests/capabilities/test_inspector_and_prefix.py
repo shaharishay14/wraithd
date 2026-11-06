@@ -25,6 +25,11 @@ async def test_runs_show_nests_the_subagent_under_its_delegate_call(make_runtime
     assert child_id[:20] in inspector.render_text(result.run_id, events)
 
 
+def test_runs_show_prints_engine_connect_with_its_ms():
+    events = [Event(seq=0, type=ev.ENGINE_CONNECT, payload={'engine': 'claude-code', 'kind': 'session', 'ms': 3912})]
+    assert '  #0   engine_connect engine=claude-code kind=session ms=3912' in inspector.render_text('r1', events)
+
+
 def test_between_runs_events_read_as_one_line():
     def line(event_type, **payload):
         return inspector.between_runs_text(Event(seq=0, type=event_type, payload=payload))
