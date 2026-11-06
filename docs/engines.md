@@ -15,7 +15,7 @@
 | Thinks with | `[model]`: OpenAI, Anthropic, Ollama, any OpenAI-compatible endpoint | Claude Code on your Claude login |
 | Needs | an API key (none for Ollama) | `pip install 'wraithd[claude]'` (~300 MB), then `claude` and `/login` |
 | Tools | wraithd's guarded tools | the same guarded tools, as one in-process MCP server; Claude Code's own are off |
-| Chat | one run per message | one warm Claude Code process per conversation, so only the first message waits ~5 s for it to start |
+| Chat | one run per message | one warm Claude Code process per conversation; `wraithd chat` starts it as it opens, so the ~5 s start overlaps your typing |
 | Background work | `[models]` per purpose | `background_model` for the heartbeat, schedules, memory distill and compaction |
 | Images | when the model can see | only through an API model; with no key, wraithd says it can't read images yet |
 | Stop rules | the loop's run hooks | checked by the bridge before every tool call; the tool-call limit is counted there too |
@@ -64,6 +64,12 @@ Every Claude Code call names its model. With none set, Claude Code picks Opus, t
 
 - Each conversation keeps one warm session. Its tools, system prompt and model are fixed when it connects, so a
   run that needs different ones gets a new session.
+- `wraithd chat` (rich and plain) starts its conversation's session as soon as it opens (`run.start_warm_session`,
+  a background task), so Claude Code starts while you type. It builds the context exactly as the first message's
+  `run()` does (`run(..., warm_up=True)` stops after the prompt and tools and saves no run), so the first message
+  reuses that session instead of opening a second one. That message waits for the start if it isn't done (the
+  conversation's lock). If the early start fails, the first message starts the session as before and shows any
+  problem then. Quitting before the first message cancels the start and closes the session.
 - A new session gets wraithd's compacted history as a transcript. A known session gets only the new message, the
   time and any reminders.
 - A `RunSlot` holds the guarded tools of the run that is answering. Between runs it is empty, and any call is
@@ -80,7 +86,9 @@ Every Claude Code call names its model. With none set, Claude Code picks Opus, t
   "aclose(): asynchronous generator is already running". `close()` cancels a message still answering and waits for
   it before it disconnects.
 - Each Claude Code start is an `engine_connect` event (`kind`: `session` for a warm session's connect, `once` for a
-  one-shot's start until its init message; `ms`). `run_end`'s `duration_ms` still counts the whole run.
+  one-shot's start until its init message; `ms`). `run_end`'s `duration_ms` still counts the whole run. A session
+  started early logs it on its first message with `early: true`; `ms` is still Claude Code's own start (the early
+  connect plus the wait for init), not the time you spent typing.
 
 ## Checked how
 
@@ -92,6 +100,11 @@ login and home folder are never touched. The tests cover:
 - the three fallback cases;
 - warm sessions: reuse, taint carried over, changed tools, the idle reaper, ordering, shutdown;
 - quitting chat with an open session prints nothing (the fake SDK nests its generators like the real one);
-- `engine_connect` with its ms.
+- `engine_connect` with its ms;
+- the early start in chat (`test_warm_start.py`): the first message reuses it (one connect), a failed start falls
+  back, quitting or Ctrl-C while it starts is clean, and the first-message wait before and after. With a 2 s start
+  (`WRAITHD_MEASURE_SCALE=1 uv run pytest tests/engines/test_warm_start.py -s -k measure`), message sent to first
+  token: a fast typist (sends at 0.5 s) 2.01 s before, 1.50 s after; a slow one (sends at 3 s) 2.01 s before,
+  0.005 s after.
 
 `scripts/spike_claude.py` is the one real check, on your own login: `auth: none` and `echo: hi`.

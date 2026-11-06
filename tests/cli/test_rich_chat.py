@@ -131,3 +131,30 @@ async def test_quitting_closes_the_warm_sessions_in_the_rich_look_too(make_runti
         with rich(keys) as term:
             await chat(rt, term)
     assert closed == [True, True]
+
+
+async def test_the_rich_look_starts_claude_code_as_it_opens(home, rich, monkeypatch):
+    """On the claude-code engine the chat's session starts before the first message, and that message uses it."""
+    import sys
+
+    from tests.engines import fake_sdk
+    from wraithd.config import Home, set_values
+    from wraithd.run import Runtime
+
+    fake = fake_sdk.module([fake_sdk.init(), fake_sdk.text_delta('Hi.'), fake_sdk.result('Hi.')], start_seconds=0.1)
+    monkeypatch.setitem(sys.modules, 'claude_agent_sdk', fake)
+    set_values(home, 'engine', {'name': 'claude-code'})
+    rt = Runtime.open(Home.locate())
+    try:
+        with rich() as term:
+            sending = asyncio.create_task(typed(term, ['hello' + ENTER, CTRL_D]))  # sent at 0.2 s
+            await chat(rt, term)
+            await sending
+        [first] = rt.store.recent_runs()
+        [connect] = [e.payload for e in rt.store.run_events(first.run_id) if e.type == 'engine_connect']
+        assert connect['early'] is True
+    finally:
+        rt.close()
+    (client,) = fake.ClaudeSDKClient.instances
+    assert client.connects == 1 and 'USER: hello' in client.texts[0] and client.disconnects == 1
+    assert 'Hi.' in term.out.getvalue()

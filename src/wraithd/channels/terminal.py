@@ -18,7 +18,7 @@ import time
 from wraithd.core import compaction
 from wraithd.mcp.client import McpConnections
 from wraithd.memory import distill
-from wraithd.run import Runtime, run
+from wraithd.run import Runtime, run, start_warm_session
 from wraithd.store import base as store_base
 
 QUIT = {'/quit', '/exit', 'quit', 'exit', ':q'}
@@ -100,15 +100,22 @@ async def chat(rt: Runtime, terminal: Terminal | None = None) -> str:
     async with McpConnections(rt.config.mcp_servers, store=rt.store) as mcp:  # once per session, not once per message
         for name, problem in mcp.errors.items():
             terminal.say(f'(MCP server {name} is not available this session: {problem})')
+        warming: list[asyncio.Task] = []
         try:
-            return await _session(rt, terminal, mcp)
+            return await _session(rt, terminal, mcp, warming)
         finally:
-            # /quit, Ctrl-D or Ctrl-C: the warm Claude Code sessions close now, while the event loop still runs
+            # /quit, Ctrl-D or Ctrl-C: a session still starting stops, and the warm Claude Code sessions close now,
+            # while the event loop still runs
+            for task in warming:
+                task.cancel()
+            await asyncio.gather(*warming, return_exceptions=True)
             await rt.close_sessions()
 
 
-async def _session(rt: Runtime, terminal: Terminal, mcp) -> str:
+async def _session(rt: Runtime, terminal: Terminal, mcp, warming: list) -> str:
     conversation = rt.store.start_conversation('terminal')
+    # Claude Code starts now, while the owner types; the first message waits for it if it isn't ready yet
+    warming.append(asyncio.create_task(start_warm_session(rt, conversation.id, mcp=mcp)))
     terminal.welcome(rt)
     try:
         while True:

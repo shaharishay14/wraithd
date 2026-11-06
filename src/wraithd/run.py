@@ -257,7 +257,8 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
               tools=(), app_tools=(), app_guides: dict[str, str] | None = None, builtins: bool = True,
               mcp: Connected | None = None, untrusted_source: str = '', images=(), parent_run_id: str | None = None,
               inherited_taint=(), budget: dict | None = None, purpose: str = 'chat',
-              allowed_tools=None, conversation: str | None = None, system_prompt: str | None = None) -> RunResult:
+              allowed_tools=None, conversation: str | None = None, system_prompt: str | None = None,
+              warm_up: bool = False) -> RunResult:
     """
     Runs the agent on one message.
 
@@ -285,6 +286,7 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
     conversation (engines/claude_code.py); third-party text its earlier messages read taints this one too.
     system_prompt: a short prompt for a tool-less run (the lean heartbeat): it replaces the base instructions, the
     reminders and the skills list; the standing orders and the memory profile stay.
+    warm_up: start_warm_session(): build the context, start its warm session, and return; no run happens.
     """
     async with AsyncExitStack() as stack:
         lease = None
@@ -299,7 +301,25 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
                           mcp=mcp if owner else None, untrusted_source=untrusted_source, images=images,
                           parent_run_id=parent_run_id, inherited_taint=tuple(inherited_taint), budget=budget,
                           purpose=purpose, allowed_tools=None if allowed_tools is None else set(allowed_tools),
-                          stack=stack, lease=lease, system_prompt=system_prompt)
+                          stack=stack, lease=lease, system_prompt=system_prompt, warm_up=warm_up)
+
+
+async def start_warm_session(rt: Runtime, conversation: str, *, mcp: Connected | None = None) -> bool:
+    """
+    Starts a chat conversation's warm Claude Code session before its first message (`wraithd chat` as it opens), so
+    Claude Code starts while the owner types. Claude Code's tools, system prompt and model are fixed when it connects,
+    so they are built exactly as that message's run() builds them; anything else would open a second session. The
+    first message waits for it (the conversation's lock). False when there's nothing to start or it couldn't: the
+    first message then starts it as it always did. Cancel it to stop it (the session is closed).
+    """
+    if not warm_eligible(rt, conversation, 'chat', 'chat'):
+        return False
+
+    async def attended(event_type: str, data: dict) -> None:  # a chat is attended: the same tools as its runs
+        return None
+
+    # True only when started: a refusal before the context is built (the daily budget) is a RunResult, not a start
+    return await run(rt, '', callback=attended, source='chat', mcp=mcp, conversation=conversation, warm_up=True) is True
 
 
 def user_content(message: str, images=()):
@@ -313,10 +333,10 @@ def user_content(message: str, images=()):
 
 async def _run(rt, message, *, history, callback, source, owner, tools, app_tools, app_guides, builtins, mcp,
                untrusted_source, images, parent_run_id, inherited_taint, budget, purpose, allowed_tools, stack,
-               lease=None, system_prompt=None):
+               lease=None, system_prompt=None, warm_up=False):
     started = time.monotonic()
     history = list(history)
-    log = ev.EventLog(rt.store)
+    log = ev.EventLog(None if warm_up else rt.store)  # a warm-up is no run: nothing of it is saved
     log.append(ev.RUN_START, source=source, message=message, history_messages=len(history), owner=owner,
                **({'images': len(images)} if images else {}),
                untrusted_inputs=[*([untrusted_source] if untrusted_source else []),
@@ -451,6 +471,8 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
             instructions += disclosure.discovery_instructions(sorted({disclosure.app_of(t.name) for t in app_tools}),
                                                               len(app_tools))
         instructions += sections[tokens.PROFILE]
+        if warm_up:
+            return bool(use_claude and lease) and await lease.warm(instructions, guarded, engine_model)
 
         model = engine_model or rt.model_for(purpose)
         # What the model starts with: the size of this is what progressive disclosure shrinks
@@ -495,6 +517,9 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         end('answered')
         return RunResult(answer, log.run_id, 'answered')
     except Exception as e:
+        if warm_up:  # the first message builds it again, and says so if it fails then
+            logger.info(f'Could not start the warm session early: {type(e).__name__}: {e}')
+            return False
         logger.error(f'Run {log.run_id} failed: {type(e).__name__}: {e}')
         end('failed', error=type(e).__name__)
         # Honest answer from what actually ran. No fallback to a second, tool-less model: it had no memory of

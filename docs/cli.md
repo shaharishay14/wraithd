@@ -36,13 +36,16 @@ When the id is left out, these offer a list instead of failing: `wraithd schedul
 
 ## Chat
 
+On the `claude-code` engine, chat starts Claude Code as soon as it opens, while you type the first message
+(docs/engines.md, Warm sessions).
+
 | Key | Does |
 |---|---|
 | Enter | send |
 | Esc Enter | a new line in the same message |
 | ↑ ↓ | earlier messages (this session) |
 | Tab | complete a /command |
-| Ctrl-D, `/quit` | end the chat (Ctrl-C too); warm Claude Code sessions close first |
+| Ctrl-D, `/quit` | end the chat (Ctrl-C too); warm Claude Code sessions close first, even one still starting |
 
 | Command | Does |
 |---|---|
