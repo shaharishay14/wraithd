@@ -64,6 +64,8 @@ class AnswerView:
         self.tool: str | None = None
         self.tool_live: Live | None = None
         self.decisions: dict[str, str] = {}  # tool -> what the owner decided on its card
+        self.outcome: str = 'ok'  # the running tool's outcome, from its tool_result
+        self.denied_shown: set[str] = set()  # tools whose ✗ line decided() already printed
         self.started = time.monotonic()
         self.streamed = False
 
@@ -80,7 +82,7 @@ class AnswerView:
 
     def tool_started(self, name: str) -> None:
         self.pause()
-        self.tool = name
+        self.tool, self.outcome = name, 'ok'
         if self.live:
             spinner = Spinner('dots', text=Text(f' {name}', style='dim'), style='accent')
             self.tool_live = Live(spinner, console=self.console, refresh_per_second=SPINNER_REFRESH, transient=True)
@@ -91,6 +93,19 @@ class AnswerView:
             self.decisions[tool] = 'approved by you'
         else:
             self.console.print(f'  [fail]✗[/fail] [dim]{escape(tool)}  denied by you[/dim]')
+            self.denied_shown.add(tool)
+
+    def finished(self, tool: str, outcome: str) -> None:
+        """A tool's result (ok, error or denied): the running tool's line gets ✓ or ✗; a call that never started
+        (denied by a rule, or refused before it ran) gets its own ✗ line."""
+        if tool == self.tool:
+            self.outcome = outcome
+            self._end_tool()
+        elif outcome == 'denied' and tool in self.denied_shown:
+            self.denied_shown.discard(tool)
+        elif outcome != 'ok':
+            self.pause()
+            self.console.print(f'  [fail]✗[/fail] [dim]{escape(tool)}  {escape(outcome)}[/dim]')
 
     def pause(self) -> None:
         """Leaves what's on screen as it is (before an approval card or a tool line)."""
@@ -115,8 +130,11 @@ class AnswerView:
         if self.tool_live:
             self.tool_live.stop()
         note = self.decisions.pop(self.tool, 'allowed')
-        self.console.print(f'  [ok]✓[/ok] [dim]{escape(self.tool)}  {note}[/dim]')
-        self.tool, self.tool_live = None, None
+        if self.outcome == 'ok':
+            self.console.print(f'  [ok]✓[/ok] [dim]{escape(self.tool)}  {note}[/dim]')
+        else:
+            self.console.print(f'  [fail]✗[/fail] [dim]{escape(self.tool)}  {note} · {escape(self.outcome)}[/dim]')
+        self.tool, self.tool_live, self.outcome = None, None, 'ok'
 
 
 def _value(value) -> str:

@@ -700,6 +700,11 @@ def guard_function_tools(tools: list[Any], gate: PermissionGate, log: ev.EventLo
         if log is not None:
             log.append(event_type, **payload)
 
+    async def finished(name: str, outcome: str) -> None:
+        """tool_result to the channel beside the logged event: ok, error or denied (chat's ✓ / ✗)."""
+        if gate.callback:
+            await gate.callback('tool_result', {'tool': name, 'outcome': outcome})
+
     guarded = []
     for tool in tools:
         if not isinstance(tool, FunctionTool):
@@ -714,13 +719,16 @@ def guard_function_tools(tools: list[Any], gate: PermissionGate, log: ev.EventLo
                 if answer:
                     record(ev.TOOL_CALL, tool=name, arguments=arguments, access=gate.access(name).value,
                            allowed=False, rejected_by='precheck')
-                    record(ev.TOOL_RESULT, **render.for_log(name, answer, render.outcome_of(answer), untrusted=False))
+                    outcome = render.outcome_of(answer)
+                    record(ev.TOOL_RESULT, **render.for_log(name, answer, outcome, untrusted=False))
+                    await finished(name, outcome)
                     return answer
                 blocked = await gate.check(name, arguments)
                 record(ev.TOOL_CALL, tool=name, arguments=arguments, access=gate.access(name).value,
                        allowed=blocked is None)
                 if blocked:
                     record(ev.TOOL_RESULT, **render.for_log(name, blocked, 'denied', untrusted=False))
+                    await finished(name, 'denied')
                     return blocked
                 if gate.callback:
                     await gate.callback('tool_call_start', {'tool': name, 'parameters': arguments})
@@ -728,6 +736,7 @@ def guard_function_tools(tools: list[Any], gate: PermissionGate, log: ev.EventLo
                     result = await original_tool.on_invoke_tool(ctx, input_json)
                 except Exception as e:
                     record(ev.TOOL_RESULT, **render.for_log(name, f'{type(e).__name__}: {e}', 'error', untrusted=False))
+                    await finished(name, 'error')
                     raise
                 gate.record_completed(name, arguments)
                 text = result if isinstance(result, str) else json.dumps(result, default=str)
@@ -735,8 +744,10 @@ def guard_function_tools(tools: list[Any], gate: PermissionGate, log: ev.EventLo
                 text, redacted = secrets.redact(text)
                 untrusted = returns_untrusted_content(name) or render.reports_untrusted(text)
                 usage = render.search_usage(name, text)
-                record(ev.TOOL_RESULT, **render.for_log(name, text, render.outcome_of(text), untrusted=untrusted),
+                outcome = render.outcome_of(text)
+                record(ev.TOOL_RESULT, **render.for_log(name, text, outcome, untrusted=untrusted),
                        **({'redacted': redacted} if redacted else {}), **({'usage': usage} if usage else {}))
+                await finished(name, outcome)
                 shown = tool_results.apply(result_hooks, name, text, untrusted) if result_hooks else text
                 output = gate.record_output(name, render.cap_tool_result(shown), untrusted=untrusted,
                                             seen=text if shown is not text else None)

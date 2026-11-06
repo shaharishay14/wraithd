@@ -315,6 +315,8 @@ class RichTerminal(Terminal):
                 view.delta(data['content'])
             elif event_type == 'tool_call_start':
                 view.tool_started(data['tool'])
+            elif event_type == 'tool_result':
+                view.finished(data['tool'], data['outcome'])
             elif event_type == 'approval_required':
                 view.pause()
                 self.console.print(approval_card(data))

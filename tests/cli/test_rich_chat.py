@@ -62,6 +62,16 @@ async def test_y_still_allows_and_the_tool_line_says_who_decided(make_runtime, r
     assert row['status'] == store_base.APPROVED
 
 
+async def test_a_tool_error_is_a_cross_and_a_good_result_a_tick(make_runtime, rich):
+    model = ScriptedModel([[call('1', 'schedule_cancel', {'id': 99})], [call('2', 'schedule_list', {})],
+                           [say('No such schedule.')], [FACTS]])
+    with rich('cancel schedule 99' + ENTER + CTRL_D) as term:
+        await chat(make_runtime(model), term)
+    out = term.out.getvalue()
+    assert '✗ schedule_cancel  allowed · error' in out and '✓ schedule_cancel' not in out
+    assert '✓ schedule_list  allowed' in out and 'No such schedule.' in out
+
+
 async def test_warnings_about_strangers_are_at_the_top_of_the_card(rich):
     from wraithd.tui.chat import approval_card
 

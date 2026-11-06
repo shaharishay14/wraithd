@@ -126,6 +126,30 @@ async def test_guarded_tool_runs_only_when_allowed(store):
     assert ran == ['{"q": 1}']
 
 
+async def test_each_result_goes_to_the_channel_with_its_outcome(store, events):
+    """tool_result beside the logged event: ok, error (a reported failure or a raise) and denied."""
+    async def good(ctx, payload):
+        return 'fine'
+
+    async def failing(ctx, payload):
+        return json.dumps({'error': 'nope'})
+
+    async def raising(ctx, payload):
+        raise RuntimeError('boom')
+
+    tools = [make_tool('GMAIL_FETCH_EMAILS', good), make_tool('GITHUB_GET_A_REPOSITORY', failing),
+             make_tool('GITHUB_LIST_ISSUES', raising), make_tool('GITHUB_DELETE_A_REPOSITORY', good)]
+    ok, error, raised, denied = guard_function_tools(tools, PermissionGate(store, events))
+    await ok.on_invoke_tool(None, '{}')
+    await error.on_invoke_tool(None, '{}')
+    with pytest.raises(RuntimeError):
+        await raised.on_invoke_tool(None, '{}')
+    await denied.on_invoke_tool(None, '{}')
+    assert [data for event, data in events.recorded if event == 'tool_result'] == [
+        {'tool': 'GMAIL_FETCH_EMAILS', 'outcome': 'ok'}, {'tool': 'GITHUB_GET_A_REPOSITORY', 'outcome': 'error'},
+        {'tool': 'GITHUB_LIST_ISSUES', 'outcome': 'error'}, {'tool': 'GITHUB_DELETE_A_REPOSITORY', 'outcome': 'denied'}]
+
+
 async def test_a_precheck_answers_before_the_gate_asks(store, events):
     async def real_tool(ctx, payload):
         raise AssertionError('must not run')
