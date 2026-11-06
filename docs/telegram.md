@@ -61,6 +61,10 @@
   nothing) and strangers stay ignored.
 - **Button taps** from any chat but the owner's are refused ("Only the owner can decide.") and the chat is logged
   as `telegram_ignored`, within the same once-an-hour limit.
+- **Messages to the owner** (`notify_owner`, a schedule's answer, the heartbeat) go to the paired chat and are
+  also kept in the **Notifications** inbox, which the web UI lists: sent, failed (stored once, with a warning in the
+  log) or with no paired chat. The heartbeat's "Already told them lately" reads that inbox, so it doesn't repeat
+  what a schedule just said on Telegram.
 - **Errors** never include the API URL or the file download URL, since the bot token is in both.
 
 ## On a laptop
