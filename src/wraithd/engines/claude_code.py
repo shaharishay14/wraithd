@@ -7,7 +7,8 @@ Two ways to run:
 - run_once(): one Claude Code process for one run. Background work (heartbeat, schedules), rt.complete() (memory
   distill, compaction) and any run without a conversation.
 - WarmSession: one Claude Code process per conversation, kept between messages so only the first one pays the
-  ~4.6s start. SessionPool (owned by the Runtime) keys them by conversation id and closes idle ones.
+  ~4.6s start. SessionPool (owned by the Runtime) keys them by conversation id and closes idle ones. `wraithd chat`
+  starts its conversation's session as soon as it opens (run.warm_up), so the start overlaps the owner's typing.
 
 wraithd stays the source of truth: its (compacted) history goes to a new session as a transcript, and its event
 log records every tool call and the tokens used, so the budgets count.
@@ -70,22 +71,23 @@ def _limit_hit(claude, message) -> bool:
     return False
 
 
-def _connected(log, started: float, kind: str) -> None:
+def _connected(log, started: float, kind: str, **extra) -> None:
     """engine_connect: how long Claude Code took to start (run_end's duration_ms doesn't show it apart)."""
     from wraithd.core import events as ev
 
     if log is not None:
-        log.append(ev.ENGINE_CONNECT, engine='claude-code', kind=kind, ms=int((time.monotonic() - started) * 1000))
+        log.append(ev.ENGINE_CONNECT, engine='claude-code', kind=kind, ms=int((time.monotonic() - started) * 1000),
+                   **extra)
 
 
 async def _consume(claude, messages, callback=None, log=None, progress: dict | None = None,
-                   started: float | None = None, kind: str = 'once'):
+                   started: float | None = None, kind: str = 'once', connect_extra: dict | None = None):
     """
     (answer, ResultMessage) from one run's messages. The login is checked on init, before any model call; the plan's
     limit raises SubscriptionUnavailable. Text goes to callback as content_delta events; progress['streamed'] turns
     True on the first. Each model call is a turn_start in log, and the result's usage a model_output. started: when
     Claude Code was asked to start (a one-shot's query, a warm session's connect); its init, or the first answer
-    when no init comes, is then logged as engine_connect of this kind.
+    when no init comes, is then logged as engine_connect of this kind (with connect_extra's fields).
     """
     from wraithd.core import events as ev
 
@@ -98,7 +100,7 @@ async def _consume(claude, messages, callback=None, log=None, progress: dict | N
             if started is not None and (isinstance(message, (claude.AssistantMessage, claude.StreamEvent,
                                                              claude.ResultMessage))
                                         or (isinstance(message, claude.SystemMessage) and message.subtype == 'init')):
-                _connected(log, started, kind)
+                _connected(log, started, kind, **(connect_extra or {}))
                 started = None
             if isinstance(message, claude.SystemMessage) and message.subtype == 'init':
                 source = message.data.get('apiKeySource')
@@ -174,7 +176,24 @@ class WarmSession:
                                                                     stream=True))
         self.lock = asyncio.Lock()
         self.connected, self.fresh, self.last_used = False, True, time.monotonic()
-        self.answering: asyncio.Task | None = None  # the task in ask(), while it runs
+        self.answering: asyncio.Task | None = None  # the task in ask() or start(), while it runs
+        self.early_seconds: float | None = None  # how long start()'s connect took, until the first message logs it
+
+    async def start(self) -> None:
+        """Connects now, before any message (`wraithd chat` as it opens), so Claude Code starts while the owner
+        types. A message that comes first waits for it (the lock). Its time is logged by the first message."""
+        async with self.lock:
+            if self.connected:
+                return
+            self.answering = asyncio.current_task()
+            try:
+                _ready()
+                started = time.monotonic()
+                await self.client.connect()
+                self.connected, self.early_seconds = True, time.monotonic() - started
+            finally:
+                self.answering = None
+                self.last_used = time.monotonic()
 
     def fits(self, instructions: str, guarded, model: str) -> bool:
         return self.key == (tuple(tool_names(guarded)), instructions, model)
@@ -185,8 +204,13 @@ class WarmSession:
         async with self.lock:
             self.answering = asyncio.current_task()
             claude = sdk()
-            started = None
-            if not self.connected:
+            started, extra = None, None
+            if self.early_seconds is not None:
+                # Started early: engine_connect is still its real time, start()'s connect plus the wait for init,
+                # not the minutes the owner spent typing in between
+                started, extra = time.monotonic() - self.early_seconds, {'early': True}
+                self.early_seconds = None
+            elif not self.connected:
                 _ready()
                 # Ready at Claude Code's init (or first answer) on this first message, not when connect() returns
                 started = time.monotonic()
@@ -198,7 +222,7 @@ class WarmSession:
                 # Closed before the lock is released, so close() never disconnects under a running receive_response
                 async with contextlib.aclosing(self.client.receive_response()) as messages:
                     found = await _consume(claude, messages, callback, log, progress, started=started,
-                                           kind='session')
+                                           kind='session', connect_extra=extra)
                 self.fresh = False
                 return found
             finally:
@@ -243,6 +267,20 @@ class Lease:
             current = self.pool.sessions[self.key] = WarmSession(instructions, guarded, model)
             self.pool.start_reaper()
         return current
+
+    async def warm(self, instructions: str, guarded, model: str) -> bool:
+        """Starts the conversation's session before its first message. False if it couldn't: the session is
+        dropped, and the first message starts one as it always did (and shows any problem then)."""
+        try:
+            await (await self.session(instructions, guarded, model)).start()
+            return True
+        except Exception as e:
+            logger.info(f'Claude Code could not start early: {type(e).__name__}: {e}')
+            await self.pool.drop(self.key)
+            return False
+        except BaseException:  # cancelled (the chat ended before its first message): closed now, not left half open
+            await self.pool.drop(self.key)
+            raise
 
     async def ask(self, session: WarmSession, text: str, guarded, *, untrusted_texts=lambda: (), **options):
         """session.ask(); any failure closes and drops the session, so the next message starts fresh. What the run
