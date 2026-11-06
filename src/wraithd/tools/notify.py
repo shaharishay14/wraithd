@@ -3,7 +3,7 @@ notify_owner: the agent messages its owner, on whatever channel reaches them. It
 its answer, and how any run can say "done" or "this needs you". The message only ever goes to the owner, so it
 needs no approval, and it works unattended.
 
-Where it goes is the runtime's notifier: Telegram when the daemon has a paired owner chat, otherwise the
+Where it goes is the runtime's notifier: Telegram when the daemon has a paired owner chat, and always the
 "Notifications" conversation in the store, which the web UI lists like any other.
 """
 

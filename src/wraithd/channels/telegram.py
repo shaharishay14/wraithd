@@ -219,7 +219,9 @@ def _attachment(message: dict) -> base.Attachment | None:
 
 
 class TelegramNotifier:
-    """notify_owner through Telegram when there's a paired owner chat; otherwise into the store's inbox."""
+    """notify_owner (and schedules' and the heartbeat's messages) through Telegram when there's a paired owner chat.
+    Every message is also kept in the store's inbox (Notifications), sent or not, once: the web UI lists it, and the
+    heartbeat's "Already told them lately" reads it."""
 
     channel = 'telegram'
 
@@ -228,11 +230,12 @@ class TelegramNotifier:
 
     async def deliver(self, text: str) -> str:
         owner = self.store.get_setting(OWNER_CHAT)
-        if not owner:
-            return await self.inbox.deliver(text)
-        try:
-            await self.bot.send(int(owner), text)
-            return self.channel
-        except TelegramError as e:
-            logger.warning(f'{e}; kept in the inbox instead')
-            return await self.inbox.deliver(text)
+        delivered = self.inbox.channel
+        if owner:
+            try:
+                await self.bot.send(int(owner), text)
+                delivered = self.channel
+            except TelegramError as e:
+                logger.warning(f'{e}; kept in the inbox instead')
+        await self.inbox.deliver(text)
+        return delivered
