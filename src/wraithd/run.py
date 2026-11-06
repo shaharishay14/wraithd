@@ -257,7 +257,7 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
               tools=(), app_tools=(), app_guides: dict[str, str] | None = None, builtins: bool = True,
               mcp: Connected | None = None, untrusted_source: str = '', images=(), parent_run_id: str | None = None,
               inherited_taint=(), budget: dict | None = None, purpose: str = 'chat',
-              allowed_tools=None, conversation: str | None = None) -> RunResult:
+              allowed_tools=None, conversation: str | None = None, system_prompt: str | None = None) -> RunResult:
     """
     Runs the agent on one message.
 
@@ -283,6 +283,8 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
     allowed_tools: names of the only tools the model is offered (app actions included); None offers every one
     conversation: the conversation's id. On the Claude Code engine a chat keeps one warm Claude Code session per
     conversation (engines/claude_code.py); third-party text its earlier messages read taints this one too.
+    system_prompt: a short prompt for a tool-less run (the lean heartbeat): it replaces the base instructions, the
+    reminders and the skills list; the standing orders and the memory profile stay.
     """
     async with AsyncExitStack() as stack:
         lease = None
@@ -297,7 +299,7 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
                           mcp=mcp if owner else None, untrusted_source=untrusted_source, images=images,
                           parent_run_id=parent_run_id, inherited_taint=tuple(inherited_taint), budget=budget,
                           purpose=purpose, allowed_tools=None if allowed_tools is None else set(allowed_tools),
-                          stack=stack, lease=lease)
+                          stack=stack, lease=lease, system_prompt=system_prompt)
 
 
 def user_content(message: str, images=()):
@@ -311,7 +313,7 @@ def user_content(message: str, images=()):
 
 async def _run(rt, message, *, history, callback, source, owner, tools, app_tools, app_guides, builtins, mcp,
                untrusted_source, images, parent_run_id, inherited_taint, budget, purpose, allowed_tools, stack,
-               lease=None):
+               lease=None, system_prompt=None):
     started = time.monotonic()
     history = list(history)
     log = ev.EventLog(rt.store)
@@ -439,7 +441,12 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
                                       if orders else '',
                     tokens.SKILLS: registry.registry_prompt(skills, can_adjust=owner),
                     tokens.PROFILE: vault.memory_context(notes) if owner else ''}  # L0 + L1; the rest on demand
-        instructions = BASE_INSTRUCTIONS + reminders.PREAMBLE + sections[tokens.AGENTS_MD] + sections[tokens.SKILLS]
+        if system_prompt is not None:  # a tool-less run's short prompt: no skills list, no reminders
+            sections[tokens.SKILLS] = ''
+            instructions = system_prompt + sections[tokens.AGENTS_MD]
+        else:
+            instructions = (BASE_INSTRUCTIONS + reminders.PREAMBLE + sections[tokens.AGENTS_MD]
+                            + sections[tokens.SKILLS])
         if use_discovery:
             instructions += disclosure.discovery_instructions(sorted({disclosure.app_of(t.name) for t in app_tools}),
                                                               len(app_tools))
@@ -464,8 +471,8 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         time_note = NOW_NOTE.format(now=f'{now:%A %d %B %Y, %H:%M} ({now.tzname()})')
         chat = history + [{'role': 'user', 'content': user_content(message, images)},
                           {'role': 'system', 'content': time_note}]
-        start_block = reminders.inject(log, reminders.RUN_START,
-                                       reminders.due(reminders.REMINDERS, reminders.RUN_START, situation))
+        start_block = None if system_prompt is not None else reminders.inject(
+            log, reminders.RUN_START, reminders.due(reminders.REMINDERS, reminders.RUN_START, situation))
         if start_block:
             chat.append({'role': 'user', 'content': start_block})
 

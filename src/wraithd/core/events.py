@@ -48,6 +48,7 @@ SPILL_CLEANED = 'spill_cleaned'  # old spill folders were deleted (between runs)
 # >>> capabilities
 SUBAGENT_RESULT = 'subagent_result'  # a delegate call's child run ended: its id, outcome, tokens (delegate.py)
 HEARTBEAT_RUN = 'heartbeat_run'  # the heartbeat ran (daemon/heartbeat.py): its run, tokens, whether it said anything
+# and its mode: 'lean' (one tool-less turn) or 'full' (read-only tools; full_because 'apps' or 'checklist')
 HEARTBEAT_SILENT = 'heartbeat_silent'  # ...and found nothing worth a message, so the owner heard nothing
 # <<< capabilities
 # >>> reach
