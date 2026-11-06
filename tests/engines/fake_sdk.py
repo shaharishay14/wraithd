@@ -138,6 +138,8 @@ class FakeClient:
     """ClaudeSDKClient, offline: each query() plays the next script; connects and disconnects are counted."""
 
     instances: list = []  # replaced per module()
+    start_seconds = 0.0  # how long connect() takes: Claude Code starting (module(start_seconds=))
+    connect_errors: list = []  # exceptions the next connects raise, in order (replaced per module())
 
     def __init__(self, options):
         self.options, self.connects, self.disconnects, self.texts = options, 0, 0, []
@@ -146,6 +148,10 @@ class FakeClient:
 
     async def connect(self):
         self.connects += 1
+        if self.start_seconds:
+            await asyncio.sleep(self.start_seconds)
+        if self.connect_errors:
+            raise self.connect_errors.pop(0)
 
     async def disconnect(self):
         self.disconnects += 1
@@ -185,8 +191,9 @@ async def _messages(script, options):
         await inner.aclose()
 
 
-def module(*scripts):
-    """A fake claude_agent_sdk whose query() plays one script per call, in order. module.calls has each options."""
+def module(*scripts, start_seconds: float = 0.0):
+    """A fake claude_agent_sdk whose query() plays one script per call, in order. module.calls has each options.
+    start_seconds: how long a ClaudeSDKClient's connect() takes."""
     fake = types.ModuleType('claude_agent_sdk')
     for name, value in globals().items():
         if (isinstance(value, type) and value is not FakeClient) or name in ('tool', 'create_sdk_mcp_server'):
@@ -204,10 +211,12 @@ def module(*scripts):
 
     class ClaudeSDKClient(FakeClient):
         instances = []
+        connect_errors = []
 
         def next_script(self):
             fake.calls.append({'prompt': self.texts[-1], 'options': self.options})
             return remaining.pop(0) if remaining else [init(), result()]
 
+    ClaudeSDKClient.start_seconds = start_seconds
     fake.ClaudeSDKClient = ClaudeSDKClient
     return fake
