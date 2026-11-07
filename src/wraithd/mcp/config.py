@@ -12,6 +12,10 @@ the OS keychain under that server's name, so each one goes only to its own serve
     always_allow = ["send_email"]    # tools that run without asking (wraithd mcp allow)
     tools = ["fetch_emails"]         # optional: only these tools are offered; the rest are never shown or run
     sandbox = true                   # optional, stdio only: runs in docker (wraithd mcp add --sandbox)
+    refs = {GMAIL_TOKEN = "op://wraithd/Gmail/token"}  # optional: a 1Password reference instead of a stored value
+
+A reference isn't a secret (it names where the secret is), so it can live in the file; the value is read with
+`op read` each time the server connects, by the daemon's own 1Password CLI login (docs/keys.md).
 
 The blocks are generated, so the CLI rewrites a server's block whole; the rest of the file (and its comments) is
 left as it is.
@@ -22,6 +26,8 @@ import itertools
 import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -36,6 +42,8 @@ APP = 'wraithd'  # the keychain service, as in config.py
 NAME = re.compile(r'^[a-z][a-z0-9-]{0,30}$')
 CAPABILITY = re.compile(r'^[a-z][a-z0-9-]{0,30}$')
 TRANSPORTS = ('stdio', 'http')
+REFERENCE = re.compile(r'^op://[^/\s]+/[^/\s]+/\S+$')  # a 1Password secret reference: op://vault/item/field
+OP_TIMEOUT_SECONDS = 30
 
 
 class McpConfigError(ValueError):
@@ -55,6 +63,7 @@ class McpServer:
     always_allow: tuple[str, ...] = field(default=())
     sandbox: bool = False  # a stdio server that runs inside docker (docs/sandbox.md)
     tools: tuple[str, ...] = ()  # the only tools offered (wraithd mcp add --tools); empty: every tool it lists
+    refs: tuple[tuple[str, str], ...] = ()  # (env or header name, op:// reference): read with `op read` on connect
 
     def offers(self, tool: str) -> bool:
         """The owner's allow-list lets this tool through (no list: every tool does)."""
@@ -67,6 +76,23 @@ def _strings(value, where: str) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise McpConfigError(f'{where} must be a list of strings.')
     return tuple(value)
+
+
+def is_reference(value: str) -> bool:
+    """A 1Password secret reference (op://vault/item/field): where a secret is, not the secret."""
+    return bool(REFERENCE.match(value or ''))
+
+
+def _refs(value, where: str, names: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        raise McpConfigError(f'{where} must be a table of names to op:// references.')
+    for key, reference in value.items():
+        if key not in names or not is_reference(reference):
+            raise McpConfigError(f'{where} {key}: each entry is one of the server\'s env or header names, with an '
+                                 'op://vault/item/field reference.')
+    return tuple(value.items())
 
 
 def parse_servers(data: dict) -> tuple[McpServer, ...]:
@@ -88,6 +114,7 @@ def parse_servers(data: dict) -> tuple[McpServer, ...]:
                            always_allow=_strings(table.get('always_allow'), f'{where} always_allow'),
                            sandbox=table.get('sandbox', False),
                            tools=_strings(table.get('tools'), f'{where} tools'))
+        server = replace(server, refs=_refs(table.get('refs'), f'{where} refs', server.env + server.headers))
         if not isinstance(server.sandbox, bool) or server.sandbox and transport != 'stdio':
             raise McpConfigError(f'{where} sandbox must be true or false, and only a local (stdio) server has one.')
         if transport == 'stdio' and not server.command:
@@ -126,12 +153,35 @@ def _keychain(account: str) -> str | None:
     return value or rename.old_keychain_get(account)
 
 
+def op_read(reference: str) -> str:
+    """A 1Password reference's value, through the 1Password CLI (`op read`). McpConfigError when it can't be read;
+    the message never has the value in it."""
+    op = shutil.which('op')
+    if op is None:
+        raise McpConfigError(f'{reference} is a 1Password reference, but the 1Password CLI (op) isn\'t installed on '
+                             'this machine: see docs/keys.md.')
+    try:
+        done = subprocess.run([op, 'read', '--no-newline', reference], capture_output=True, text=True,
+                              timeout=OP_TIMEOUT_SECONDS, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise McpConfigError(f'Reading {reference} with op failed ({type(e).__name__}).') from None
+    if done.returncode != 0 or not done.stdout:
+        why = secrets.redact_text(done.stderr.strip().splitlines()[-1]) if (done.stderr or '').strip() else ''
+        raise McpConfigError(f'op could not read {reference}' + (f': {why[:200]}' if why else '') +
+                             '. Is the daemon started with a 1Password login (OP_SERVICE_ACCOUNT_TOKEN)?')
+    return done.stdout
+
+
 def get_secrets(server: McpServer) -> tuple[dict[str, str], dict[str, str]]:
     """(env, headers) for this server only, from the keychain or else the environment (env_name). Every value is
     registered for redaction."""
-    found = {'env': {}, 'header': {}}
+    found, refs = {'env': {}, 'header': {}}, dict(server.refs)
     for kind, names in (('env', server.env), ('header', server.headers)):
         for key in names:
+            if key in refs:
+                found[kind][key] = value = op_read(refs[key])
+                secrets.register_secret(value)
+                continue
             name = env_name(server.name, key)
             value = _keychain(_account(server.name, kind, key)) or os.environ.get(name) or rename.old_mcp_env(name)
             if value is None:
@@ -172,6 +222,9 @@ def render_block(server: McpServer) -> str:
         lines.append(f'tools = {_toml_list(server.tools)}    # only these tools are offered')
     if server.sandbox:
         lines.append('sandbox = true                   # runs inside docker ([sandbox] image and network)')
+    if server.refs:
+        lines.append('refs = {' + ', '.join(f'{json.dumps(k)} = {json.dumps(v)}' for k, v in server.refs)
+                     + '}    # 1Password references, read with op on connect')
     return '\n'.join(lines) + '\n'
 
 

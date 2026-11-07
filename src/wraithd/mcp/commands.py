@@ -9,11 +9,14 @@
     wraithd mcp disallow gmail send_email
     wraithd mcp remove gmail
 
-A secret given as NAME alone is asked for without echo, so it never lands in the shell history. `allow` connects to
+A secret given as NAME alone is asked for without echo, so it never lands in the shell history; a value that is a
+1Password reference (--env TOKEN=op://vault/item/field) is kept in config.toml and read with `op` on connect. The
+owner's Telegram /mcp_add (mcp/remote_add.py) parses the same arguments with this module's parser. `allow` connects to
 check the tool and pins the allow to its exact definition (mcp/pinning.py): a tool the server marks destructive, or
 one that's new or changed and not reviewed yet, is refused, and so is any tool while the server doesn't connect.
 """
 
+import argparse
 import asyncio
 import getpass
 import os
@@ -60,6 +63,56 @@ def add_arguments(subparsers) -> None:
     remove.add_argument('name')
 
 
+EITHER = 'Give either a command after -- (a local server) or --url (a remote one).'
+
+
+class _Raising(argparse.ArgumentParser):
+    """A parser that raises McpConfigError instead of printing and exiting (for /mcp_add, inside the daemon)."""
+
+    def error(self, message):
+        raise McpConfigError(f'{message[0].upper()}{message[1:]}.')
+
+    def exit(self, status=0, message=None):
+        raise McpConfigError((message or '').strip() or 'Give the server as: NAME [options] [-- COMMAND ...]')
+
+    def _print_message(self, message, file=None):
+        pass  # -h and errors are raised, never printed
+
+
+def parse_add(words: list[str]) -> argparse.Namespace:
+    """`wraithd mcp add`'s arguments (NAME [options] [-- COMMAND ...]) parsed by the CLI's own parser, raising
+    McpConfigError instead of exiting."""
+    root = _Raising(prog='wraithd', add_help=False)
+    add_arguments(root.add_subparsers(dest='command', parser_class=_Raising))
+    argv, command = split_command(['mcp', 'add', *words])
+    args = root.parse_args(argv)
+    args.server_command = command
+    return args
+
+
+def build_server(args, env: dict[str, str], headers: dict[str, str]) -> McpServer:
+    """The server block `mcp add` writes, from its parsed arguments and its env and header names (a value that is an
+    op:// reference becomes one of the server's refs; other values are the caller's to store). McpConfigError when
+    it can't be added as given."""
+    command = list(args.server_command)
+    if bool(args.url) == bool(command):
+        raise McpConfigError(EITHER)
+    server = mcp_config.validated(McpServer(
+        name=args.name, transport='http' if args.url else 'stdio', command=command[0] if command else '',
+        args=tuple(command[1:]), env=tuple(env), url=args.url, headers=tuple(headers),
+        provides=tuple(p.strip().lower() for p in args.provides.split(',') if p.strip()),
+        sandbox=bool(getattr(args, 'sandbox', False)),
+        tools=tuple(t.strip() for t in (getattr(args, 'tools', '') or '').split(',') if t.strip()),
+        refs=tuple((key, value) for key, value in {**env, **headers}.items() if mcp_config.is_reference(value))))
+    if args.url and server.sandbox:
+        raise McpConfigError('--sandbox is for local servers (a command after --), not --url.')
+    if args.url and env or command and headers:
+        raise McpConfigError('--env is for local servers and --header for remote ones.')
+    if args.url and not args.url.startswith(('http://', 'https://')):
+        raise McpConfigError('--url needs an http(s) URL.')
+    return server
+
+
 def split_command(argv: list[str]) -> tuple[list[str], list[str]]:
     """`mcp add ... -- COMMAND ARGS`: (the arguments before the first --, the local server's command line after it)."""
     if argv[:2] != ['mcp', 'add'] or '--' not in argv:
@@ -92,21 +145,12 @@ def add(home: Home, args, ask=None) -> int:
     ask = ask or getpass.getpass  # looked up now, so it can be replaced
     command = list(args.server_command)
     if bool(args.url) == bool(command):
-        print('Give either a command after -- (a local server) or --url (a remote one).', file=sys.stderr)
+        print(EITHER, file=sys.stderr)
         return 1
     try:
         env = _secret_pairs(args.env, '=', 'env', args.name, ask)
         headers = _secret_pairs(args.header, ':', 'header', args.name, ask)
-        server = mcp_config.validated(McpServer(
-            name=args.name, transport='http' if args.url else 'stdio', command=command[0] if command else '',
-            args=tuple(command[1:]), env=tuple(env), url=args.url, headers=tuple(headers),
-            provides=tuple(p.strip().lower() for p in args.provides.split(',') if p.strip()),
-            sandbox=bool(getattr(args, 'sandbox', False)),
-            tools=tuple(t.strip() for t in (getattr(args, 'tools', '') or '').split(',') if t.strip())))
-        if args.url and server.sandbox:
-            raise McpConfigError('--sandbox is for local servers (a command after --), not --url.')
-        if args.url and env or command and headers:
-            raise McpConfigError('--env is for local servers and --header for remote ones.')
+        server = build_server(args, env, headers)
         previous = _server(home, args.name)
     except (McpConfigError, ConfigError) as e:
         print(e, file=sys.stderr)
@@ -116,7 +160,7 @@ def add(home: Home, args, ask=None) -> int:
             mcp_config.delete_secrets(previous)
         for kind, pairs in (('env', env), ('header', headers)):
             for key, value in pairs.items():
-                if value:
+                if value and not mcp_config.is_reference(value):
                     mcp_config.set_secret(server.name, kind, key, value)
     except McpConfigError as e:  # no keychain on this machine
         print(e, file=sys.stderr)
