@@ -52,6 +52,7 @@ HEARTBEAT_RUN = 'heartbeat_run'  # the heartbeat ran (daemon/heartbeat.py): its 
 HEARTBEAT_SILENT = 'heartbeat_silent'  # ...and found nothing worth a message, so the owner heard nothing
 # <<< capabilities
 # >>> reach
+MCP_ADDED = 'mcp_added'  # the owner added an MCP server from Telegram: name, transport, tool count (mcp/remote_add.py)
 # <<< reach
 # >>> evals
 # <<< evals
@@ -74,6 +75,7 @@ BETWEEN_RUNS = (
     HEARTBEAT_RUN, HEARTBEAT_SILENT,
     # <<< capabilities
     # >>> reach
+    MCP_ADDED,
     # <<< reach
     # >>> evals
     # <<< evals

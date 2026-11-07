@@ -32,7 +32,7 @@ from wraithd.mcp.client import McpConnections
 from wraithd.mcp.config import McpConfigError, McpServer
 
 COMMAND = '/mcp_add'
-MCP_ADDED = 'mcp_added'  # the owner added a server from the phone: its name, transport and tool count, no values
+MCP_ADDED = ev.MCP_ADDED  # the owner added a server from the phone: its name, transport and tool count, no values
 APPROVAL_TOOL = 'mcp_add'  # what the confirm card is stored as, in the approvals table
 USAGE = ('Usage: /mcp_add NAME [--provides a,b] [--tools t1,t2] [--sandbox] [--env KEY] -- COMMAND ARGS\n'
          '   or: /mcp_add NAME --url https://... [--header NAME]')
