@@ -16,10 +16,11 @@ import pytest
 from tests.daemon.conftest import make_daemon  # noqa: F401 (a fixture)
 from tests.daemon.test_telegram import BOT_TOKEN, OWNER, STRANGER, FakeTelegram, paired
 from tests.reach.test_channel import MemoryChannel, ignored, pair
-from tests.scripted import ScriptedModel
-from wraithd import config
+from tests.scripted import ScriptedModel, call, say
+from wraithd import cli, config
 from wraithd.channels import base
 from wraithd.config import load_config
+from wraithd.core import events as ev
 from wraithd.core import gate as gate_module
 from wraithd.mcp import pinning, remote_add
 
@@ -249,3 +250,70 @@ async def test_telegram_forwarded_and_stranger_messages_add_nothing(make_daemon,
     assert daemon.rt.store.list_approvals(status=None) == [] and load_config(daemon.rt.home).mcp_servers == ()
     assert ignored(daemon.rt.store) == [{'chat': STRANGER, 'username': 'eve'}]
     assert daemon.rt.store.events_between_runs(50, (remote_add.MCP_ADDED,)) == []
+
+
+class GatedModel(ScriptedModel):
+    """A scripted model whose first turn waits until the test opens the gate (a run still in progress)."""
+
+    def __init__(self, turns):
+        super().__init__(turns)
+        self.waiting, self.gate = asyncio.Event(), asyncio.Event()
+
+    async def get_response(self, *args, **kwargs):
+        if not self.inputs:
+            self.waiting.set()
+            await self.gate.wait()
+        return await super().get_response(*args, **kwargs)
+
+
+async def until(condition, what):
+    for _ in range(1000):
+        if condition():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f'never: {what}')
+
+
+async def test_a_run_in_progress_keeps_its_tools_across_a_reconnect(make_daemon, isolated, home, tmp_path,  # noqa: F811
+                                                                     capsys):
+    assert cli.main(['mcp', 'add', 'notes', '--', sys.executable, FAKE, '--app', 'notes']) == 0
+    config.set_key('telegram', BOT_TOKEN)
+    fake = FakeTelegram()
+    model = GatedModel([[call('1', 'NOTES_LIST_NOTES', {})], [say('You have groceries and trip ideas.')]])
+    daemon, _ = await make_daemon(model, telegram_transport=httpx.MockTransport(fake.handler))
+    await paired(daemon, fake)
+    old_sessions, old = daemon._sessions, daemon.mcp
+    fake.message(OWNER, 'what notes do I have?')
+    await daemon.telegram.poll_once(timeout=0)
+    await asyncio.wait_for(model.waiting.wait(), 10)  # the run has the old set, and is waiting on the model
+
+    command = [sys.executable, FAKE, '--app', 'notes']
+    fake.message(OWNER, f'/mcp_add notes2 -- {shlex.join(command)}')
+    await daemon.telegram.poll_once(timeout=0)
+    [prompt] = [p for p in fake.sent(OWNER) if 'reply_markup' in p]
+    fake.press(OWNER, prompt['reply_markup']['inline_keyboard'][0][0]['callback_data'])
+    await daemon.telegram.poll_once(timeout=0)
+    await until(lambda: any(p['text'].startswith('Added notes2') for p in fake.sent(OWNER)), 'added')
+    await until(lambda: daemon.mcp is not old, 'switched')
+    assert {s for s, _ in daemon.mcp.origin.values()} == {'notes', 'notes2'}
+    assert daemon.telegram.mcp is daemon.mcp and daemon.scheduler.mcp is daemon.mcp
+    await asyncio.sleep(0.2)
+    assert not old_sessions.task.done()  # still held by the run
+
+    model.gate.set()  # the run goes on: its tool call goes to the old set's session
+    await asyncio.wait_for(daemon.telegram.settle(), 30)  # a closed session would hang the call
+    assert fake.sent(OWNER)[-1]['text'] == 'You have groceries and trip ideas.'
+    assert 'groceries' in json.dumps(model.inputs[1], default=str)  # the tool's real result, not an error
+    await asyncio.wait_for(old_sessions.task, 10)  # and then the old set closes
+
+
+async def test_mcp_added_is_a_listed_event_type(make_daemon, isolated, capsys):  # noqa: F811
+    daemon, client = await make_daemon(ScriptedModel([]))
+    ev.record_event(daemon.rt.store, ev.MCP_ADDED, server='notes', transport='stdio', tools=2, connected=True)
+    response = await client.get('/api/events', params={'type': 'mcp_added'})
+    assert response.status_code == 200
+    assert [e['details'] for e in response.json()] == [{'server': 'notes', 'transport': 'stdio', 'tools': 2,
+                                                        'connected': True}]
+    capsys.readouterr()
+    assert cli.main(['events', '--type', 'mcp_added']) == 0
+    assert 'mcp_added' in capsys.readouterr().out

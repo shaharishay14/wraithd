@@ -4,9 +4,12 @@ connections and the periodic jobs (daemon/jobs.py: background distill, and any a
 `wraithd daemon` runs it in the foreground; daemon/service.py runs that as a background service.
 
 Everything is opened once in start() and shared: MCP sessions, the Telegram bot, the notifier. Runs from every
-channel use the same Runtime, so they share the store, memory and skills. The MCP sessions live in one task of their
-own (their clients must close in the task that opened them), which reopens them all when the owner adds a server from
-Telegram (/mcp_add): reconnect_mcp().
+channel use the same Runtime, so they share the store, memory and skills.
+
+MCP sessions come in sets, each opened and closed by a task of its own (an MCP client must close in the task that
+opened it). When the owner adds a server from Telegram (/mcp_add), reconnect_mcp() opens a new set first and moves
+every channel and the scheduler to it; the old set stays open until the runs that started with it have ended (at
+most RETIRE_AFTER_SECONDS, longer than any run can take), so a run in progress keeps its tools.
 """
 
 import asyncio
@@ -25,6 +28,10 @@ from wraithd.daemon.jobs import DISTILL_EVERY_SECONDS, distill_all  # noqa: F401
 from wraithd.daemon.scheduler import Scheduler
 from wraithd.daemon.security import Guard, load_or_create_token, remote_hosts
 from wraithd.mcp.client import McpConnections
+from wraithd.run import RETRY_DELAYS, RUN_TIMEOUT_SECONDS
+
+# How long an old MCP session set may wait for its runs: a run's attempts, their pauses, and a minute to spare
+RETIRE_AFTER_SECONDS = RUN_TIMEOUT_SECONDS * (len(RETRY_DELAYS) + 1) + sum(RETRY_DELAYS) + 60
 
 HOST = '127.0.0.1'  # never 0.0.0.0: nothing else on the network may reach the agent
 UI_ENV = 'WRAITHD_UI_DIR'
@@ -39,6 +46,45 @@ def ui_dir() -> Path | None:
     return None
 
 
+class _Sessions:
+    """One set of MCP sessions, held open by its own task until released."""
+
+    def __init__(self, servers, store):
+        self.ready: asyncio.Future = asyncio.get_running_loop().create_future()
+        self.release = asyncio.Event()
+        self.task = asyncio.create_task(self._hold(servers, store))
+
+    async def _hold(self, servers, store) -> None:
+        try:
+            async with McpConnections(servers, store=store) as connected:
+                self.ready.set_result(connected)
+                await self.release.wait()
+        except BaseException as e:  # nobody waits forever on sessions that won't open
+            if not self.ready.done():
+                self.ready.set_exception(e if isinstance(e, Exception) else RuntimeError('MCP sessions stopped'))
+            raise
+
+    async def close(self) -> None:
+        self.release.set()
+        await asyncio.gather(self.task, return_exceptions=True)
+
+
+class _Scheduler(Scheduler):
+    """The scheduler, keeping the tasks of the schedules running now (each may hold an MCP session set)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.firing: set[asyncio.Task] = set()
+
+    async def _fire(self, schedule):
+        task = asyncio.current_task()
+        self.firing.add(task)
+        try:
+            return await super()._fire(schedule)
+        finally:
+            self.firing.discard(task)
+
+
 class Daemon:
     def __init__(self, rt, telegram_transport=None, clock=lambda: datetime.now(UTC)):
         self.rt, self.clock = rt, clock
@@ -47,13 +93,12 @@ class Daemon:
         self.port = rt.config.daemon_port
         self.mcp = None
         self.telegram: TelegramChannel | None = None
-        self.scheduler = Scheduler(rt, clock=clock)
+        self.scheduler = _Scheduler(rt, clock=clock)
         self.background: set[asyncio.Task] = set()  # web chat runs that outlive their request
         self._stack = AsyncExitStack()
-        self._mcp_task: asyncio.Task | None = None
-        self._mcp_wanted = asyncio.Event()  # set: close the MCP sessions (and reopen them unless stopping)
-        self._mcp_ready: asyncio.Future | None = None
-        self._mcp_stopping = False
+        self._sessions: _Sessions | None = None  # the MCP set new runs get
+        self._retiring: set[asyncio.Task] = set()  # old sets waiting for their runs to end
+        self._reconnecting = asyncio.Lock()
 
     @property
     def url(self) -> str:
@@ -68,9 +113,8 @@ class Daemon:
         service.rotate_log(self.rt.home)  # a log that grew while the daemon was down
         await self._stack.__aenter__()
         # Owner-only, long-lived: every owner run in the daemon shares these sessions
-        self._mcp_ready = asyncio.get_running_loop().create_future()
-        self._mcp_task = asyncio.create_task(self._hold_mcp())
-        await asyncio.shield(self._mcp_ready)
+        self._sessions = _Sessions(self.rt.config.mcp_servers, self.rt.store)
+        self.mcp = self.scheduler.mcp = await asyncio.shield(self._sessions.ready)
         token = get_key('telegram')
         if token:
             bot = TelegramBot(token, self.telegram_transport)
@@ -79,43 +123,49 @@ class Daemon:
             self.telegram.reconnect_mcp = self.reconnect_mcp
             self.rt.notifier = TelegramNotifier(self.rt.store, bot)
 
-    async def _hold_mcp(self) -> None:
-        """Opens the MCP sessions, keeps them until asked to reopen (or stop), and closes them, in this one task."""
-        try:
-            while True:
-                self._mcp_wanted.clear()
-                async with McpConnections(self.rt.config.mcp_servers, store=self.rt.store) as connected:
-                    self.mcp = self.scheduler.mcp = connected
-                    if self.telegram:
-                        self.telegram.mcp = connected
-                    if not self._mcp_ready.done():
-                        self._mcp_ready.set_result(connected)
-                    await self._mcp_wanted.wait()
-                if self._mcp_stopping:
-                    return
-        except BaseException as e:  # nobody waits forever on sessions that won't open
-            if not self._mcp_ready.done():
-                self._mcp_ready.set_exception(e if isinstance(e, Exception) else RuntimeError('MCP task stopped'))
-            raise
+    def _runs(self) -> set[asyncio.Task]:
+        """The tasks that may be running with the current MCP set: web chat runs, Telegram messages, schedules."""
+        return {*self.background, *(self.telegram.tasks if self.telegram else ()), *self.scheduler.firing}
 
     async def reconnect_mcp(self):
-        """Closes the MCP sessions and opens them again from rt.config (after a server was added); returns the new
-        ones. A run that is using the old sessions at that moment loses them."""
-        if self._mcp_task is None or self._mcp_task.done():
-            return self.mcp
-        self._mcp_ready = asyncio.get_running_loop().create_future()
-        self._mcp_wanted.set()
-        return await asyncio.shield(self._mcp_ready)
+        """Opens a new MCP set from rt.config (after a server was added), moves the channels and the scheduler to
+        it, and returns it. The old set closes once the runs that may hold it have ended."""
+        async with self._reconnecting:
+            if self._sessions is None:
+                return self.mcp
+            new = _Sessions(self.rt.config.mcp_servers, self.rt.store)
+            try:
+                connected = await asyncio.shield(new.ready)
+            except Exception:
+                await new.close()
+                raise
+            old, self._sessions = self._sessions, new
+            self.mcp = self.scheduler.mcp = connected
+            if self.telegram:
+                self.telegram.mcp = connected
+            holders = self._runs() - {asyncio.current_task()}  # the run asking for this holds nothing of the old set
+            task = asyncio.create_task(self._retire(old, holders))
+            self._retiring.add(task)
+            task.add_done_callback(self._retiring.discard)
+            return connected
+
+    async def _retire(self, old: _Sessions, holders: set[asyncio.Task]) -> None:
+        try:
+            if holders:
+                await asyncio.wait(holders, timeout=RETIRE_AFTER_SECONDS)
+        finally:  # stop() cancels the wait: the set still closes
+            await old.close()
 
     async def stop(self) -> None:
         if self.telegram:
             await self.telegram.settle()
         if self.background:
             await asyncio.gather(*list(self.background), return_exceptions=True)
-        if self._mcp_task is not None:
-            self._mcp_stopping = True
-            self._mcp_wanted.set()
-            await asyncio.gather(self._mcp_task, return_exceptions=True)
+        for task in list(self._retiring):
+            task.cancel()
+        await asyncio.gather(*self._retiring, return_exceptions=True)
+        if self._sessions is not None:
+            await self._sessions.close()
         await self._stack.__aexit__(None, None, None)
 
     def asgi(self):

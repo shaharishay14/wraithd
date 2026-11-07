@@ -57,8 +57,9 @@ The paired owner can add a server from the phone with the same arguments as `wra
   `uvx` fetches, what it provides, which tools it offers and where each secret comes from, with Allow and Deny. It
   expires like an approval card (60 seconds). Deny or expiry writes nothing.
 - **Allow** writes the block to `config.toml` (as `mcp add` does), connects once, and that first connect pins its
-  tools as they are (the baseline, above). The reply lists them. The daemon then reopens its MCP connections, so the
-  server is usable from the next message; an `mcp_added` event records the name, transport and tool count.
+  tools as they are (the baseline, above). The reply lists them. The daemon then opens a new set of MCP connections and
+  moves to it, so the server is usable from the next message; a run already going keeps the old set, which closes
+  when that run ends; an `mcp_added` event records the name, transport and tool count.
 - **Only the owner's own typed message.** A stranger's `/mcp_add` is ignored like any stranger message (logged, no
   reply). A forwarded message is refused: only text the owner typed counts. It's handled in code before any run,
   and no agent tool adds a server, so nothing the agent reads or writes (an email, a web page, its own answer
