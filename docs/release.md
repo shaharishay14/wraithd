@@ -44,7 +44,8 @@
 1. Optional dry run: Actions > Release > Run workflow (TestPyPI), then
    `uv tool install --python 3.12 --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ --index-strategy unsafe-best-match wraithd`
    in a throwaway `UV_TOOL_DIR`.
-2. Set `version` in `pyproject.toml` (and run `uv lock`), merge to `main`.
+2. Set `version` in `pyproject.toml` (and run `uv lock`), and in `CHANGELOG.md` replace `(unreleased)` with the
+   date. Merge to `main`.
 3. Tag and push: `git tag v<version> && git push origin v<version>`. Watch the Release workflow; approve the `pypi`
    environment if you set a reviewer.
 4. Check: `uvx --python 3.12 wraithd --version` prints the new version.
