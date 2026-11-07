@@ -65,6 +65,13 @@
   also kept in the **Notifications** inbox, which the web UI lists: sent, failed (stored once, with a warning in the
   log) or with no paired chat. The heartbeat's "Already told them lately" reads that inbox, so it doesn't repeat
   what a schedule just said on Telegram.
+- **`/mcp_add`** adds an MCP server from the phone, with `wraithd mcp add`'s arguments, e.g.
+  `/mcp_add notes --provides notes -- npx -y some-notes-mcp`. The bot replies with a card showing the exact command
+  (or URL) and package; Allow writes it, connects once, pins its tools and lists them. Only the owner's own typed
+  message counts: a stranger's is ignored as usual, a forwarded one is refused, and the model has no way to call it.
+  Secrets never go in the chat: give names (`--env KEY`, value in the server's env file over SSH) or 1Password
+  references (`--env KEY=op://vault/item/field`); a value or anything shaped like a token is refused, stored
+  nowhere, and the message is deleted. Details in [MCP](mcp.md#adding-a-server-from-telegram-mcp_add).
 - **Errors** never include the API URL or the file download URL, since the bot token is in both.
 
 ## On a laptop

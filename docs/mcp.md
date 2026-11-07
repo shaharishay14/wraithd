@@ -1,6 +1,6 @@
 # MCP: your apps
 
-**Files:** `mcp/config.py`, `mcp/client.py`, `mcp/commands.py`, `mcp/pinning.py`, `core/gate.py`, `core/disclosure.py`
+**Files:** `mcp/config.py`, `mcp/client.py`, `mcp/commands.py`, `mcp/pinning.py`, `mcp/remote_add.py`, `core/gate.py`, `core/disclosure.py`
 
 ## One-liner
 
@@ -14,7 +14,7 @@
   local (stdio) server, or `--url https://.../mcp --header Authorization` for a remote (streamable HTTP) one. The
   block in `config.toml` names the env vars and headers; their values go to the keychain (asked for without echo
   if not given). `mcp list`, `mcp tools <name>` (connects and shows each tool's tier), `mcp remove <name>` (and
-  its secrets).
+  its secrets). From Telegram: `/mcp_add`, below.
 - **Connecting:** with the Agents SDK's own clients (`MCPServerStdio`, `MCPServerStreamableHttp`), once per
   terminal session, or per run otherwise. A server that doesn't start is reported and left out; the run goes on.
   The daemon (Phase 5) will keep connections open.
@@ -41,6 +41,42 @@
 - **Skills follow what's connected:** `--provides email` (or `calendar`, or any word) declares what a server gives.
   Skills declare what they need (`requires: [email]`), so the morning brief appears once a connected server
   provides email, and disappears when it's gone or fails to start.
+
+## Adding a server from Telegram: /mcp_add
+
+The paired owner can add a server from the phone with the same arguments as `wraithd mcp add`
+(`mcp/remote_add.py`, parsed by `mcp add`'s own parser):
+
+```
+/mcp_add notes --provides notes -- npx -y some-notes-mcp
+/mcp_add gmail --provides email --env GMAIL_TOKEN -- npx -y some-gmail-mcp
+/mcp_add docs --url https://docs.example/mcp --header Authorization=op://wraithd/Docs/header
+```
+
+- **A confirm card first.** The reply shows the exact command line (or URL), the package a runner like `npx` or
+  `uvx` fetches, what it provides, which tools it offers and where each secret comes from, with Allow and Deny. It
+  expires like an approval card (60 seconds). Deny or expiry writes nothing.
+- **Allow** writes the block to `config.toml` (as `mcp add` does), connects once, and that first connect pins its
+  tools as they are (the baseline, above). The reply lists them. The daemon then reopens its MCP connections, so the
+  server is usable from the next message; an `mcp_added` event records the name, transport and tool count.
+- **Only the owner's own typed message.** A stranger's `/mcp_add` is ignored like any stranger message (logged, no
+  reply). A forwarded message is refused: only text the owner typed counts. It's handled in code before any run,
+  and no agent tool adds a server, so nothing the agent reads or writes (an email, a web page, its own answer
+  saying `/mcp_add ...`) can add one.
+- **No secrets in the chat** (Telegram keeps every message). `--env KEY` and `--header NAME` are names: put the
+  value in the server's env file over SSH as `WRAITHD_MCP_<SERVER>_<KEY>` ([keys](keys.md)) and restart the daemon,
+  or give a 1Password reference, `--env KEY=op://vault/item/field`. Any other value, a URL with a password or a
+  `?api_key=`-style parameter, a `--token VALUE` in the command, or anything shaped like a key or token refuses the
+  whole command: nothing of it is stored (config, events, approvals, conversation), and the bot deletes the message.
+- **No replacing.** A name that's already configured is refused; `wraithd mcp remove` it on the machine first.
+
+## 1Password references
+
+`--env KEY=op://vault/item/field` (or `--header NAME=op://...`), from the CLI or `/mcp_add`, keeps the reference in
+the server's block (`refs = {KEY = "op://..."}`): it names a secret, it isn't one. Each connect reads the value with
+`op read`, using the daemon's own 1Password login (`OP_SERVICE_ACCOUNT_TOKEN`, see [keys](keys.md)), passes it only
+to that server and registers it for redaction. Without the `op` CLI, or when it can't read the item, the server
+doesn't connect and the error says why.
 
 ## Pinning: a tool is what it was when you trusted it
 
