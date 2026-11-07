@@ -12,6 +12,8 @@ Telegram, by long polling over httpx: no public URL, no webhook, no extra librar
   instead when the model can't see images), a voice note is transcribed (voice.py) and the transcript is the
   message, and any other file is saved to workspace/files/inbox/ with a line in the message saying where. A
   stranger's attachment is never downloaded. Downloads are capped (Telegram lets bots download 20 MB at most).
+- `/mcp_add` (the owner's own typed message only, never a forwarded one) adds an MCP server behind a confirm card:
+  channels/base.py and mcp/remote_add.py.
 - The bot token is in the keychain (`wraithd key set telegram`) and registered for redaction; errors never
   include the API URL, since the token is in it.
 """
@@ -36,6 +38,8 @@ MAX_FILE_BYTES = 20_000_000  # the Bot API's own limit for downloads
 MAX_PHOTO_BYTES = base.MAX_PHOTO_BYTES
 FILE_KINDS = {'document': 'file', 'audio': 'audio', 'video': 'video.mp4', 'video_note': 'video-note.mp4',
               'animation': 'animation.mp4'}  # saved to the inbox; the value is the name when Telegram gives none
+# A forwarded message carries one of these (forward_origin since Bot API 7.0; the others before it)
+FORWARD_KEYS = ('forward_origin', 'forward_from', 'forward_from_chat', 'forward_sender_name', 'forward_date')
 OWNER_CHAT, OWNER_NAME, PAIRING, OFFSET = 'telegram.owner_chat', 'telegram.owner_name', 'telegram.pairing', \
     'telegram.offset'
 
@@ -123,6 +127,9 @@ class TelegramChannel(base.Channel):
     def chat_from_setting(self, value: str) -> int:
         return int(value)
 
+    async def delete(self, chat, ref) -> None:
+        await self.bot.call('deleteMessage', chat_id=chat, message_id=ref)
+
     # --- the transport -------------------------------------------------------------------------------------
 
     async def send(self, chat, text: str, choices: list[base.Choice] | None = None) -> tuple[int, int | None]:
@@ -195,7 +202,9 @@ class TelegramChannel(base.Channel):
         if 'id' not in chat:
             return
         await self.receive(base.Incoming(chat=chat['id'], who=chat, text=message.get('text') or '',
-                                         caption=message.get('caption') or '', attachment=_attachment(message)))
+                                         caption=message.get('caption') or '', attachment=_attachment(message),
+                                         forwarded=any(key in message for key in FORWARD_KEYS),
+                                         ref=message.get('message_id')))
 
 
 def _attachment(message: dict) -> base.Attachment | None:

@@ -10,6 +10,8 @@ What every phone channel shares, so the rules live in one place and a new channe
   transcribed (voice.py), any other file is saved to workspace/files/inbox/.
 - Approvals are a prompt with choices (buttons, or numbered replies on a channel without them); only the owner's
   answer counts.
+- `/mcp_add ...` from the owner (typed, not forwarded) adds an MCP server behind a confirm card (mcp/remote_add.py).
+  It's handled here in code, never by a run: no agent tool adds a server, so nothing the agent reads can.
 
 A channel subclass turns its service's updates into Incoming and Decision, and implements send, fetch,
 acknowledge and close_prompt. Settings are stored under '<name>.<key>' (telegram.owner_chat ...).
@@ -26,7 +28,9 @@ from datetime import UTC, datetime, timedelta
 from wraithd import providers, voice
 from wraithd.channels.conversation import reply
 from wraithd.core import events as ev
+from wraithd.core import gate
 from wraithd.core.gate import approval_card
+from wraithd.mcp import remote_add
 from wraithd.store import base as store_base
 from wraithd.tools import files
 
@@ -71,6 +75,8 @@ class Incoming:
     text: str = ''  # the message text (commands live here)
     caption: str = ''  # an attachment's caption
     attachment: Attachment | None = None
+    forwarded: bool = False  # someone else's message, passed on: never a command
+    ref: object = None  # the channel's id for the message (what delete() takes)
 
 
 @dataclass(frozen=True)
@@ -127,6 +133,9 @@ class Channel:
         self.cards: dict[str, object] = {}  # approval id -> where its prompt is (what close_prompt needs)
         # stranger chat -> when it was last logged. In memory: a daemon restart logs each one again, which is fine
         self.ignored_logged: dict[object, datetime] = {}
+        # Called after /mcp_add writes a server, so open MCP connections pick it up (the daemon sets it); returns the
+        # new connections, which this channel's runs use from then on
+        self.reconnect_mcp = None
 
     # --- the transport: each channel ---------------------------------------------------------------------
 
@@ -145,6 +154,9 @@ class Channel:
     async def close_prompt(self, where, status: str) -> None:
         """Replaces a decided prompt's choices with its outcome."""
         raise NotImplementedError
+
+    async def delete(self, chat, ref) -> None:
+        """Deletes a message the owner sent (one with a secret in it), where the service allows it."""
 
     def chat_from_setting(self, value: str):
         return value
@@ -193,6 +205,8 @@ class Channel:
             return await self.pair(chat, message.who, text.removeprefix('/pair').strip())
         if chat != self.owner_chat:
             return self.ignore(chat, message.who)
+        if remote_add.is_command(text):
+            return await self.mcp_add(message)
         if not text and message.attachment is None:
             return
         if text == '/start':
@@ -219,6 +233,59 @@ class Channel:
         """Waits for the messages being answered (tests, and a clean shutdown)."""
         while self.tasks:
             await asyncio.gather(*list(self.tasks), return_exceptions=True)
+
+    # --- /mcp_add ------------------------------------------------------------------------------------------
+
+    async def mcp_add(self, message: Incoming) -> None:
+        """The owner's /mcp_add (receive() never gets here for anyone else): a confirm card, then a task that waits
+        for the decision, so the card's buttons keep being handled meanwhile."""
+        chat = message.chat
+        if message.forwarded:
+            return await self.send(chat, 'I only add MCP servers from a /mcp_add you type yourself, not from a '
+                                         'forwarded message.')
+        try:
+            server = remote_add.parse(message.text, self.rt.config.mcp_servers)
+        except remote_add.Refused as e:
+            if e.secret and message.ref is not None:
+                try:
+                    await self.delete(chat, message.ref)
+                except ChannelError as problem:
+                    logger.warning(f'Deleting the /mcp_add message failed: {problem}')
+            return await self.send(chat, str(e))
+        approval = self.rt.store.create_approval(
+            remote_add.APPROVAL_TOOL, remote_add.summary(server),
+            card={'reason': f'Add the MCP server {server.name}', 'channel': self.name,
+                  'timeout_seconds': gate.APPROVAL_TIMEOUT_SECONDS})
+        self.cards[approval.id] = await self.send(chat, remote_add.card(server), [
+            Choice('Allow', f'{ALLOW}:{approval.id}'), Choice('Deny', f'{DENY}:{approval.id}')])
+        task = asyncio.create_task(self._mcp_add_decided(chat, approval.id, server))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
+    async def _mcp_add_decided(self, chat, approval_id: str, server) -> None:
+        """Waits for the card like the gate waits for an approval (the store decides: a button, or the web UI)."""
+        status, timeout = store_base.PENDING, gate.APPROVAL_TIMEOUT_SECONDS
+        deadline = asyncio.get_running_loop().time() + timeout
+        while status == store_base.PENDING and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(gate.APPROVAL_POLL_SECONDS)
+            status = self.rt.store.get_approval(approval_id).status
+        if status == store_base.PENDING and self.rt.store.decide_approval(approval_id, store_base.EXPIRED):
+            status = store_base.EXPIRED
+        status = self.rt.store.get_approval(approval_id).status
+        await self._close(approval_id, status)
+        if status != store_base.APPROVED:
+            return await self.send(chat, f'Not added: {server.name} was '
+                                         + ('not approved in time.' if status == store_base.EXPIRED else 'denied.'))
+        text = await remote_add.add(self.rt, server)
+        if self.reconnect_mcp is not None:
+            try:
+                self.mcp = await self.reconnect_mcp()
+            except Exception as e:  # the server is saved either way; a restart picks it up
+                logger.warning(f'Reconnecting MCP servers failed: {type(e).__name__}')
+                text += '\nIt\'s active after `wraithd daemon restart`.'
+        else:
+            text += '\nIt\'s active from the next run that connects MCP servers (the daemon: after a restart).'
+        await self.send(chat, text)
 
     # --- attachments ---------------------------------------------------------------------------------------
 

@@ -4,7 +4,9 @@ connections and the periodic jobs (daemon/jobs.py: background distill, and any a
 `wraithd daemon` runs it in the foreground; daemon/service.py runs that as a background service.
 
 Everything is opened once in start() and shared: MCP sessions, the Telegram bot, the notifier. Runs from every
-channel use the same Runtime, so they share the store, memory and skills.
+channel use the same Runtime, so they share the store, memory and skills. The MCP sessions live in one task of their
+own (their clients must close in the task that opened them), which reopens them all when the owner adds a server from
+Telegram (/mcp_add): reconnect_mcp().
 """
 
 import asyncio
@@ -48,6 +50,10 @@ class Daemon:
         self.scheduler = Scheduler(rt, clock=clock)
         self.background: set[asyncio.Task] = set()  # web chat runs that outlive their request
         self._stack = AsyncExitStack()
+        self._mcp_task: asyncio.Task | None = None
+        self._mcp_wanted = asyncio.Event()  # set: close the MCP sessions (and reopen them unless stopping)
+        self._mcp_ready: asyncio.Future | None = None
+        self._mcp_stopping = False
 
     @property
     def url(self) -> str:
@@ -62,21 +68,54 @@ class Daemon:
         service.rotate_log(self.rt.home)  # a log that grew while the daemon was down
         await self._stack.__aenter__()
         # Owner-only, long-lived: every owner run in the daemon shares these sessions
-        self.mcp = await self._stack.enter_async_context(
-            McpConnections(self.rt.config.mcp_servers, store=self.rt.store))
-        self.scheduler.mcp = self.mcp
+        self._mcp_ready = asyncio.get_running_loop().create_future()
+        self._mcp_task = asyncio.create_task(self._hold_mcp())
+        await asyncio.shield(self._mcp_ready)
         token = get_key('telegram')
         if token:
             bot = TelegramBot(token, self.telegram_transport)
             self._stack.push_async_callback(bot.close)
             self.telegram = TelegramChannel(self.rt, bot, mcp=self.mcp, clock=self.clock)
+            self.telegram.reconnect_mcp = self.reconnect_mcp
             self.rt.notifier = TelegramNotifier(self.rt.store, bot)
+
+    async def _hold_mcp(self) -> None:
+        """Opens the MCP sessions, keeps them until asked to reopen (or stop), and closes them, in this one task."""
+        try:
+            while True:
+                self._mcp_wanted.clear()
+                async with McpConnections(self.rt.config.mcp_servers, store=self.rt.store) as connected:
+                    self.mcp = self.scheduler.mcp = connected
+                    if self.telegram:
+                        self.telegram.mcp = connected
+                    if not self._mcp_ready.done():
+                        self._mcp_ready.set_result(connected)
+                    await self._mcp_wanted.wait()
+                if self._mcp_stopping:
+                    return
+        except BaseException as e:  # nobody waits forever on sessions that won't open
+            if not self._mcp_ready.done():
+                self._mcp_ready.set_exception(e if isinstance(e, Exception) else RuntimeError('MCP task stopped'))
+            raise
+
+    async def reconnect_mcp(self):
+        """Closes the MCP sessions and opens them again from rt.config (after a server was added); returns the new
+        ones. A run that is using the old sessions at that moment loses them."""
+        if self._mcp_task is None or self._mcp_task.done():
+            return self.mcp
+        self._mcp_ready = asyncio.get_running_loop().create_future()
+        self._mcp_wanted.set()
+        return await asyncio.shield(self._mcp_ready)
 
     async def stop(self) -> None:
         if self.telegram:
             await self.telegram.settle()
         if self.background:
             await asyncio.gather(*list(self.background), return_exceptions=True)
+        if self._mcp_task is not None:
+            self._mcp_stopping = True
+            self._mcp_wanted.set()
+            await asyncio.gather(self._mcp_task, return_exceptions=True)
         await self._stack.__aexit__(None, None, None)
 
     def asgi(self):
