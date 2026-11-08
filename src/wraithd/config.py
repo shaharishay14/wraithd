@@ -97,6 +97,7 @@ class Section:
 
     defaults: dict
     check: Callable[[dict], None] | None = None
+    open: bool = False  # any key is kept (e.g. [watch.<name>] tables, one per name); check() validates them
 
 
 # The tables the core reads itself; a module's section can't take one of these names
@@ -117,6 +118,8 @@ SECTIONS: dict[str, Section] = {
     'subagents': Section({'enabled': False, 'default_tokens': 50_000}),
     'heartbeat': Section({'enabled': False, 'every_minutes': 30, 'quiet_hours': '22:00-07:00', 'max_tokens': 20_000},
                          lambda values: __import__('wraithd.daemon.heartbeat', fromlist=['_']).check(values)),
+    # [watch.<name>] tables: feeds polled in code, the agent runs only on new items (daemon/watch.py)
+    'watch': Section({}, lambda values: __import__('wraithd.daemon.watch', fromlist=['_']).check(values), open=True),
     # <<< capabilities
     # >>> reach
     'remote': Section({'allowed_hosts': []},
@@ -259,11 +262,12 @@ def load_sections(data: dict, sections: dict[str, Section] | None = None) -> dic
         table = data.get(name, {})
         if not isinstance(table, dict):
             raise ConfigError(f'[{name}] must be a table of settings.')
-        for key in table.keys() - section.defaults.keys():
+        for key in () if section.open else table.keys() - section.defaults.keys():
             _warn_once(f'[{name}] {key} is not a setting; it is ignored.')
-        values = {**section.defaults, **{key: value for key, value in table.items() if key in section.defaults}}
+        values = {**section.defaults,
+                  **{key: value for key, value in table.items() if section.open or key in section.defaults}}
         for key, value in values.items():
-            default = section.defaults[key]
+            default = section.defaults.get(key)
             if not _same_type(value, default):
                 raise ConfigError(f'[{name}] {key} must be {type(default).__name__}, not {value!r}.')
         if section.check:
