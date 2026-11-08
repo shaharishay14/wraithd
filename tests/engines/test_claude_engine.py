@@ -157,6 +157,24 @@ async def test_a_scheduled_run_naming_a_normal_skill_uses_schedule_model(claude_
     assert fake.calls[1]['options'].model == 'sonnet'
 
 
+async def test_a_watch_run_is_picked_like_a_scheduled_run(claude_rt, claude_sdk, home):
+    a_skill(home, 'news-feed', 'strong')
+    fake = claude_sdk([init(), result('ok')], [init(), result('ok')])
+    rt = claude_rt(schedule_model='claude-sonnet-4-5')
+    answer = await run(rt, 'new posts in the feed', source='watch')
+    assert fake.calls[0]['options'].model == 'claude-sonnet-4-5'
+    assert context_of(rt, answer.run_id)['model_reason'] == 'schedule_model'
+    answer = await run(rt, 'run news-feed on the new posts', source='watch')
+    assert fake.calls[1]['options'].model == 'sonnet'
+    assert context_of(rt, answer.run_id)['model_reason'] == 'skill news-feed is model: strong'
+
+
+async def test_a_watch_run_without_schedule_model_uses_background_model(claude_rt, claude_sdk):
+    fake = claude_sdk()
+    await run(claude_rt(), 'new posts in the feed', source='watch')
+    assert fake.calls[0]['options'].model == 'haiku'
+
+
 async def test_the_heartbeat_stays_on_background_model(claude_rt, claude_sdk, home):
     a_skill(home, 'news-feed', 'strong')
     fake = claude_sdk()
@@ -166,12 +184,13 @@ async def test_the_heartbeat_stays_on_background_model(claude_rt, claude_sdk, ho
     assert 'model_reason' not in context_of(rt, answer.run_id)
 
 
-async def test_the_api_engine_is_unchanged(claude_rt, claude_sdk, home):
+@pytest.mark.parametrize('source', ['schedule', 'watch'])
+async def test_the_api_engine_is_unchanged(claude_rt, claude_sdk, home, source):
     a_skill(home, 'news-feed', 'strong')
     fake = claude_sdk()
     api = ScriptedModel([[say('done')]])
     rt = claude_rt(api, name='agents-sdk', schedule_model='sonnet')
-    answer = await run(rt, 'run news-feed (scheduled)', source='schedule')
+    answer = await run(rt, 'run news-feed (scheduled)', source=source)
     assert answer.answer == 'done' and fake.calls == []
     context = context_of(rt, answer.run_id)
     assert context['model'] == 'scripted' and 'model_reason' not in context

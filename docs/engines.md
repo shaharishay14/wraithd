@@ -45,7 +45,8 @@ Claude Code fixes its model when it connects, so the API engine's mid-run switch
 2. Otherwise `schedule_model`, when set.
 3. Otherwise `background_model`, as before.
 
-Nothing else moves a scheduled run off `background_model`, so it never costs more by surprise. The heartbeat,
+Feed-watch runs (source `watch`, unattended like a schedule) are picked the same way. Nothing else moves a
+scheduled or watch run off `background_model`, so it never costs more by surprise. The heartbeat,
 memory distill and compaction always use `background_model`. `wraithd runs show` has the choice on
 `context_built`: `model`, and `model_reason` (`skill news-feed is model: strong`, `schedule_model` or
 `background_model`).

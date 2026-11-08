@@ -204,9 +204,12 @@ async def _run_loop(agent, chat, callback, log, policy, upgrade):
             await asyncio.sleep(delay)
 
 
+UNATTENDED_SOURCES = ('schedule', 'watch')  # scheduled runs and feed-watch runs: both on the schedule's model
+
+
 def engine_purpose(purpose: str, source: str) -> str:
-    """What picks a run's Claude Code model: its purpose, or 'schedule' for a scheduled run (background work)."""
-    return 'schedule' if source == 'schedule' else purpose
+    """What picks a run's Claude Code model: its purpose, or 'schedule' for a scheduled or feed-watch run."""
+    return 'schedule' if source in UNATTENDED_SOURCES else purpose
 
 
 def claude_model(engine: dict, purpose: str, source: str, message: str, skills) -> tuple[str, str | None]:
