@@ -98,6 +98,19 @@ def test_a_secret_without_a_value_is_asked_for(home, monkeypatch, isolated):
     assert (server.transport, server.url, server.headers) == ('http', 'https://notes.example/mcp', ('Authorization',))
 
 
+
+def test_no_terminal_for_a_secret_says_what_to_do(home, monkeypatch, isolated, capsys):
+    """`--env NAME` with no terminal (a script, ssh without -t): a clear message, no traceback, nothing saved."""
+    def no_terminal(prompt):
+        raise EOFError
+
+    monkeypatch.setattr('wraithd.mcp.commands.getpass.getpass', no_terminal)
+    assert cli.main(['mcp', 'add', 'x-watch', '--env', 'X_BEARER_TOKEN', '--', 'uv', 'run', 'x_watch.py']) == 1
+    err = capsys.readouterr().err
+    assert 'No terminal to type X_BEARER_TOKEN in' in err
+    assert 'X_BEARER_TOKEN=op://' in err and 'WRAITHD_MCP_X_WATCH_X_BEARER_TOKEN' in err
+    assert 'Traceback' not in err and load_config(home).mcp_servers == ()
+
 @pytest.mark.parametrize('argv, problem', [
     (['mcp', 'add', 'Bad_Name', '--', 'x'], 'lowercase letters'),
     (['mcp', 'add', 'x'], 'either a command'),
