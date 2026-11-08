@@ -1,7 +1,9 @@
 """
 The scheduler: every minute, schedules.due(store, now) claims what's due, and each claimed schedule runs as an
 unattended run (source 'schedule', no approval callback): no shell, and writes only if the owner pre-approved
-them. The answer goes to the owner through the notifier (Telegram when paired, else the inbox).
+them. The answer goes to the owner through the notifier (Telegram when paired, else the inbox), unless it is exactly
+NO_REPLY: a skill that already messaged the owner with notify_owner (or found nothing) ends that way, like the
+heartbeat's HEARTBEAT_OK, and nothing more is sent.
 
 Runs are at most once: a schedule is moved to its next time before it runs, so a crash mid-run loses that run
 rather than repeating it (a repeat could send the same email twice).
@@ -17,6 +19,7 @@ from wraithd.run import run
 logger = logging.getLogger(__name__)
 
 TICK_SECONDS = 60
+SILENT = 'NO_REPLY'  # a scheduled run's answer that delivers nothing
 
 
 class Scheduler:
@@ -36,7 +39,10 @@ class Scheduler:
         except Exception:
             logger.exception(f'Schedule {schedule.id} failed')
             return None
-        await self.rt.notifier.deliver(f'⏰ {schedule.message}\n\n{result.answer}')
+        if result.answer.strip() == SILENT:
+            logger.info(f'Schedule {schedule.id} answered {SILENT}: nothing sent')
+        else:
+            await self.rt.notifier.deliver(f'⏰ {schedule.message}\n\n{result.answer}')
         return result.run_id
 
     async def run_forever(self) -> None:
