@@ -75,6 +75,7 @@ says what changed for running on one person's laptop.
 | [Subagents](subagents.md) | `delegate`: a child run with its own context, the parent's budget and taint both ways, depth 1. Off by default. |
 | [Skill proposals](skill-proposals.md) | Skills the agent proposes wait in the review queue; tainted ones are flagged. |
 | [Heartbeat](heartbeat.md) | A periodic, read-only check that messages the owner only when something is worth it. Off by default. |
+| [Feed watches](watch.md) | `[watch.<name>]`: a JSON feed polled in code; the agent runs only on new items, so quiet polls cost 0 tokens. |
 
 ## Where the ideas come from
 
