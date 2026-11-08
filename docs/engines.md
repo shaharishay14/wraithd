@@ -16,7 +16,7 @@
 | Needs | an API key (none for Ollama) | `pip install 'wraithd[claude]'` (~300 MB), then `claude` and `/login` |
 | Tools | wraithd's guarded tools | the same guarded tools, as one in-process MCP server; Claude Code's own are off |
 | Chat | one run per message | one warm Claude Code process per conversation; `wraithd chat` starts it as it opens, so the ~5 s start overlaps your typing |
-| Background work | `[models]` per purpose | `background_model` for the heartbeat, schedules, memory distill and compaction |
+| Background work | `[models]` per purpose | `background_model` for the heartbeat, schedules, memory distill and compaction; `schedule_model` for schedules when set; a schedule naming a `model: strong` skill on `chat_model` |
 | Images | when the model can see | only through an API model; with no key, wraithd says it can't read images yet |
 | Stop rules | the loop's run hooks | checked by the bridge before every tool call; the tool-call limit is counted there too |
 | Daily token budget | off unless set | on by default (2,000,000), since your own Claude chats share the plan |
@@ -28,11 +28,28 @@
 name = "claude-code"         # or "agents-sdk" (the default)
 chat_model = "sonnet"        # chats
 background_model = "haiku"   # heartbeat, schedules, distill, compaction
+schedule_model = ""          # scheduled runs; "" means background_model
 fallback = false             # true: when the plan's limit hits, use [model] instead, if nothing happened yet
 idle_minutes = 10            # close a conversation's Claude Code session after this long unused
 ```
 
 Every Claude Code call names its model. With none set, Claude Code picks Opus, the most expensive.
+
+### A scheduled run's model
+
+Claude Code fixes its model when it connects, so the API engine's mid-run switch to the strong model (after a
+`model: strong` skill loads, see [skills.md](skills.md)) can't happen here. wraithd picks before the run starts:
+
+1. The schedule's message names a `model: strong` skill (yours or a built-in) as a whole word, e.g.
+   `run news-feed (scheduled)`: the run is on `chat_model` from the start.
+2. Otherwise `schedule_model`, when set.
+3. Otherwise `background_model`, as before.
+
+Feed-watch runs (source `watch`, unattended like a schedule) are picked the same way. Nothing else moves a
+scheduled or watch run off `background_model`, so it never costs more by surprise. The heartbeat,
+memory distill and compaction always use `background_model`. `wraithd runs show` has the choice on
+`context_built`: `model`, and `model_reason` (`skill news-feed is model: strong`, `schedule_model` or
+`background_model`).
 
 ## The rules
 

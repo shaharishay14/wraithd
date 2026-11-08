@@ -204,9 +204,28 @@ async def _run_loop(agent, chat, callback, log, policy, upgrade):
             await asyncio.sleep(delay)
 
 
+UNATTENDED_SOURCES = ('schedule', 'watch')  # scheduled runs and feed-watch runs: both on the schedule's model
+
+
 def engine_purpose(purpose: str, source: str) -> str:
-    """What picks a run's Claude Code model: its purpose, or 'schedule' for a scheduled run (background work)."""
-    return 'schedule' if source == 'schedule' else purpose
+    """What picks a run's Claude Code model: its purpose, or 'schedule' for a scheduled or feed-watch run."""
+    return 'schedule' if source in UNATTENDED_SOURCES else purpose
+
+
+def claude_model(engine: dict, purpose: str, source: str, message: str, skills) -> tuple[str, str | None]:
+    """
+    A run's Claude Code model, picked before it starts (Claude Code can't switch mid-run like the API engine's
+    _strong_upgrade), and why, for a scheduled run. A scheduled run whose message names a `model: strong` skill runs
+    on chat_model; any other on schedule_model (background_model unless set). Nothing else moves it up.
+    """
+    chosen = engine_purpose(purpose, source)
+    if chosen != 'schedule':
+        return claude_code.model_for(engine, chosen), None
+    strong = registry.strong_skill_named(message, skills)
+    if strong:
+        return engine['chat_model'], f'skill {strong} is model: strong'
+    model = claude_code.model_for(engine, chosen)
+    return model, 'schedule_model' if (engine.get('schedule_model') or '').strip() else 'background_model'
 
 
 def warm_eligible(rt: Runtime, conversation: str | None, purpose: str, source: str) -> bool:
@@ -364,7 +383,6 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
             log.append(ev.STOP, reason='images', message='No model that can read images is set up.')
             end('refused')
             return RunResult(NO_IMAGES_MESSAGE, log.run_id, 'refused')
-        engine_model = claude_code.model_for(engine, engine_purpose(purpose, source)) if use_claude else None
 
         if builtins:
             given = {tool.name for tool in tools}
@@ -395,6 +413,8 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         skills = registry.available_skills(rt.skills.user_skills() if owner else [],
                                            registry.capabilities(offered_names, owner, mcp.provides if mcp else ()),
                                            rt.skills.adjustments() if owner else {})
+        engine_model, model_reason = claude_model(engine, purpose, source, message, skills) if use_claude \
+            else (None, None)
         situation = reminders.Situation(
             message=message, events=log.events, owner=owner, skills=skills,
             previous_run=reminders.previous_run_events(rt.store, log.run_id) if owner else [],
@@ -478,6 +498,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         # What the model starts with: the size of this is what progressive disclosure shrinks
         log.append(ev.CONTEXT_BUILT, model=str(getattr(model, 'model', model)),
                    **({'engine': 'claude-code'} if use_claude else {}),
+                   **({'model_reason': model_reason} if model_reason else {}),
                    disclosure='discovery' if use_discovery else 'direct', app_actions=len(app_tools),
                    tools_offered=[tool.name for tool in guarded], tool_schema_chars=disclosure.schema_chars(guarded),
                    memory_notes=len(notes) if owner else None, skills_offered=[skill.name for skill in skills],

@@ -111,6 +111,91 @@ async def test_each_run_picks_its_model(claude_rt, claude_sdk, options, model):
     assert fake.calls[0]['options'].model == model
 
 
+# --- a scheduled run's model: picked before it starts ----------------------------------------------------------
+
+def a_skill(home, name, model=''):
+    folder = home.skills_dir / name
+    folder.mkdir(parents=True, exist_ok=True)
+    extra = f'model: {model}\n' if model else ''
+    (folder / 'SKILL.md').write_text(f'---\nname: {name}\ndescription: The {name} skill.\n{extra}---\nDo it.\n')
+
+
+def context_of(rt, run_id):
+    return events_of(rt, run_id, ev.CONTEXT_BUILT)[0]
+
+
+async def test_a_scheduled_run_naming_a_strong_skill_uses_chat_model(claude_rt, claude_sdk, home):
+    a_skill(home, 'news-feed', 'strong')
+    fake = claude_sdk()
+    rt = claude_rt()
+    answer = await run(rt, 'run news-feed (scheduled)', source='schedule')
+    assert fake.calls[0]['options'].model == 'sonnet'
+    context = context_of(rt, answer.run_id)
+    assert (context['model'], context['model_reason']) == ('sonnet', 'skill news-feed is model: strong')
+
+
+@pytest.mark.parametrize('message', ['run news-feeds (scheduled)', 'run my-news-feed', 'run digest'])
+async def test_only_the_whole_name_of_a_strong_skill_counts(claude_rt, claude_sdk, home, message):
+    a_skill(home, 'news-feed', 'strong')
+    a_skill(home, 'digest')
+    fake = claude_sdk()
+    rt = claude_rt()
+    answer = await run(rt, message, source='schedule')
+    assert fake.calls[0]['options'].model == 'haiku'
+    assert context_of(rt, answer.run_id)['model_reason'] == 'background_model'
+
+
+async def test_a_scheduled_run_naming_a_normal_skill_uses_schedule_model(claude_rt, claude_sdk, home):
+    a_skill(home, 'news-feed', 'strong')
+    a_skill(home, 'digest')
+    fake = claude_sdk([init(), result('ok')], [init(), result('ok')])
+    rt = claude_rt(schedule_model='claude-sonnet-4-5')
+    answer = await run(rt, 'run digest (scheduled)', source='schedule')
+    assert fake.calls[0]['options'].model == 'claude-sonnet-4-5'
+    assert context_of(rt, answer.run_id)['model_reason'] == 'schedule_model'
+    await run(rt, 'run news-feed (scheduled)', source='schedule')  # a strong skill still means chat_model
+    assert fake.calls[1]['options'].model == 'sonnet'
+
+
+async def test_a_watch_run_is_picked_like_a_scheduled_run(claude_rt, claude_sdk, home):
+    a_skill(home, 'news-feed', 'strong')
+    fake = claude_sdk([init(), result('ok')], [init(), result('ok')])
+    rt = claude_rt(schedule_model='claude-sonnet-4-5')
+    answer = await run(rt, 'new posts in the feed', source='watch')
+    assert fake.calls[0]['options'].model == 'claude-sonnet-4-5'
+    assert context_of(rt, answer.run_id)['model_reason'] == 'schedule_model'
+    answer = await run(rt, 'run news-feed on the new posts', source='watch')
+    assert fake.calls[1]['options'].model == 'sonnet'
+    assert context_of(rt, answer.run_id)['model_reason'] == 'skill news-feed is model: strong'
+
+
+async def test_a_watch_run_without_schedule_model_uses_background_model(claude_rt, claude_sdk):
+    fake = claude_sdk()
+    await run(claude_rt(), 'new posts in the feed', source='watch')
+    assert fake.calls[0]['options'].model == 'haiku'
+
+
+async def test_the_heartbeat_stays_on_background_model(claude_rt, claude_sdk, home):
+    a_skill(home, 'news-feed', 'strong')
+    fake = claude_sdk()
+    rt = claude_rt(schedule_model='sonnet')
+    answer = await run(rt, 'check news-feed', source='heartbeat', purpose='heartbeat')
+    assert fake.calls[0]['options'].model == 'haiku'
+    assert 'model_reason' not in context_of(rt, answer.run_id)
+
+
+@pytest.mark.parametrize('source', ['schedule', 'watch'])
+async def test_the_api_engine_is_unchanged(claude_rt, claude_sdk, home, source):
+    a_skill(home, 'news-feed', 'strong')
+    fake = claude_sdk()
+    api = ScriptedModel([[say('done')]])
+    rt = claude_rt(api, name='agents-sdk', schedule_model='sonnet')
+    answer = await run(rt, 'run news-feed (scheduled)', source=source)
+    assert answer.answer == 'done' and fake.calls == []
+    context = context_of(rt, answer.run_id)
+    assert context['model'] == 'scripted' and 'model_reason' not in context
+
+
 # --- a chat with a write -------------------------------------------------------------------------------------------
 
 async def test_a_write_asks_for_approval_and_the_log_lists_every_call(claude_rt, claude_sdk):

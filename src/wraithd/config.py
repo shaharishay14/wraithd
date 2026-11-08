@@ -79,6 +79,8 @@ name = "agents-sdk"          # agents-sdk: your API key or local model | claude-
 # fallback = false           # claude-code only: on a plan limit before anything ran, use the [model] provider
 # chat_model = "sonnet"      # claude-code only: the model for chats
 # background_model = "haiku" # claude-code only: heartbeat, schedules, memory and summaries (cheap, saves your plan)
+# schedule_model = ""        # claude-code only: scheduled runs ("": background_model). A `model: strong` skill named
+                             # in a schedule's message runs on chat_model either way
 # idle_minutes = 10          # claude-code only: close a conversation's Claude Code session after this long unused
 
 [daemon]
@@ -129,8 +131,9 @@ SECTIONS: dict[str, Section] = {
     'sandbox': Section({'backend': 'none', 'image': 'debian:bookworm-slim', 'network': 'none'}),
     # <<< sandbox
     # Who thinks: the Agents SDK on [model] (agents-sdk) or Claude Code on the owner's own login (claude-code)
-    'engine': Section({'name': 'agents-sdk', 'chat_model': 'sonnet', 'background_model': 'haiku', 'fallback': False,
-                       'idle_minutes': 10}, lambda values: _check_engine(values)),
+    'engine': Section({'name': 'agents-sdk', 'chat_model': 'sonnet', 'background_model': 'haiku',
+                       'schedule_model': '', 'fallback': False, 'idle_minutes': 10},
+                      lambda values: _check_engine(values)),
 }
 
 ENGINES = ('agents-sdk', 'claude-code')

@@ -137,3 +137,14 @@ async def test_strangers_get_builtins_but_not_the_owners_skills(make_runtime, ho
     assert 'family-plans' not in model.instructions[0]
     # no skill fits a plain run for a stranger, so no skill tools at all
     assert not any(name.startswith('skill_') for name in model.tool_names[0])
+
+
+def test_strong_skill_named_matches_whole_names_only():
+    from wraithd.skills.registry import SkillSpec, strong_skill_named
+    skills = [SkillSpec(name='digest', description='d', instructions='i'),
+              SkillSpec(name='news-feed', description='d', instructions='i', model='strong')]
+    assert strong_skill_named('run news-feed (scheduled)', skills) == 'news-feed'
+    assert strong_skill_named('Run News-Feed.', skills) == 'news-feed'
+    assert strong_skill_named('run news-feeds', skills) is None
+    assert strong_skill_named('run old-news-feed', skills) is None
+    assert strong_skill_named('run digest', skills) is None

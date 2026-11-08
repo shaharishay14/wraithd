@@ -23,7 +23,7 @@ def safe_fields(options):
 def test_engine_defaults(home):
     config = load_config(home)
     assert config.section('engine') == {'name': 'agents-sdk', 'chat_model': 'sonnet', 'background_model': 'haiku',
-                                        'fallback': False, 'idle_minutes': 10}
+                                        'schedule_model': '', 'fallback': False, 'idle_minutes': 10}
     assert config.daily_tokens is None  # off unless set, as before
 
 
@@ -52,6 +52,13 @@ def test_the_models_are_the_owners_to_set(home):
     set_values(home, 'engine', {'chat_model': 'opus', 'background_model': 'claude-haiku-4-5'})
     engine = load_config(home).section('engine')
     assert (model_for(engine, 'chat'), model_for(engine, 'heartbeat')) == ('opus', 'claude-haiku-4-5')
+
+
+def test_schedule_model_moves_only_scheduled_runs(home):
+    set_values(home, 'engine', {'schedule_model': 'sonnet'})
+    engine = load_config(home).section('engine')
+    assert model_for(engine, 'schedule') == 'sonnet'
+    assert [model_for(engine, p) for p in ('heartbeat', 'distill', 'compaction')] == ['haiku'] * 3
 
 
 # --- claude_options() -------------------------------------------------------------------------------------------
