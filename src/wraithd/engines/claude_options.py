@@ -20,7 +20,8 @@ from wraithd.core.loop import MAX_AGENT_STEPS
 
 SERVER = 'wraithd'  # the in-process MCP server with wraithd's guarded tools (claude_bridge.py)
 LOGIN = 'none'  # the init message's apiKeySource when Claude Code is on the /login (Bedrock and Vertex say it too)
-# Heartbeat, schedules, memory distill and compaction run on [engine] background_model; the rest on chat_model
+# Heartbeat, schedules, memory distill and compaction run on [engine] background_model (a scheduled run on
+# schedule_model when set); the rest on chat_model
 BACKGROUND = {'heartbeat', 'schedule', 'distill', 'compaction'}
 # Set, Claude Code uses another provider, and its apiKeySource still reads "none"
 OTHER_PROVIDERS = ('CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY')
@@ -41,7 +42,12 @@ def sdk():
 
 
 def model_for(engine_config: dict, purpose: str) -> str:
-    """The model for one purpose (or a run's source, 'schedule'): background_model for BACKGROUND, else chat_model."""
+    """
+    The model for one purpose (or a run's source, 'schedule'): background_model for BACKGROUND, else chat_model. A
+    scheduled run uses schedule_model when it's set ("" or missing: background_model, as before).
+    """
+    if purpose == 'schedule' and (engine_config.get('schedule_model') or '').strip():
+        return engine_config['schedule_model']
     return engine_config['background_model'] if purpose in BACKGROUND else engine_config['chat_model']
 
 

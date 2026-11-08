@@ -212,6 +212,18 @@ def available_skills(user_skills, available: set[str], adjustments: dict[str, li
             for name, skill in sorted(by_name.items()) if requirements_met(skill.requires, available)]
 
 
+def strong_skill_named(message: str, skills) -> str | None:
+    """
+    The first `model: strong` skill whose name the message names as a whole word ("run news-feed (scheduled)"), or
+    None. The Claude Code engine fixes its model when a run starts, so it reads this from the message up front.
+    """
+    for skill in skills:
+        if skill.model == 'strong' and re.search(rf'(?<![\w-]){re.escape(skill.name)}(?![\w-])', message,
+                                                 re.IGNORECASE):
+            return skill.name
+    return None
+
+
 def registry_prompt(skills: list[SkillSpec], can_adjust: bool = False) -> str:
     """One line per skill. The instructions (and the owner's adjustments) stay out of the prompt until skill_load."""
     if not skills:
