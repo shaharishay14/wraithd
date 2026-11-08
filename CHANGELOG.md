@@ -40,14 +40,28 @@
 - A scheduled run whose answer is exactly `NO_REPLY` sends nothing, like the heartbeat's `HEARTBEAT_OK`: a skill
   that already sent its items with `notify_owner` (or found nothing) ends that way, with no extra "⏰" message.
 
+### Feed watches
+- `[watch.<name>]` checks a JSON feed in code every few minutes (url, items, key, every_minutes, message) and runs
+  the agent only when there are new items, so a quiet poll costs no model tokens. The first poll only records what's
+  there. New items are third-party input (the run is tainted). `wraithd watch` lists watches; `wraithd watch now
+  <name>` polls one now.
+
 ### Telegram
 - `/mcp_add` adds an MCP server from your own Telegram chat: you confirm the exact command or URL, its tools are
   pinned on first connect, and secrets are never accepted in the chat (env file or a 1Password reference only).
   Only you can use it, and the model can't.
 
+### Skills and the web
+- `read_website` also returns the page's links (and RSS/Atom items' links), so a skill can link the story or the
+  posting itself instead of a homepage.
+- On the Claude subscription, a scheduled (or watch) run that names a `model: strong` skill runs on `chat_model`;
+  other scheduled runs use `[engine] schedule_model` (Haiku unless set).
+
 ### Smaller
 - `wraithd runs show` prints `engine_connect` (how long Claude Code took to start).
 - Quitting chat no longer prints an `aclose()` error.
+- `wraithd mcp add --env NAME` with no terminal to type the secret says to use `NAME=op://...` or the environment
+  variable, instead of a traceback.
 
 ## 0.0.1 (2026-11-03)
 - First release on PyPI.
