@@ -36,6 +36,10 @@
 - "Already told them lately" now includes schedule answers and `notify_owner` messages, so a heartbeat doesn't
   repeat them. Everything Telegram delivers is also kept once in the Notifications inbox.
 
+### Schedules
+- A scheduled run whose answer is exactly `NO_REPLY` sends nothing, like the heartbeat's `HEARTBEAT_OK`: a skill
+  that already sent its items with `notify_owner` (or found nothing) ends that way, with no extra "⏰" message.
+
 ### Telegram
 - `/mcp_add` adds an MCP server from your own Telegram chat: you confirm the exact command or URL, its tools are
   pinned on first connect, and secrets are never accepted in the chat (env file or a 1Password reference only).
