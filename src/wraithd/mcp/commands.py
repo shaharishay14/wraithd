@@ -82,10 +82,22 @@ def _secret_pairs(items, separator: str, kind: str, server: str, ask) -> dict[st
         if not (found and value) and os.environ.get(mcp_config.env_name(server, key)):
             pairs[key] = ''  # already in the environment (a server with no keychain): nothing to store
             continue
-        pairs[key] = value if found and value else ask(f'{kind} {key} for {server} (not shown): ')
+        pairs[key] = value if found and value else _typed(ask, kind, key, server)
         if not pairs[key]:
             raise McpConfigError(f'No value given for {key}.')
     return pairs
+
+
+def _typed(ask, kind: str, key: str, server: str) -> str:
+    """A secret typed without echo. With no terminal to type it in (a script, ssh without -t), says what to do
+    instead of failing with a traceback."""
+    try:
+        return ask(f'{kind} {key} for {server} (not shown): ')
+    except EOFError:
+        raise McpConfigError(
+            f'No terminal to type {key} in. Give it as {key}=op://vault/item/field (a 1Password reference), or set '
+            f'{mcp_config.env_name(server, key)} in the environment (on a server: its env file) and run this '
+            'again.') from None
 
 
 def add(home: Home, args, ask=None) -> int:
