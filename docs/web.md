@@ -12,6 +12,26 @@
 
 - **`read_website(url, offset)`:** fetches through `egress.safe_get`, reduces HTML to its visible text (one line
   per block, no scripts or styles), and returns 3,500 characters per call with `next_offset` for the next part.
+- **Links:** each call also returns `links`, `[{"text", "url"}]`: the links whose text falls in this call's part,
+  so a skill can link to the real article or job posting instead of the homepage. URLs are absolute (resolved
+  against the final URL after redirects, or `<base href>`), http(s) only, once each per part. Dropped: links inside
+  `<nav>`, `<header>`, `<footer>` or `role="navigation"` (the site's menus), the site's homepage, links to the same
+  page or a `#fragment`, `javascript:`/`mailto:`/`tel:`, links with no text (an icon link uses its `aria-label` or
+  `title`), and URLs over 500 characters. Link text is cut to 80 characters. The tool description tells the model
+  to cite an item's own link.
+- **Feeds:** an RSS or Atom feed (detected by its `<rss>`/`<feed>` root, whatever the content type, so Google News
+  RSS works) becomes one line per item (its title, and its date), and `links` holds each item's title and
+  `<link>` (Atom: the `alternate` link). It's parsed with the same tolerant standard-library HTML parser, not an
+  XML parser, so a hostile feed can't expand entities.
+- **One result, never cut:** a tool result is capped at 4,000 characters (`render.MAX_TOOL_RESULT_CHARS`), and a
+  cut JSON is useless, so a part is sized to fit: text and links share the room, at most 40 links. A link that
+  doesn't fit ends the part, so it comes first in the next one and none are lost; a link-dense page (a job board)
+  just comes in shorter parts (about 2,400 characters of text with 14 links of ~90 characters).
+- **What links cost:** measured on the test fixtures (`tests/tools/test_web_links.py`): a news page with 3
+  articles adds ~95 tokens, a 4-posting job list ~90, a 2-item Google News RSS ~70; a link-dense part ~400 (about
+  28 tokens per link). The whole result stays under ~1k tokens either way, because of the cap.
+- **Links are tool output:** the gate tracks every URL in a result (`url_sources`), so a URL from `links` counts as
+  "came from read_website", never as written by the owner, exactly like a URL in the text.
 - **The egress guard, on every hop:** http(s) on default ports only, no `user:pass@`, every address the host
   resolves to must be public, redirects are followed by hand and each new address is checked, and the connected
   peer is checked again before the body is read. 2 MB cap.
