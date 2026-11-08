@@ -19,8 +19,12 @@
 - **The answer:** delivered with `⏰ <the schedule's message>` on top, through the notifier: the owner's Telegram
   chat when one is paired, otherwise the "Notifications" conversation in the web UI. The agent can also use
   `notify_owner` during the run.
+- **Silent runs:** an answer that is exactly `NO_REPLY` (after trimming spaces) delivers nothing, like the
+  heartbeat's `HEARTBEAT_OK`. A skill that sends its items with `notify_owner` ends a scheduled run that way, so no
+  extra "⏰" message follows them. The run and its answer are still in the run log (`wraithd runs show`).
 - **Tests** call `tick(now)` with a fake clock: nothing fires before its time, it fires once at it, and a terminal
-  session's schedule fires in a daemon with no terminal, answering in the owner's (fake) Telegram chat.
+  session's schedule fires in a daemon with no terminal, answering in the owner's (fake) Telegram chat. A
+  `NO_REPLY` answer sends nothing and any other answer still does (`tests/daemon/test_scheduler.py`).
 
 ## On a laptop
 
