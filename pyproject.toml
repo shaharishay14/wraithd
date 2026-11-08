@@ -1,6 +1,6 @@
 [project]
 name = "wraithd"
-version = "0.0.1"
+version = "0.1.0"
 description = "A personal agent that runs on your own machine."
 readme = "README.md"
 license = "MIT"

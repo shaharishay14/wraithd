@@ -12,8 +12,8 @@
 #   3. Prints the next step: `wraithd onboard`.
 #
 # Settings, all optional:
-#   WRAITHD_VERSION=0.0.1   install that version instead of the latest
-#   WRAITHD_EXTRAS=whisper  install extras too (comma-separated: whisper, browser)
+#   WRAITHD_VERSION=0.1.0   install that version instead of the latest
+#   WRAITHD_EXTRAS=claude   install extras too (comma-separated: claude, whisper, browser)
 #   WRAITHD_NO_UV_INSTALL=1 don't install uv; stop if it's missing
 #
 # It changes no shell profile itself. Astral's installer may add ~/.local/bin to your PATH (it says so when it does).
