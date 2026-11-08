@@ -64,6 +64,10 @@ def jobs(rt) -> list[Job]:
     found.append(Job('skill_settle', skill_review.SETTLE_EVERY_SECONDS, skill_review.settle_job))
     if rt.config.section('heartbeat')['enabled']:
         found.append(Job('heartbeat', heartbeat.TICK_SECONDS, heartbeat.heartbeat_job))  # due() keeps the interval
+    from wraithd.daemon import watch
+
+    if rt.config.section('watch'):
+        found.append(Job('watch', watch.TICK_SECONDS, watch.watch_job))  # each watch keeps its own every_minutes
     # <<< capabilities
     # >>> reach
     from wraithd.daemon import service

@@ -105,6 +105,9 @@ def build_parser() -> argparse.ArgumentParser:
     from wraithd.daemon import heartbeat
 
     heartbeat.add_arguments(commands)
+    from wraithd.daemon import watch
+
+    watch.add_arguments(commands)
     # <<< capabilities
     # >>> reach
     # <<< reach
@@ -464,6 +467,10 @@ def main(argv: list[str] | None = None) -> int:
         from wraithd.daemon import heartbeat
 
         return heartbeat.main(home, args)
+    if args.command == 'watch':
+        from wraithd.daemon import watch
+
+        return watch.main(home, args)
     # <<< capabilities
     # >>> reach
     # <<< reach
