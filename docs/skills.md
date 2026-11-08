@@ -29,6 +29,11 @@ kept answering for the user in draft replies instead of leaving a slot. So a ski
 on with the stronger configured model, with everything the run did so far. It's logged as a `model_upgrade`
 event. Chit-chat stays on the cheap model; without a separate strong model configured, nothing switches.
 
+That switch is the API engine (`agents-sdk`). On the Claude Code engine the model is fixed when the run starts, so
+`model: strong` works up front instead: a scheduled run whose message names the skill as a whole word (`run
+news-feed (scheduled)`) runs on `[engine] chat_model` from the start rather than `background_model`. Chats are on
+`chat_model` already. See [engines.md](engines.md#a-scheduled-runs-model).
+
 ## Personalization: "your way"
 
 Everyone does the same task differently, and most people won't write a skill. So personalization comes from

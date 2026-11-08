@@ -48,9 +48,15 @@ Your own Claude chats and wraithd share one plan's limits, so wraithd picks the 
 name = "claude-code"
 chat_model = "sonnet"        # chats from the terminal, the web UI and Telegram
 background_model = "haiku"   # the heartbeat, schedules, memory distill and compaction
+schedule_model = ""          # scheduled runs ("": background_model)
 fallback = false             # true: use the API key or Ollama when the plan limit hits (see Plan limits)
 idle_minutes = 10            # close a warm chat session after this long unused
 ```
+
+A scheduled run whose message names a `model: strong` skill (say `run news-feed`) runs on `chat_model` instead,
+since Claude Code can't switch models mid-run (see [engines.md](engines.md#a-scheduled-runs-model)). Cost note: a
+Sonnet scheduled run uses roughly 3x the plan of a Haiku one, so mark only the skills that need it, and set
+`schedule_model` only if every schedule should pay that.
 
 Onboard writes only `name`; the others keep these defaults until you change them. wraithd always names the model:
 left to itself, Claude Code picks Opus, the priciest.
