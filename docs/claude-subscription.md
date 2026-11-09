@@ -37,8 +37,13 @@ settings ignored, and hands it wraithd's guarded tools instead, so every action 
 a write still shows an approval card, and `wraithd runs show` lists every tool call. wraithd keeps the history,
 memory and compaction, so you can switch engines mid-conversation.
 
-Chat keeps one warm Claude Code session per conversation: only the first message pays the ~4.6 seconds it takes
-Claude Code to start, and later messages send only the new text. A session nobody has used for `idle_minutes`
+Short chat messages ("What's 12 times 12", "skip D1") go to `quick_model` (Haiku), which starts answering sooner;
+everything else (a long message, an attachment, a skill named, a `/command`) stays on `chat_model` (Sonnet). Start a
+message with `think` or `/sonnet` to put it on Sonnet anyway; the word is left out of what the model sees. The
+rules are in [engines.md](engines.md#a-chat-messages-model).
+
+Chat keeps one warm Claude Code session per conversation and model (two with `quick_model` on): only the first
+message pays the ~4.6 seconds it takes Claude Code to start, and later messages send only the new text. A session nobody has used for `idle_minutes`
 (10 by default) is closed; the next message starts a fresh one and hands it the conversation so far. Outside text
 read in an earlier message still taints the next one, as on the API engine. When you quit chat (`/quit` or
 Ctrl-D), its sessions close before wraithd exits. `wraithd runs show` lists each start as an `engine_connect`
@@ -50,6 +55,7 @@ Your own Claude chats and wraithd share one plan's limits, so wraithd picks the 
 [engine]
 name = "claude-code"
 chat_model = "sonnet"        # chats from the terminal, the web UI and Telegram
+quick_model = "haiku"        # short chat messages ("": every chat on chat_model)
 background_model = "haiku"   # the heartbeat, schedules, memory distill and compaction
 schedule_model = ""          # scheduled runs ("": background_model)
 fallback = false             # true: use the API key or Ollama when the plan limit hits (see Plan limits)
