@@ -14,6 +14,8 @@ Telegram, by long polling over httpx: no public URL, no webhook, no extra librar
   stranger's attachment is never downloaded. Downloads are capped (Telegram lets bots download 20 MB at most).
 - `/mcp_add` (the owner's own typed message only, never a forwarded one) adds an MCP server behind a confirm card:
   channels/base.py and mcp/remote_add.py.
+- While a run answers the owner, the chat shows "typing…" (sendChatAction, again every 4 s, as it lasts 5 s),
+  until the answer is sent or the run fails. An answer that is exactly NO_REPLY sends nothing (core/silent.py).
 - Replies are the model's Markdown turned into Telegram's HTML (bold, italics, code, links, lists, quotes), split
   between messages only at line ends so a tag is never cut; if Telegram still rejects the entities, that part goes
   again as plain text. Approval and confirm cards go plain, so their arguments show exactly as they are.
@@ -270,6 +272,9 @@ class TelegramChannel(base.Channel):
 
     async def delete(self, chat, ref) -> None:
         await self.bot.call('deleteMessage', chat_id=chat, message_id=ref)
+
+    async def busy(self, chat) -> None:
+        await self.bot.call('sendChatAction', chat_id=chat, action='typing')
 
     # --- the transport -------------------------------------------------------------------------------------
 

@@ -20,6 +20,11 @@
   the arguments, what approving means and the third-party warnings, and **Allow** / **Deny** buttons. A tap decides
   it in the same approval store the terminal and the web UI use; the buttons are replaced by the outcome. Only the
   owner's taps count.
+- **Busy:** while a run answers the owner, the chat shows "typing…" (`sendChatAction`, again every 4 s since it
+  lasts 5), until the answer is sent or the run fails. A failed `sendChatAction` is only logged.
+- **No recap:** when a run already messaged the owner with `notify_owner`, it ends with exactly `NO_REPLY` and
+  nothing more is sent (core/silent.py, the same on every channel). The conversation keeps no assistant message
+  for it.
 - **Photos** go to the model as image input with their caption (the run's message is `[photo] <caption>`, or
   `[photo, no caption]`): the largest size Telegram offers under 5 MB, as a JPEG data URL in an `input_image` part,
   which the Agents SDK turns into OpenAI's or Anthropic's (through LiteLLM) own image part. The event log and the

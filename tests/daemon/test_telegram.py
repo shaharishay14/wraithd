@@ -13,7 +13,7 @@ import pytest
 
 from tests.scripted import ScriptedModel, ScriptedTerminal, call, say
 from wraithd import config
-from wraithd.channels import telegram, terminal
+from wraithd.channels import base, telegram, terminal
 from wraithd.core import events as ev
 from wraithd.core import gate as gate_module
 from wraithd.daemon.app import distill_all
@@ -260,3 +260,79 @@ async def test_background_distill_reads_every_channels_conversations(make_daemon
     assert await distill_all(daemon.rt) == ['profile/profile.md']
     assert '- Prefers short replies' in (home.memory_dir / 'profile' / 'profile.md').read_text()
     assert await distill_all(daemon.rt) == []  # each message once
+
+
+async def test_after_notify_owner_no_reply_sends_no_recap(make_daemon, fake_telegram):
+    model = ScriptedModel([[call('1', 'notify_owner', {'message': 'Sent 1 item.'})], [say('NO_REPLY')]])
+    daemon, _ = await make_daemon(model, telegram_transport=httpx.MockTransport(fake_telegram.handler))
+    await paired(daemon, fake_telegram)
+    fake_telegram.message(OWNER, 'Run news-feed')
+    await daemon.telegram.poll_once(timeout=0)
+    await daemon.telegram.settle()
+    assert [m['text'] for m in fake_telegram.sent(OWNER)][-1] == 'Sent 1 item.'  # and nothing after it
+    assert all('NO_REPLY' not in m['text'] for m in fake_telegram.sent())
+    conversation = daemon.rt.store.find_conversation('telegram', str(OWNER))
+    assert [m.role for m in daemon.rt.store.messages(conversation.id)] == ['user']
+
+
+def typing_calls(fake):
+    return [params for method, params in fake.calls if method == 'sendChatAction']
+
+
+async def test_typing_shows_for_the_whole_run_and_stops_with_the_answer(make_daemon, fake_telegram, monkeypatch):
+    monkeypatch.setattr(base, 'BUSY_SECONDS', 0.01)
+    model = ScriptedModel([[say('Done.')]])
+    daemon, _ = await make_daemon(model, telegram_transport=httpx.MockTransport(fake_telegram.handler))
+    await paired(daemon, fake_telegram)
+    real_reply = base.reply
+
+    async def slow_reply(*args, **kwargs):
+        await asyncio.sleep(0.1)
+        return await real_reply(*args, **kwargs)
+
+    monkeypatch.setattr(base, 'reply', slow_reply)
+    fake_telegram.message(OWNER, 'hello')
+    await daemon.telegram.poll_once(timeout=0)
+    await daemon.telegram.settle()
+    typing = typing_calls(fake_telegram)
+    assert len(typing) >= 3 and all(p == {'chat_id': OWNER, 'action': 'typing'} for p in typing)
+    methods = [method for method, _ in fake_telegram.calls]
+    assert methods[-1] == 'sendMessage' and fake_telegram.sent(OWNER)[-1]['text'] == 'Done.'
+    await asyncio.sleep(0.05)
+    assert len(typing_calls(fake_telegram)) == len(typing)  # stopped once the answer went
+
+
+async def test_typing_stops_when_the_run_fails_and_never_shows_to_strangers(make_daemon, fake_telegram, monkeypatch):
+    monkeypatch.setattr(base, 'BUSY_SECONDS', 0.01)
+    daemon, _ = await make_daemon(ScriptedModel([]), telegram_transport=httpx.MockTransport(fake_telegram.handler))
+    await paired(daemon, fake_telegram)
+
+    async def failing_reply(*args, **kwargs):
+        await asyncio.sleep(0.05)
+        raise RuntimeError('boom')
+
+    monkeypatch.setattr(base, 'reply', failing_reply)
+    fake_telegram.message(STRANGER, 'hello')
+    fake_telegram.message(OWNER, 'hello')
+    await daemon.telegram.poll_once(timeout=0)
+    await daemon.telegram.settle()
+    typing = typing_calls(fake_telegram)
+    assert typing and {p['chat_id'] for p in typing} == {OWNER}
+    await asyncio.sleep(0.05)
+    assert len(typing_calls(fake_telegram)) == len(typing)
+
+
+async def test_a_failed_typing_call_doesnt_stop_the_answer(make_daemon, fake_telegram):
+    handler = fake_telegram.handler
+
+    def refusing(request):
+        if request.url.path.endswith('/sendChatAction'):
+            return httpx.Response(400, json={'ok': False, 'description': 'Bad Request: chat not found'})
+        return handler(request)
+
+    daemon, _ = await make_daemon(ScriptedModel([[say('Hi.')]]), telegram_transport=httpx.MockTransport(refusing))
+    await paired(daemon, fake_telegram)
+    fake_telegram.message(OWNER, 'hello')
+    await daemon.telegram.poll_once(timeout=0)
+    await daemon.telegram.settle()
+    assert fake_telegram.sent(OWNER)[-1]['text'] == 'Hi.'

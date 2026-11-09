@@ -10,6 +10,8 @@ What every phone channel shares, so the rules live in one place and a new channe
   transcribed (voice.py), any other file is saved to workspace/files/inbox/.
 - Approvals are a prompt with choices (buttons, or numbered replies on a channel without them); only the owner's
   answer counts.
+- A run's answer that is exactly NO_REPLY (it already messaged the owner with notify_owner) sends nothing
+  (core/silent.py). While a run works, the channel shows it's busy (busy(); Telegram: "typing…").
 - `/mcp_add ...` from the owner (typed, not forwarded) adds an MCP server behind a confirm card (mcp/remote_add.py).
   It's handled here in code, never by a run: no agent tool adds a server, so nothing the agent reads can.
 
@@ -30,6 +32,7 @@ from wraithd.channels.conversation import reply
 from wraithd.core import events as ev
 from wraithd.core import gate
 from wraithd.core.gate import approval_card
+from wraithd.core.silent import is_silent
 from wraithd.mcp import remote_add
 from wraithd.store import base as store_base
 from wraithd.tools import files
@@ -43,6 +46,7 @@ MAX_FILE_BYTES = 20_000_000
 MAX_PHOTO_BYTES = 5_000_000  # what goes to the model as an image (Anthropic takes up to 5 MB)
 INBOX = 'inbox'  # in workspace/files/
 ALLOW, DENY = 'a', 'd'  # a choice's data is '<a|d>:<approval id>'
+BUSY_SECONDS = 4  # busy() again this often while a run works (Telegram's "typing…" lasts 5 s)
 
 
 class ChannelError(Exception):
@@ -158,6 +162,9 @@ class Channel:
     async def delete(self, chat, ref) -> None:
         """Deletes a message the owner sent (one with a secret in it), where the service allows it."""
 
+    async def busy(self, chat) -> None:
+        """Shows the chat that an answer is being worked on, where the service can (sent every BUSY_SECONDS)."""
+
     def chat_from_setting(self, value: str):
         return value
 
@@ -225,9 +232,25 @@ class Channel:
             return await self.send(chat, str(e))
         conversation = (self.rt.store.find_conversation(self.name, str(chat))
                         or self.rt.store.start_conversation(self.name, external=str(chat)))
-        result = await reply(self.rt, conversation.id, text, source=self.name,
-                             callback=self.approval_callback(chat), mcp=self.mcp, images=images)
+        busy = asyncio.create_task(self._busy(chat))
+        try:
+            result = await reply(self.rt, conversation.id, text, source=self.name,
+                                 callback=self.approval_callback(chat), mcp=self.mcp, images=images)
+        finally:
+            busy.cancel()
+            await asyncio.gather(busy, return_exceptions=True)
+        if is_silent(result.answer):  # the run already messaged the owner: no recap
+            return
         await self.send(chat, result.answer)
+
+    async def _busy(self, chat) -> None:
+        """busy() every BUSY_SECONDS until cancelled; a failed one is only logged (it's a nicety)."""
+        while True:
+            try:
+                await self.busy(chat)
+            except ChannelError as e:
+                logger.info(f'Showing {self.title} the run is busy failed: {e}')
+            await asyncio.sleep(BUSY_SECONDS)
 
     async def settle(self) -> None:
         """Waits for the messages being answered (tests, and a clean shutdown)."""
