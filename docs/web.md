@@ -40,11 +40,12 @@
 
   | `search =` | Backend | Key | Cost to the owner |
   |---|---|---|---|
-  | `"auto"` (default) | the model provider's own: `openai` or `anthropic`; `duckduckgo` for ollama and openai-compatible | the model key | see the rows below |
+  | `"auto"` (default) | the model provider's own: `openai` or `anthropic`; `duckduckgo` for ollama and openai-compatible, and on the Claude Code engine when that provider's key isn't set | the model key | see the rows below |
   | `"openai"` | Responses API, hosted `web_search` tool, on `gpt-4o-mini` | `openai` | about $10 per 1,000 searches, plus the small model's tokens |
   | `"anthropic"` | Messages API, server tool `web_search_20250305` (`max_uses` 1), on `claude-haiku-5-5` | `anthropic` | about $10 per 1,000 searches, plus the small model's tokens |
   | `"duckduckgo"` | the HTML page (`html.duckduckgo.com/html`), parsed with the standard library, through the egress guard | none | free; it may rate-limit or ask for a captcha |
   | `"serpapi"` | Google results through serpapi.com, as in agent-studio | `serpapi` | the SerpAPI plan |
+  | `"claude"` | a separate one-shot Claude Code whose only tool is its `WebSearch` (`engines/claude_search.py`), on the background model | none: your Claude login | your Claude plan's usage |
   | `""` | off | | |
 
   When the backend's key is missing, the tool isn't offered, and neither are the skills that need it
@@ -64,6 +65,14 @@
   `searches`, `input_tokens`, `output_tokens`); the gate copies it into the `tool_result` event, and
   `views.tokens_used` adds those tokens to the run's, so native searches count toward the run and daily token
   budgets. The per-search fee isn't in any budget: it shows up only on the provider's bill.
+- **Through the Claude subscription (`"claude"`):** wraithd's `web_search` starts a one-shot Claude Code with
+  `tools=["WebSearch"]`, `allowed_tools=["WebSearch"]`, no MCP servers (`strict_mcp_config`), none of the owner's
+  Claude Code settings (`setting_sources=[]`), no session saved, `ANTHROPIC_API_KEY` blanked, the background model
+  and `max_turns` 3. It stops if Claude Code's init offers any tool but WebSearch, asks for a JSON array of
+  `{title, url, snippet}` and keeps only http(s) urls. The rows come back through wraithd's gated tool, so they are
+  third-party text like any search result (the run is tainted, the call logged), and the helper's tokens go into
+  the `usage` above and count toward the run. The main engine keeps `tools=[]`; `wraithd audit` checks the helper
+  allows exactly WebSearch. Needs the claude extra and a /login (any engine).
 - **DuckDuckGo result links** are redirects (`//duckduckgo.com/l/?uddg=<url>`): they're unwrapped to the real URL,
   and its ads (`duckduckgo.com/y.js`) are dropped. Like `read_website`, the request goes through `egress.safe_get`,
   so a poisoned DNS answer can't turn it toward the laptop or its network.

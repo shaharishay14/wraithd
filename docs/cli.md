@@ -13,6 +13,9 @@ The code is in `src/wraithd/tui/` (theme, picker, chat view, tables, the icon) a
 Every choice in `wraithd onboard` (how wraithd thinks, provider, model, every yes/no, the Telegram steps), the
 approval card in the chat, and the commands below when you leave out the id.
 
+On the Claude subscription, onboarding's "Sign in to Claude" opens the real Claude Code in this terminal (it takes the
+terminal over until you type /exit; wraithd reads nothing of it), then checks the login (docs/claude-subscription.md).
+
 | Key | Does |
 |---|---|
 | ↑ ↓ (Ctrl-P, Ctrl-N, Tab) | move |
@@ -50,7 +53,7 @@ On the `claude-code` engine, chat starts Claude Code as soon as it opens, while 
 | Command | Does |
 |---|---|
 | `/help` | the commands and keys |
-| `/new` | end this conversation (it's remembered, as when you quit) and start a fresh one |
+| `/new` | end this conversation (it's remembered, as when you quit) and start a fresh one; on the Claude subscription its Claude Code starts right away, as when the chat opens (plain mode takes `/new` too) |
 | `/runs` | the latest runs |
 | `/schedules` | schedules and reminders |
 | `/model` | what wraithd thinks with (change it with `wraithd onboard`) |

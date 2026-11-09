@@ -87,6 +87,9 @@ memory distill and compaction always use `background_model`. `wraithd runs show`
   reuses that session instead of opening a second one. That message waits for the start if it isn't done (the
   conversation's lock). If the early start fails, the first message starts the session as before and shows any
   problem then. Quitting before the first message cancels the start and closes the session.
+- `/new` does the same for the next conversation: it cancels any start still under way, closes the old
+  conversation's session, starts the new conversation and its session in the background, then distills the old
+  one while Claude Code starts. The new conversation's first message waits for it as on open.
 - A new session gets wraithd's compacted history as a transcript. A known session gets only the new message, the
   time and any reminders.
 - A `RunSlot` holds the guarded tools of the run that is answering. Between runs it is empty, and any call is
@@ -102,6 +105,11 @@ memory distill and compaction always use `background_model`. `wraithd runs show`
   open, the event loop closes the SDK's nested generators all at once when it ends, and one of them is still closing:
   "aclose(): asynchronous generator is already running". `close()` cancels a message still answering and waits for
   it before it disconnects.
+- One-shots (`run_once`, doctor's login check, the search helper) iterate the SDK client's `process_query()`
+  (`claude_code.one_shot`): the public `query()` only wraps it and leaves it for the event loop to close later, so
+  the Claude Code process could still be closing when `asyncio.run()` closes the loop ("RuntimeError: Event loop is
+  closed" from `BaseSubprocessTransport.__del__` as `wraithd doctor` exits). After each one, `close_leftover_pipes()`
+  closes the pipes of an exited Claude Code that a child of it still holds open, while the loop still runs.
 - Each Claude Code start is an `engine_connect` event (`kind`: `session` for a warm session's connect, `once` for a
   one-shot's start until its init message; `ms`). `run_end`'s `duration_ms` still counts the whole run. A session
   started early logs it on its first message with `early: true`; `ms` is still Claude Code's own start (the early
@@ -118,6 +126,13 @@ login and home folder are never touched. The tests cover:
 - warm sessions: reuse, taint carried over, changed tools, the idle reaper, ordering, shutdown;
 - quitting chat with an open session prints nothing (the fake SDK nests its generators like the real one);
 - `engine_connect` with its ms;
+- a clean exit (`test_clean_exit.py`, the real SDK against a fake `claude` program, `fake_claude_cli.py`): doctor's
+  check and a one-shot leave no Claude Code transport open when the loop ends, and stderr has no "Event loop is
+  closed", also when a child of `claude` holds its stdout;
+- `/new`: one connect for the new conversation, the old session closed, its first message reuses the early start,
+  `/quit` right after `/new` is clean;
+- web search through the subscription (`test_claude_search.py`): the helper's options, parsing, errors, the audit
+  rule, and a chat whose search comes back tainted and counted;
 - the early start in chat (`test_warm_start.py`): the first message reuses it (one connect), a failed start falls
   back, quitting or Ctrl-C while it starts is clean, and the first-message wait before and after. With a 2 s start
   (`WRAITHD_MEASURE_SCALE=1 uv run pytest tests/engines/test_warm_start.py -s -k measure`), message sent to first

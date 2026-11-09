@@ -14,9 +14,12 @@
    The extra is the Claude Agent SDK, which carries the Claude Code program (about 300 MB, so it isn't in the
    plain install).
 2. Run `wraithd onboard` and answer `subscription` to "How should wraithd think?".
-3. When it asks, open another terminal, run `claude` and type `/login`. Sign in with your Claude account. On a
-   server with no browser, Claude Code prints a link: open it on any device, then paste the code back.
-4. Press Enter in onboard. It checks that Claude Code is on your login and writes `[engine] name = "claude-code"`.
+3. Onboard shows the steps, then opens the real Claude Code right there in your terminal (press Enter):
+   type /login → pick your Claude account → open the link → sign in → copy the code → paste it here → /exit.
+   Claude Code gets the terminal itself (no pipes): wraithd never reads the link or the code. It runs the `claude`
+   on your PATH, or the copy that came with the extra. Already signed in? Type `check` (or pick it). Without a
+   terminal (a pipe, a script), onboard prints the steps for you to run `claude` in another terminal.
+4. When Claude Code exits, onboard checks that it is on your login and writes `[engine] name = "claude-code"`.
    No key is asked for.
 5. `wraithd doctor` says `Claude subscription login in use`, and `wraithd audit` passes.
 
@@ -126,6 +129,9 @@ read its keychain entry and never set `CLAUDE_CODE_OAUTH_TOKEN`.
 - A warning when `ANTHROPIC_API_KEY` is set in the environment: elsewhere it would quietly win over the login.
 - A FAIL if wraithd's config or wraithd's own keychain entries hold a Claude login token (`sk-ant-oat...`).
   It looks only at wraithd's own entries, never at Claude Code's.
+- With `[web] search = "claude"` (or claude-code on): the web search helper's options allow exactly `WebSearch`,
+  no MCP servers, none of your settings, no token or key (docs/web.md). It's the only Claude Code wraithd starts
+  with one of Claude Code's own tools.
 
 ## Plan limits
 
