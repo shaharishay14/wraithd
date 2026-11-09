@@ -107,3 +107,46 @@ def test_a_missing_file_or_folder_is_not_a_failed_tool_call():
     assert failed_in_a_row(log_of(missing('memory_read', 'There is no file'))) == 1
     # and only at the start of the error, not quoted inside another one
     assert failed_in_a_row(log_of(missing('files_read', 'Bad path: There is no file'))) == 1
+
+
+# --- weighted tokens -------------------------------------------------------------------------------------------
+
+def claude_call(input_tokens, output_tokens, cache_read, cache_write):
+    """A claude-code model_output: input_tokens already includes cache reads and writes (usage_numbers)."""
+    return (ev.MODEL_OUTPUT, {'engine': 'claude-code', 'input_tokens': input_tokens, 'output_tokens': output_tokens,
+                              'cache_read': cache_read, 'cache_write': cache_write})
+
+
+def test_cache_reads_weigh_a_tenth_and_the_rest_counts_in_full():
+    # run 47621a78 (news-feed): input 167,791 of which 155,024 cache reads and 12,751 cache writes, 1,182 out
+    events = log_of(claude_call(167_791, 1_182, 155_024, 12_751))
+    assert views.tokens_used(events) == 168_973
+    assert views.weighted_tokens(events) == (167_791 - 155_024) + 1_182 + 15_502  # 29,451
+
+
+def test_without_a_cache_split_weighted_is_raw():
+    events = log_of((ev.MODEL_OUTPUT, {'input_tokens': 900, 'output_tokens': 100}),
+                    (ev.TOOL_RESULT, {'tool': 'web_search', 'usage': {'input_tokens': 40, 'output_tokens': 10}}))
+    assert views.weighted_tokens(events) == views.tokens_used(events) == 1050
+
+
+def test_the_run_budget_counts_weighted_tokens():
+    events = log_of(claude_call(167_791, 1_182, 155_024, 12_751))
+    assert StopPolicy(token_budget=50_000).check(events) is None  # 169k raw, 29k weighted
+    stopped = StopPolicy(token_budget=20_000).check(events)
+    assert stopped.code == 'token_budget' and '29451 tokens' in stopped.message
+
+
+def test_the_daily_budget_says_it_is_wraithds_own_limit():
+    reason = StopPolicy(daily_token_budget=2_000_000, tokens_before_run=1_990_000).check(
+        log_of(claude_call(167_791, 1_182, 155_024, 12_751)))
+    assert reason.code == 'daily_budget'
+    assert reason.message == ("wraithd's own daily limit ([budget] daily_tokens = 2,000,000 weighted tokens) is "
+                              "reached. This isn't your Claude plan's limit. Raise it in ~/.wraithd/config.toml under "
+                              '[budget], or it resets at midnight.')
+
+
+def test_the_daily_total_sums_weighted_where_a_run_recorded_it(store):
+    store.save_events('new', [ev.Event(seq=0, type=ev.RUN_END, payload={'tokens': 168_973, 'weighted_tokens': 29_451})])
+    store.save_events('old', [ev.Event(seq=0, type=ev.RUN_END, payload={'tokens': 500})])  # from before 0.1.2
+    assert tokens_used_today(store) == 29_951

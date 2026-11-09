@@ -217,10 +217,22 @@ async def test_over_the_daily_budget_no_model_call_is_made(make_runtime, home):
     home.config_path.write_text('[budget]\ndaily_tokens = 1000\n')
     rt = make_runtime(ScriptedModel([]))
     rt.store.save_events('earlier', [ev.Event(seq=0, type=ev.RUN_END, payload={'tokens': 1200})])
-    from wraithd.core.stop import DAILY_BUDGET_MESSAGE
     result, events = await run_once(rt, 'hi')
-    assert result.answer == DAILY_BUDGET_MESSAGE and result.outcome == 'refused'
+    assert result.answer == ("wraithd's own daily limit ([budget] daily_tokens = 1,000 weighted tokens) is reached. "
+                             "This isn't your Claude plan's limit. Raise it in ~/.wraithd/config.toml under [budget], "
+                             'or it resets at midnight.')
+    assert result.outcome == 'refused'
     assert events[-1].payload['stop_reason'] == 'daily_budget'
+
+
+async def test_the_daily_total_counts_weighted_tokens_where_a_run_recorded_them(make_runtime, home):
+    """A claude-code run of 1,200 raw tokens, mostly cache reads, counts 300 toward a 1,000 daily budget."""
+    home.config_path.write_text('[budget]\ndaily_tokens = 1000\n')
+    rt = make_runtime(ScriptedModel([[say('ok')]]))
+    rt.store.save_events('earlier', [ev.Event(seq=0, type=ev.RUN_END,
+                                              payload={'tokens': 1200, 'weighted_tokens': 300})])
+    result, _ = await run_once(rt, 'hi')
+    assert result.outcome == 'answered'
 
 
 # --- the strong model --------------------------------------------------------------------------------------

@@ -190,7 +190,8 @@ class SQLiteStore:
 
     def tokens_since(self, since) -> int:
         rows = self._query(
-            "SELECT COALESCE(SUM(json_extract(payload, '$.tokens')), 0) AS tokens FROM run_events "
+            "SELECT COALESCE(SUM(COALESCE(json_extract(payload, '$.weighted_tokens'), "
+            "json_extract(payload, '$.tokens'))), 0) AS tokens FROM run_events "
             'WHERE type = ? AND created_at >= ?', (RUN_END, _stamp(since)))
         return int(rows[0]['tokens'])
 

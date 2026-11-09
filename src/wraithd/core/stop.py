@@ -40,7 +40,7 @@ class RunStopped(AgentsException):
 class StopPolicy:
     max_consecutive_errors: int = 3
     max_identical_calls: int = 3  # the same tool with the same arguments: the model is going in circles
-    token_budget: int | None = None  # input + output tokens for the whole run; None means no budget
+    token_budget: int | None = None  # weighted tokens (views.weighted_tokens) for the whole run; None means none
     max_tool_calls: int | None = None  # per run, including ones the gate blocked
     daily_token_budget: int | None = None  # across all of today's runs
     tokens_before_run: int = 0  # what today's earlier runs had used when this one started
@@ -67,11 +67,11 @@ class StopPolicy:
         if self.max_tool_calls is not None and calls >= self.max_tool_calls:
             return StopReason('tool_calls', f'The run made {calls} tool calls, its limit.')
 
-        used = views.tokens_used(events) + views.delegated_tokens(events)  # a subagent spends this run's budget
+        used = views.weighted_tokens(events) + views.delegated_tokens(events)  # a subagent spends this run's budget
         if self.token_budget is not None and used >= self.token_budget:
             return StopReason('token_budget', f'The run used {used} tokens, over its budget of {self.token_budget}.')
         if self.over_daily_budget(used):
-            return StopReason('daily_budget', 'The daily usage limit was reached.')
+            return StopReason('daily_budget', daily_budget_message(self.daily_token_budget))
         return None
 
 
@@ -102,12 +102,18 @@ def failed_in_a_row(events) -> int:
 
 
 def tokens_used_today(store, now: datetime | None = None) -> int:
-    """Tokens today's runs used since local midnight, from their run_end events."""
+    """Weighted tokens today's runs used since local midnight, from their run_end events (raw tokens for runs that
+    ended before run_end recorded weighted_tokens)."""
     now = (now or datetime.now()).astimezone()
     return store.tokens_since(now.replace(hour=0, minute=0, second=0, microsecond=0))
 
 
-DAILY_BUDGET_MESSAGE = "You've reached today's usage limit, so I can't work on this now. It resets at midnight."
+def daily_budget_message(daily_tokens: int | None) -> str:
+    """What the owner is told when the daily budget is reached: wraithd's own limit, not the Claude plan's, and how
+    to raise it."""
+    amount = f' ([budget] daily_tokens = {daily_tokens:,} weighted tokens)' if daily_tokens else ''
+    return (f"wraithd's own daily limit{amount} is reached. This isn't your Claude plan's limit. "
+            'Raise it in ~/.wraithd/config.toml under [budget], or it resets at midnight.')
 
 
 def final_answer_instruction(reason: StopReason) -> str:

@@ -23,7 +23,8 @@ def safe_fields(options):
 def test_engine_defaults(home):
     config = load_config(home)
     assert config.section('engine') == {'name': 'agents-sdk', 'chat_model': 'sonnet', 'background_model': 'haiku',
-                                        'schedule_model': '', 'fallback': False, 'idle_minutes': 10}
+                                        'schedule_model': '', 'fallback': False, 'idle_minutes': 10,
+                                        'max_turns': 8}
     assert config.daily_tokens is None  # off unless set, as before
 
 

@@ -239,6 +239,66 @@ async def test_the_tool_call_limit_holds(claude_rt, claude_sdk, home):
     assert events_of(rt, answer.run_id, ev.STOP)[0]['reason'] == 'tool_calls'
 
 
+MAX_TURNS = dict(text=None, is_error=True, subtype='error_max_turns', num_turns=8)
+
+
+async def test_a_run_out_of_turns_stops_cleanly_and_says_what_was_done(claude_rt, claude_sdk):
+    """A skill that needs more turns than [engine] max_turns: a stop with a plain answer, never EngineError."""
+    fake = claude_sdk([init(), email_me(), result(**MAX_TURNS)])
+    rt = claude_rt()
+    answer = await run(rt, 'email me the summary', callback=approving(rt), tools=TOOLS)
+    assert answer.outcome == 'answered' and SENT == ['me@home.example']
+    assert answer.answer.startswith('I reached my step limit (8 model calls) before I could finish. '
+                                    'These actions were already done:\n- ')
+    assert 'raise [engine] max_turns' in answer.answer
+    assert events_of(rt, answer.run_id, ev.STOP)[0] == {'reason': 'max_turns', 'message': 'Reached 8 model calls.'}
+    end = events_of(rt, answer.run_id, ev.RUN_END)[0]
+    assert (end['outcome'], end['stop_reason']) == ('answered', 'max_turns') and 'error' not in end
+    assert fake.calls[0]['options'].max_turns == 8
+
+
+async def test_a_warm_session_out_of_turns_stops_cleanly_and_stays_warm(claude_rt, claude_sdk):
+    fake = claude_sdk([init(), result(**MAX_TURNS)], [result('next')])
+    rt = claude_rt()
+    first = await run(rt, 'run receipt-tracker', conversation='c1')
+    assert first.outcome == 'answered' and 'Nothing was changed.' in first.answer
+    assert events_of(rt, first.run_id, ev.STOP)[0]['reason'] == 'max_turns'
+    assert (await run(rt, 'go on', conversation='c1')).answer == 'next'
+    (client,) = fake.ClaudeSDKClient.instances  # the same session: running out of turns didn't break it
+    assert client.connects == 1 and client.disconnects == 0
+
+
+async def test_max_turns_is_a_setting(claude_rt, claude_sdk):
+    fake = claude_sdk([init(), result(**{**MAX_TURNS, 'num_turns': 12})], [init(), result('warm')])
+    rt = claude_rt(max_turns=12)
+    answer = await run(rt, 'a long skill')
+    assert fake.calls[0]['options'].max_turns == 12 and '(12 model calls)' in answer.answer
+    await run(rt, 'hi', conversation='c1')
+    assert fake.ClaudeSDKClient.instances[0].options.max_turns == 12
+
+
+def test_max_turns_must_be_positive(home):
+    from wraithd.config import ConfigError
+    home.config_path.write_text('[engine]\nname = "claude-code"\nmax_turns = 0\n')
+    with pytest.raises(ConfigError, match='max_turns'):
+        load_config(home)
+
+
+async def test_the_run_budget_counts_cache_reads_at_a_tenth(claude_rt, claude_sdk, home):
+    """Once Claude Code reports a call's usage, run_tokens counts it weighted: 150k raw, mostly cache reads, is
+    under a 50k budget, and the next tool call still runs."""
+    set_values(home, 'budget', {'run_tokens': 50_000})
+    usage = {'input_tokens': 10_000, 'output_tokens': 1_000, 'cache_read_input_tokens': 135_000,
+             'cache_creation_input_tokens': 4_000}
+    claude_sdk([init(), result('first', usage=usage)], [init(), call('GMAIL_LIST_LABELS', {}), result('done')])
+    rt = claude_rt()
+    first = await run(rt, 'one')
+    end = events_of(rt, first.run_id, ev.RUN_END)[0]
+    assert (end['tokens'], end['weighted_tokens']) == (150_000, 28_500)
+    second = await run(rt, 'labels', tools=[GMAIL_LIST_LABELS])
+    assert events_of(rt, second.run_id, ev.STOP) == []
+
+
 async def test_the_whole_wraithd_chat_path(claude_rt, claude_sdk, monkeypatch, capsys):
     """`wraithd chat` on claude-code: the terminal asks y/N for the write, and `wraithd runs show` lists every
     tool call with the gate's decision."""

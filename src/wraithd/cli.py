@@ -33,7 +33,7 @@ import sys
 from wraithd import __version__
 from wraithd.config import KEY_NAMES, ConfigError, Home, NoKeychain, delete_key, set_key
 from wraithd.core import events as ev
-from wraithd.core import inspector
+from wraithd.core import inspector, views
 from wraithd.daemon import commands as daemon_commands
 from wraithd.mcp import commands as mcp_commands
 from wraithd.providers import ProviderError
@@ -133,21 +133,42 @@ def _rich():
     return theme.console()
 
 
+def run_numbers(events) -> tuple[str, int, int]:
+    """(outcome, raw tokens, weighted tokens) of one run: weighted is what the budgets count (views.weighted_tokens);
+    a run_end from before it was recorded counts its raw tokens."""
+    summary = inspector.summarize(events)
+    end = next((event for event in reversed(events) if event.type == ev.RUN_END), None)
+    raw = end.payload.get('tokens', summary['tokens']) if end else summary['tokens']
+    weighted = end.payload.get('weighted_tokens', raw) if end else views.weighted_tokens(events)
+    return summary['outcome'], raw, weighted
+
+
 def runs_list(home: Home, limit: int) -> int:
     store = _store(home)
     runs = store.recent_runs(limit) if store else []
     if not runs:
         print('No runs yet.')
         return 0
+    numbers = {info.run_id: run_numbers(store.run_events(info.run_id)) for info in runs}
     if console := _rich():
-        from wraithd.channels.terminal import run_outcome
+        from rich.text import Text
+
         from wraithd.tui import tables
 
-        console.print(tables.runs([(info, run_outcome(store, info.run_id)) for info in runs]))
+        out = tables.table('id:nowrap:dim', 'started:nowrap', 'source:nowrap', 'outcome:nowrap', 'tokens:nowrap',
+                           'weighted:nowrap', 'message:grow')
+        for info in runs:
+            outcome, raw, weighted = numbers[info.run_id]
+            label, style = tables.OUTCOME.get(outcome, (outcome or '', 'dim'))
+            out.add_row(info.run_id[:8], f'{info.started_at.astimezone():%Y-%m-%d %H:%M}', info.source,
+                        Text(label, style=style), f'{raw:,}', f'{weighted:,}', Text(info.message.replace('\n', ' ')))
+        console.print(out)
         return 0
     for info in runs:
+        _, raw, weighted = numbers[info.run_id]
         message = info.message if len(info.message) <= 60 else info.message[:57] + '...'
-        print(f'{info.run_id[:8]}  {info.started_at.astimezone():%Y-%m-%d %H:%M}  {info.source:<9} {message}')
+        print(f'{info.run_id[:8]}  {info.started_at.astimezone():%Y-%m-%d %H:%M}  {info.source:<9} '
+              f'{raw:>9,} {weighted:>9,}  {message}')
     return 0
 
 

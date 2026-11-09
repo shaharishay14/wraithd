@@ -21,6 +21,7 @@ import logging
 import time
 from collections.abc import Mapping
 
+from wraithd.core.loop import MAX_AGENT_STEPS
 from wraithd.engines import claude_options as options_module
 from wraithd.engines.claude_bridge import RunSlot, bridge, tool_names
 from wraithd.engines.claude_options import BACKGROUND, LOGIN, SubscriptionUnavailable, claude_options, model_for, sdk
@@ -41,6 +42,14 @@ CLOSE_WAIT_SECONDS = 5  # how long close() waits for a message that is answering
 
 class EngineError(Exception):
     """Claude Code ended the run with an error that isn't the plan's limit."""
+
+
+MAX_TURNS = 'error_max_turns'  # the result's subtype when the run used [engine] max_turns model calls
+
+
+def hit_max_turns(result) -> bool:
+    """The run ended because it used all its turns: a stop (run.py answers plainly), not an engine failure."""
+    return result is not None and getattr(result, 'subtype', None) == MAX_TURNS
 
 
 def transcript(chat) -> str:
@@ -166,6 +175,10 @@ async def _consume(claude, messages, callback=None, log=None, progress: dict | N
                 if log is not None:
                     log.append(ev.MODEL_OUTPUT, engine='claude-code', **usage_numbers(message.usage),
                                num_turns=message.num_turns, text_chars=len(message.result or ''))
+                if message.subtype == MAX_TURNS:  # a stop, like the API engine's step limit (core/loop.py)
+                    if log is not None:
+                        log.append(ev.STOP, reason='max_turns', message=f'Reached {message.num_turns} model calls.')
+                    return '', message
                 if message.is_error:
                     if message.api_error_status == 429:
                         raise SubscriptionUnavailable(LIMIT_MESSAGE)
@@ -179,15 +192,16 @@ async def _consume(claude, messages, callback=None, log=None, progress: dict | N
 
 
 async def run_once(instructions: str, prompt: str, guarded, model: str, callback=None, *, limit: int | None = None,
-                   stop=None, log=None, progress: dict | None = None):
+                   stop=None, log=None, progress: dict | None = None, max_turns: int = MAX_AGENT_STEPS):
     """One run in its own Claude Code process: (answer, ResultMessage or None). guarded: the run's tools after
-    guard_function_tools() ([] for a tool-less call); model: [engine] model_for() this purpose."""
+    guard_function_tools() ([] for a tool-less call); model: [engine] model_for() this purpose; max_turns: [engine]
+    max_turns. A run that used all its turns returns ('', its ResultMessage): hit_max_turns() says so."""
     _ready()
     claude = sdk()
     slot = RunSlot()
     server, names = bridge(guarded, slot) if guarded else (None, [])
     slot.attach(guarded, limit, stop)
-    options = claude_options(instructions, server, names, model, stream=callback is not None)
+    options = claude_options(instructions, server, names, model, stream=callback is not None, max_turns=max_turns)
     try:
         # Closed here, in order, before returning: left open, the event loop closes the SDK's nested generators
         # all at once when it ends, and one of them is still closing ("aclose(): ... already running").
@@ -208,13 +222,13 @@ class WarmSession:
     """One Claude Code process per conversation, reused between messages. Its tools, system prompt and model are
     fixed when it connects: a run that needs others gets a new session (SessionPool)."""
 
-    def __init__(self, instructions: str, guarded, model: str):
+    def __init__(self, instructions: str, guarded, model: str, max_turns: int = MAX_AGENT_STEPS):
         claude = sdk()
         self.slot = RunSlot()
         server, self.names = bridge(guarded, self.slot)
         self.key = (tuple(self.names), instructions, model)
         self.client = claude.ClaudeSDKClient(options=claude_options(instructions, server, self.names, model,
-                                                                    stream=True))
+                                                                    stream=True, max_turns=max_turns))
         self.lock = asyncio.Lock()
         self.connected, self.fresh, self.last_used = False, True, time.monotonic()
         self.answering: asyncio.Task | None = None  # the task in ask() or start(), while it runs
@@ -298,22 +312,22 @@ class Lease:
         """(source, text) of third-party content earlier messages read: this run starts tainted by it."""
         return list(self.pool.taint.get(self.key, []))
 
-    async def session(self, instructions: str, guarded, model: str) -> WarmSession:
+    async def session(self, instructions: str, guarded, model: str, max_turns: int = MAX_AGENT_STEPS) -> WarmSession:
         """The conversation's session, or a new one when there is none or its tools, prompt or model differ."""
         current = self.pool.sessions.get(self.key)
         if current is not None and not current.fits(instructions, guarded, model):
             await self.pool.drop(self.key)
             current = None
         if current is None:
-            current = self.pool.sessions[self.key] = WarmSession(instructions, guarded, model)
+            current = self.pool.sessions[self.key] = WarmSession(instructions, guarded, model, max_turns)
             self.pool.start_reaper()
         return current
 
-    async def warm(self, instructions: str, guarded, model: str) -> bool:
+    async def warm(self, instructions: str, guarded, model: str, max_turns: int = MAX_AGENT_STEPS) -> bool:
         """Starts the conversation's session before its first message. False if it couldn't: the session is
         dropped, and the first message starts one as it always did (and shows any problem then)."""
         try:
-            await (await self.session(instructions, guarded, model)).start()
+            await (await self.session(instructions, guarded, model, max_turns)).start()
             return True
         except Exception as e:
             logger.info(f'Claude Code could not start early: {type(e).__name__}: {e}')

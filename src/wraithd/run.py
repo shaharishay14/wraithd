@@ -24,7 +24,7 @@ from wraithd.core import compaction, disclosure, reminders, tokens, tool_results
 from wraithd.core import events as ev
 from wraithd.core.gate import PermissionGate, guard_function_tools
 from wraithd.core.loop import RunAlreadyStartedError, run_with_step_limit
-from wraithd.core.stop import DAILY_BUDGET_MESSAGE, StopPolicy, final_answer_instruction, tokens_used_today
+from wraithd.core.stop import StopPolicy, daily_budget_message, final_answer_instruction, tokens_used_today
 from wraithd.engines import claude_code
 from wraithd.mcp.client import Connected, McpConnections
 from wraithd.memory import tools as memory_tools
@@ -34,7 +34,7 @@ from wraithd.providers import engine_models, model_for, model_settings
 from wraithd.skills import registry
 from wraithd.skills.tools import skill_tools
 from wraithd.store import SQLiteStore, Store
-from wraithd.tools import builtin_tools
+from wraithd.tools import builtin_tools, schedules
 from wraithd.tools.notify import StoreNotifier
 
 logger = logging.getLogger(__name__)
@@ -44,11 +44,16 @@ RETRY_DELAYS = (1, 2)  # seconds before the 2nd and 3rd attempt; only for failur
 INSTRUCTIONS_CHARS = 10_000  # cap on AGENTS.md in the prompt
 MCP_DESCRIPTIONS = 'MCP tool descriptions'  # the taint source when MCP tools are given to the model directly
 
+# The schedule tool's description says it too (tools/schedules.py)
+SCHEDULE_RULE = schedules.SETUP_ONLY
 BASE_INSTRUCTIONS = (
     'You are wraithd, a personal assistant that runs on the user\'s own computer. Be direct and useful. '
     'Use your tools when they help; never claim you did something a tool didn\'t do. '
     'When there is one right next step or question, end with it; never a generic "anything else?". '
     'If you already messaged the user with notify_owner, end with exactly NO_REPLY instead of a recap.\n'
+    'When one write is the whole task (skip, save, add, remove), make it and give your one-line answer in the same '
+    'turn; don\'t spend a turn just to say done.\n'
+    f'{SCHEDULE_RULE}\n'
 )
 TELEGRAM_PAIRED = 'telegram.owner_chat'  # channels/telegram.OWNER_CHAT (not imported: channels import this module)
 
@@ -181,6 +186,16 @@ def honest_failure_message(completed_writes: list[str], timed_out: bool = False)
     return f"{problem} and I couldn't finish. Nothing was changed. Please try again."
 
 
+def step_limit_message(max_turns: int, completed_writes: list[str]) -> str:
+    """What the owner is told when a Claude Code run used all its turns before it answered: built from what ran."""
+    problem = f'I reached my step limit ({max_turns} model calls) before I could finish.'
+    raise_it = 'Ask me to continue, or raise [engine] max_turns in ~/.wraithd/config.toml.'
+    if completed_writes:
+        done = '\n'.join(f'- {action}' for action in completed_writes)
+        return f'{problem} These actions were already done:\n{done}\n{raise_it}'
+    return f'{problem} Nothing was changed. {raise_it}'
+
+
 def subscription_message(problem: str, completed_writes: list[str]) -> str:
     """What the owner is told when the Claude login can't be used or the plan's limit hit, and there's no fallback."""
     if completed_writes:
@@ -276,15 +291,17 @@ async def _run_claude(rt, log, gate, policy, instructions, chat, guarded, callba
         return final_answer_instruction(reason)
 
     progress = {'streamed': False}
+    max_turns = rt.engine['max_turns']
     options = {'limit': policy.max_tool_calls, 'stop': stop, 'callback': callback, 'log': log, 'progress': progress}
     try:
         if lease is not None:
             # A warm session: a new one gets the whole history as a transcript, a known one only this run's messages
-            session = await lease.session(instructions, guarded, model)
+            session = await lease.session(instructions, guarded, model, max_turns)
             text = claude_code.transcript(chat if session.fresh else chat[new_from:])
             call = lease.ask(session, text, guarded, untrusted_texts=lambda: gate.untrusted_texts, **options)
         else:
-            call = claude_code.run_once(instructions, claude_code.transcript(chat), guarded, model, **options)
+            call = claude_code.run_once(instructions, claude_code.transcript(chat), guarded, model,
+                                        max_turns=max_turns, **options)
         answer, result = await asyncio.wait_for(call, timeout=RUN_TIMEOUT_SECONDS)
     except claude_code.SubscriptionUnavailable as e:
         writes = gate.completed_writes()
@@ -293,6 +310,8 @@ async def _run_claude(rt, log, gate, policy, instructions, chat, guarded, callba
             return subscription_message(str(e), writes), 'refused', {'engine': 'claude-code'}
         log.append(ev.STOP, reason='engine_fallback', message=str(e))
         return None
+    if claude_code.hit_max_turns(result):  # Claude Code has no final tool-less call: the answer says what ran
+        answer = step_limit_message(max_turns, gate.completed_writes())
     return answer, 'answered', {'engine': 'claude-code', 'claude_session': result.session_id if result else None}
 
 
@@ -392,15 +411,17 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
     def end(outcome: str, **extra):
         log.append(ev.RUN_END, outcome=outcome, duration_ms=int((time.monotonic() - started) * 1000),
                    turns=views.turns(log.events), tokens=views.tokens_used(log.events),
+                   weighted_tokens=views.weighted_tokens(log.events),
                    stop_reason=views.stop_reason(log.events), **extra)
 
     try:
         # The daily budget is checked before any model call is paid for
         policy = rt.policy(budget)
         if policy.over_daily_budget():
-            log.append(ev.STOP, reason='daily_budget', message='The daily usage limit was reached.')
+            answer = daily_budget_message(policy.daily_token_budget)
+            log.append(ev.STOP, reason='daily_budget', message=answer)
             end('refused')
-            return RunResult(DAILY_BUDGET_MESSAGE, log.run_id, 'refused')
+            return RunResult(answer, log.run_id, 'refused')
         engine = rt.engine
         use_claude = engine['name'] == 'claude-code' and not (images and rt.models)  # images stay on the API
         if engine['name'] == 'claude-code' and images and not rt.models:
@@ -519,7 +540,8 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
                                                               len(app_tools))
         instructions += sections[tokens.PROFILE]
         if warm_up:
-            return bool(use_claude and lease) and await lease.warm(instructions, guarded, engine_model)
+            return bool(use_claude and lease) and await lease.warm(instructions, guarded, engine_model,
+                                                                   engine['max_turns'])
 
         model = engine_model or rt.model_for(purpose)
         # What the model starts with: the size of this is what progressive disclosure shrinks

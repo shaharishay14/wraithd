@@ -23,8 +23,8 @@ OWNER_SKILLS = {
 BODY = 'Step 1. Read the sources.\nStep 2. Write the digest.'
 # Tokens (core/tokens.py) of the whole system prompt. 0.1.0 had 414 (empty) and 451 (typical); 0.1.1 adds the
 # setup line, the next-step rule and the off-skills line, then the no-recap rule (NO_REPLY after notify_owner,
-# 21 tokens)
-BUDGET = {'empty': 551, 'typical': 596}
+# 21 tokens). 0.1.2 (538 / 580 measured) adds the schedule-only rule (43) and the one-action rule (38): 619 / 661
+BUDGET = {'empty': 551 + 43 + 38, 'typical': 596 + 43 + 38}
 
 
 def write_owner_skills(home: Home) -> None:
@@ -90,6 +90,13 @@ async def test_a_run_limited_to_some_tools_does_not_list_skills_as_off(home, mak
 async def test_the_prompt_asks_for_one_next_step_not_a_generic_offer(make_runtime):
     prompt, _ = await system_prompt(make_runtime)
     assert 'When there is one right next step or question, end with it; never a generic "anything else?"' in prompt
+
+
+async def test_a_one_write_task_is_answered_in_the_same_turn(make_runtime):
+    """"skip D1" made its write in turn 1, then spent turn 2 only to say "Done"."""
+    prompt, _ = await system_prompt(make_runtime)
+    assert ('When one write is the whole task (skip, save, add, remove), make it and give your one-line answer in '
+            "the same turn; don't spend a turn just to say done.") in prompt
 
 
 async def test_nothing_in_the_prompt_changes_from_message_to_message(home, make_runtime):

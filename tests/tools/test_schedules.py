@@ -168,6 +168,38 @@ async def test_list_and_cancel_need_no_approval(make_runtime, london, events):
     assert rt.store.list_schedules() == []
 
 
+class DescribedModel(ScriptedModel):
+    """A scripted model that also keeps each tool's description, as the model is given it."""
+
+    def __init__(self, turns):
+        super().__init__(turns)
+        self.descriptions = {}
+
+    async def get_response(self, system_instructions, input, model_settings, tools, *args, **kwargs):
+        self.descriptions.update({tool.name: getattr(tool, 'description', '') for tool in tools})
+        return await super().get_response(system_instructions, input, model_settings, tools, *args, **kwargs)
+
+
+SUNDAY = 'Every Sunday at 09:00: use receipt-tracker, mode weekly'
+
+
+async def test_a_schedule_message_only_creates_the_schedule(make_runtime, london):
+    """Run 9ffce247 ran the skill for 8 turns and never saved the schedule: the tool, the prompt and the tool's hint
+    all say a schedule message only creates the schedule."""
+    model = DescribedModel([[call('1', 'schedule_create', {'message': 'use receipt-tracker, mode weekly',
+                                                           'cron': '0 9 * * 0'})], [say('Saved: Sundays at 9.')],
+                            [say('{"facts": []}')]])
+    rt = make_runtime(model)
+    await terminal.chat(rt, ScriptedTerminal(SUNDAY, 'y'))
+    rule = ('A message that sets up a schedule (every day at..., on the 1st..., every Sunday...) only creates the '
+            'schedule with schedule_create; do the task now only if the user also asks for it now.')
+    assert rule in model.descriptions['schedule_create']
+    assert rule in model.instructions[0]
+    hint = json.loads(model.tool_outputs(1)['call_1'])['hint']
+    assert "Don't do the task now unless they asked for it now too" in hint
+    assert [schedule.cron for schedule in rt.store.list_schedules()] == ['0 9 * * 0']
+
+
 # --- the CLI -----------------------------------------------------------------------------------------------
 
 def test_schedules_list_and_rm(home, capsys):

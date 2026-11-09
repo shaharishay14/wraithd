@@ -95,7 +95,8 @@ async def test_runs_show_as_json_and_ambiguous_prefixes(make_runtime, capsys):
     capsys.readouterr()
     assert cli.main(['runs', 'list']) == 0
     listed = capsys.readouterr().out.splitlines()
-    assert len(listed) == 2 and listed[0].endswith('chat      second')
+    # raw and weighted tokens per run (the scripted model reports none)
+    assert len(listed) == 2 and listed[0].endswith('chat              0         0  second')
     assert cli.main(['runs', 'show', '']) == 1
     run_id = rt.store.recent_runs()[0].run_id
     assert cli.main(['runs', 'show', run_id, '--json']) == 0

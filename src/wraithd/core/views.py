@@ -30,6 +30,31 @@ def tokens_used(events) -> int:
     return calls + searches
 
 
+# Cache reads cost a tenth of fresh input on Anthropic's price list; the Claude plan's own weighting isn't published,
+# so the budgets use the same ratio (docs/tokens.md)
+CACHE_READ_WEIGHT = 0.1
+
+
+def _weighted_call(payload) -> float:
+    total = payload.get('input_tokens', 0) + payload.get('output_tokens', 0)
+    if 'cache_read' not in payload:  # the API engine: no cache split on model_output, counted as it always was
+        return total
+    cache_read = payload.get('cache_read') or 0
+    return total - cache_read + cache_read * CACHE_READ_WEIGHT
+
+
+def weighted_tokens(events) -> int:
+    """
+    tokens_used, with cache reads at a tenth (CACHE_READ_WEIGHT) where a model call reports them (the claude-code
+    engine): fresh input, cache writes and output at full weight. What the run and daily budgets count. Without a
+    cache split it equals tokens_used.
+    """
+    calls = sum(_weighted_call(event.payload) for event in _of_type(events, ev.MODEL_OUTPUT))
+    searches = sum((usage := event.payload.get('usage') or {}).get('input_tokens', 0) + usage.get('output_tokens', 0)
+                   for event in _of_type(events, ev.TOOL_RESULT))
+    return round(calls + searches)
+
+
 def delegated_tokens(events) -> int:
     """Tokens this run's subagents used (delegate.py). They count toward this run's budget; the daily budget counts
     them once, from the child's own run_end, so tokens_used leaves them out."""

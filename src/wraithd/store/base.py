@@ -100,7 +100,8 @@ class Store(Protocol):
         """The id of the newest run with this source that started after `since`, other than `exclude`."""
 
     def tokens_since(self, since: datetime) -> int:
-        """Tokens used by runs that ended after `since` (from their run_end events)."""
+        """Tokens used by runs that ended after `since` (from their run_end events): weighted_tokens where the run_end
+        has it, else tokens."""
 
     def recent_runs(self, limit: int = 20) -> list[RunInfo]:
         """The newest runs first, from their run_start events."""

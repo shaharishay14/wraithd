@@ -12,6 +12,10 @@ from wraithd.tools.base import function_tool, tool_error
 CREATE, LIST, CANCEL = 'schedule_create', 'schedule_list', 'schedule_cancel'
 NAMES = (CREATE, LIST, CANCEL)
 # The daemon fires schedules: the agent says so, so the owner knows to keep it running
+# In the tool's description and the built-in prompt (run.SCHEDULE_RULE): a run on "every Sunday at 9: use
+# receipt-tracker" ran the skill for 8 turns instead of only saving the schedule
+SETUP_ONLY = ('A message that sets up a schedule (every day at..., on the 1st..., every Sunday...) only creates the '
+              'schedule with schedule_create; do the task now only if the user also asks for it now.')
 WHEN_IT_RUNS = 'It runs while wraithd\'s daemon is running (`wraithd daemon`), and the answer is sent to them.'
 
 
@@ -27,7 +31,8 @@ def schedule_tools(store, timezone: str, clock=lambda: datetime.now(UTC)) -> lis
             return tool_error(str(e), 'Fix the schedule and try again, or ask the user what they meant.')
         return {'created': _shown(schedule),
                 'hint': f'Tell the user it is saved and when it is due. {WHEN_IT_RUNS} They can see and remove '
-                        'schedules with `wraithd schedules list` and `wraithd schedules rm`.'}
+                        'schedules with `wraithd schedules list` and `wraithd schedules rm`. Don\'t do the task now '
+                        'unless they asked for it now too: it runs on its own when due.'}
 
     async def list_all() -> dict:
         return {'schedules': [_shown(schedule) for schedule in store.list_schedules()], 'timezone': timezone}
@@ -48,7 +53,7 @@ def schedule_tools(store, timezone: str, clock=lambda: datetime.now(UTC)) -> lis
             ('Schedule a message for the agent to run later on its own: repeating with a 5-field cron ("0 8 * * 1-5" '
              'is 8:00 on weekdays), or once with an ISO time ("2026-11-06T09:00"). Both are read in the user\'s '
              f'timezone. {now_local} Use it for "every weekday at 8..." and "remind me Friday...". The user is asked '
-             'to approve it.'),
+             f'to approve it. {SETUP_ONLY}'),
             {'properties': {
                 'message': {'type': 'string', 'description': 'What to do when it runs, as an instruction, e.g. '
                                                              '"Remind me to call the bank"'},

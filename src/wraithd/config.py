@@ -60,9 +60,9 @@ strong = "gpt-4o"            # used when a skill says `model: strong` (subtle ru
 # base_url = "http://localhost:11434/v1"   # ollama and openai-compatible endpoints
 
 [budget]
-run_tokens = 200000          # per run, input + output
+run_tokens = 200000          # per run, input + output (claude-code: cache reads count a tenth, docs/tokens.md)
 run_tool_calls = 40          # per run
-# daily_tokens = 2000000     # across the day's runs; off unless set (claude-code engine: 2000000 unless set)
+# daily_tokens = 2000000     # across the day's runs, weighted as run_tokens; off unless set (claude-code: 2000000)
 
 [owner]
 # email = "you@example.com"  # recipients matching this count as written by you
@@ -90,6 +90,7 @@ name = "agents-sdk"          # agents-sdk: your API key or local model | claude-
 # schedule_model = ""        # claude-code only: scheduled runs ("": background_model). A `model: strong` skill named
                              # in a schedule's message runs on chat_model either way
 # idle_minutes = 10          # claude-code only: close a conversation's Claude Code session after this long unused
+# max_turns = 8              # claude-code only: model calls per run; then it stops and says what was done
 
 [daemon]
 port = 7878                  # the API and web UI, on 127.0.0.1 only
@@ -143,7 +144,7 @@ SECTIONS: dict[str, Section] = {
     # <<< sandbox
     # Who thinks: the Agents SDK on [model] (agents-sdk) or Claude Code on the owner's own login (claude-code)
     'engine': Section({'name': 'agents-sdk', 'chat_model': 'sonnet', 'background_model': 'haiku',
-                       'schedule_model': '', 'fallback': False, 'idle_minutes': 10},
+                       'schedule_model': '', 'fallback': False, 'idle_minutes': 10, 'max_turns': 8},
                       lambda values: _check_engine(values)),
 }
 
@@ -161,6 +162,8 @@ def _check_engine(values: dict) -> None:
             raise ConfigError(f'[engine] {key} must name a model, e.g. "sonnet" or "haiku".')
     if values['idle_minutes'] <= 0:
         raise ConfigError('[engine] idle_minutes must be a positive whole number.')
+    if values['max_turns'] <= 0:
+        raise ConfigError('[engine] max_turns must be a positive whole number.')
 
 
 AGENTS_MD = """\

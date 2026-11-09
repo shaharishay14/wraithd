@@ -71,10 +71,12 @@ def claude_env() -> dict[str, str]:
     return {**blanked, 'ANTHROPIC_API_KEY': ''}
 
 
-def claude_options(instructions: str, server, names: list[str], model: str, stream: bool = False):
+def claude_options(instructions: str, server, names: list[str], model: str, stream: bool = False,
+                   max_turns: int = MAX_AGENT_STEPS):
     """
     ClaudeAgentOptions for one Claude Code session. server: the bridge's MCP server (None for a tool-less call),
-    names: the tools it may call (claude_bridge.bridge), model: always set. The audit checks the fixed fields.
+    names: the tools it may call (claude_bridge.bridge), model: always set, max_turns: [engine] max_turns. The audit
+    checks the fixed fields.
     """
     if not model:
         raise ValueError('claude_options() needs a model: without one Claude Code picks Opus.')
@@ -82,4 +84,4 @@ def claude_options(instructions: str, server, names: list[str], model: str, stre
         system_prompt=instructions, tools=[], mcp_servers={SERVER: server} if server else {},
         allowed_tools=list(names), strict_mcp_config=True, setting_sources=[],
         env=claude_env(), extra_args={'no-session-persistence': None},
-        max_turns=MAX_AGENT_STEPS, model=model, include_partial_messages=stream)
+        max_turns=max_turns, model=model, include_partial_messages=stream)
