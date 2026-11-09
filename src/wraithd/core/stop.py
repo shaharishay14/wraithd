@@ -6,9 +6,13 @@ or keeps calling a broken tool. The turn limit itself stays with the SDK (max_tu
 from dataclasses import dataclass
 from datetime import datetime
 
+import json
+
 from agents.exceptions import AgentsException
 
+from wraithd.core import events as ev
 from wraithd.core import views
+from wraithd.tools import files
 
 # Defaults until config (Phase 2) sets them. A laptop pays per token with the owner's own key, so the
 # per-run limits stay on; the daily budget is off unless the owner sets one.
@@ -51,7 +55,7 @@ class StopPolicy:
         return self.daily_token_budget is not None and self.tokens_before_run + used_this_run >= self.daily_token_budget
 
     def check(self, events) -> StopReason | None:
-        errors = views.consecutive_tool_errors(events)
+        errors = failed_in_a_row(events)
         if errors >= self.max_consecutive_errors:
             return StopReason('tool_errors', f'The last {errors} tool calls failed in a row, so the run was stopped.')
 
@@ -70,6 +74,32 @@ class StopPolicy:
         if self.over_daily_budget(used):
             return StopReason('daily_budget', 'The daily usage limit was reached.')
         return None
+
+
+# A read of a path that isn't there answers the question ("no such file"): the tool works, so it isn't a failure
+NOT_FOUND = {files.READ: files.NO_FILE, files.LIST: files.NO_FOLDER}
+
+
+def missing_path(event) -> bool:
+    """A files_read / files_list result that only says the path isn't there."""
+    start = NOT_FOUND.get(event.payload.get('tool'))
+    preview = event.payload.get('preview') or ''
+    return start is not None and preview.startswith('{"error": ' + json.dumps(start)[:-1] + ' ')
+
+
+def failed_in_a_row(events) -> int:
+    """
+    views.consecutive_tool_errors, except that a missing file or folder (missing_path) doesn't count: a skill that
+    checks for three files that aren't there keeps going. It doesn't end the streak either: any other failure
+    around it still counts. Any success resets it.
+    """
+    count = 0
+    for event in reversed([event for event in events if event.type == ev.TOOL_RESULT]):
+        if event.payload.get('outcome') != 'error':
+            break
+        if not missing_path(event):
+            count += 1
+    return count
 
 
 def tokens_used_today(store, now: datetime | None = None) -> int:

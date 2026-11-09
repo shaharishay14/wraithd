@@ -88,3 +88,22 @@ def test_the_daily_budget_counts_from_local_midnight(store):
     policy = StopPolicy(daily_token_budget=1000, tokens_before_run=tokens_used_today(store, now))
     assert not policy.over_daily_budget() and policy.over_daily_budget(used_this_run=500)
     assert policy.check(log_of((ev.MODEL_OUTPUT, {'input_tokens': 500}))).code == 'daily_budget'
+
+
+def missing(tool, what):
+    return (ev.TOOL_RESULT, {'tool': tool, 'outcome': 'error',
+                             'preview': '{"error": "' + what + " 'x.md'. Next step: Call files_list.\"}"})
+
+
+def test_a_missing_file_or_folder_is_not_a_failed_tool_call():
+    from wraithd.core.stop import failed_in_a_row
+
+    gone = [missing('files_read', 'There is no file'), missing('files_list', 'There is no folder')]
+    assert failed_in_a_row(log_of(*gone, *gone)) == 0
+    assert StopPolicy(max_consecutive_errors=3).check(log_of(*gone, *gone)) is None
+    # other failures around them still count, and a missing file doesn't end their streak
+    assert failed_in_a_row(log_of(result('a', 'error'), *gone, result('b', 'error'), result('c', 'error'))) == 3
+    # only files_read / files_list say so: another tool with the same words is a failure
+    assert failed_in_a_row(log_of(missing('memory_read', 'There is no file'))) == 1
+    # and only at the start of the error, not quoted inside another one
+    assert failed_in_a_row(log_of(missing('files_read', 'Bad path: There is no file'))) == 1

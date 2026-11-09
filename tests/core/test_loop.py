@@ -250,3 +250,30 @@ async def test_without_a_strong_model_nothing_switches(make_runtime, home):
     model = ScriptedModel([[call('1', 'skill_load', {'name': 'careful-triage'})], [say('Done.')]])
     result, events = await run_once(make_runtime(model), 'sort my things carefully')
     assert result.answer == 'Done.' and of_type(events, ev.MODEL_UPGRADE) == []
+
+
+async def test_a_skill_that_reads_three_missing_files_keeps_going(make_runtime, home):
+    """A missing file is an answer ("not there"), not a broken tool: three of them don't stop the run."""
+    (home.skills_dir / 'check-files').mkdir()
+    (home.skills_dir / 'check-files' / 'SKILL.md').write_text(
+        '---\nname: check-files\ndescription: Look for the notes files\n---\nRead a.md, b.md and c.md if they exist.\n')
+    (home.files_dir / 'd.md').write_text('found it')
+    model = ScriptedModel([[call('0', 'skill_load', {'name': 'check-files'})]]
+                          + [[call(str(i), 'files_read', {'path': name})] for i, name in enumerate('abc', 1)]
+                          + [[call('4', 'files_list', {'path': 'notes'})], [call('5', 'files_read', {'path': 'd.md'})],
+                             [say('Only d.md is there.')]])
+
+    result, events = await run_once(make_runtime(model), 'check my files')
+
+    assert result.answer == 'Only d.md is there.'
+    assert not of_type(events, ev.STOP) and events[-1].payload['stop_reason'] is None
+    assert [e.payload['outcome'] for e in of_type(events, ev.TOOL_RESULT)] == ['ok'] + ['error'] * 4 + ['ok']
+    assert 'found it' in model.tool_outputs(6)['call_5']
+
+
+async def test_other_file_errors_still_count_toward_the_stop(make_runtime):
+    model = ScriptedModel([[call(str(i), 'files_read', {'path': f'../{i}.md'})] for i in range(3)]
+                          + [[say('I could not read them.')]])
+    result, events = await run_once(make_runtime(model), 'read these')
+    assert result.answer == 'I could not read them.'
+    assert events[-1].payload['stop_reason'] == 'tool_errors'
