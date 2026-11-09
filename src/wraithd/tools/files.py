@@ -16,6 +16,7 @@ import re
 import secrets
 from pathlib import Path
 
+from wraithd.store import modes
 from wraithd.tools import documents
 from wraithd.tools.base import clamp_int, function_tool, tool_error
 
@@ -26,6 +27,9 @@ MAX_WRITE_CHARS = 1_000_000
 MAX_LISTED = 200
 DOCUMENTS = {'.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.odt', '.ods'}  # files_edit can't edit them as text
 CONTEXT_LINES = 2  # around the first change in files_edit's result
+# How a missing path's error starts: an ordinary answer ("not there"), not a broken tool, so core/stop.py doesn't
+# count it toward the failed-tool-calls stop
+NO_FILE, NO_FOLDER = 'There is no file', 'There is no folder'
 
 
 class OutsideWorkspace(ValueError):
@@ -79,7 +83,7 @@ def _write_in(folder: int, real: Path, content: str, append: bool, mode: int | N
     """Writes content to real's name in the open, checked folder. Returns the file's size. mode: the replaced
     file's permissions, kept (files_edit); newline='' writes line endings exactly as they are in content."""
     if append:
-        fd = os.open(real.name, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o666, dir_fd=folder)
+        fd = os.open(real.name, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=folder)
         with os.fdopen(fd, 'a', encoding='utf-8') as out:
             out.write(content)
     else:
@@ -128,7 +132,7 @@ def save_new(root: Path, folder: str, name: str, data: bytes) -> str:
     """
     name = safe_name(name)
     real = resolve_inside(root, f'{folder}/{name}')
-    real.parent.mkdir(parents=True, exist_ok=True)
+    modes.make_dirs(real.parent)
     handle = _open_checked(root, real.parent, os.O_RDONLY | os.O_DIRECTORY)
     stem, dot, extension = name.rpartition('.') if '.' in name else (name, '', '')
     try:
@@ -175,6 +179,8 @@ def file_tools(root: Path) -> list:
             folder = resolve_inside(root, path)
         except OutsideWorkspace as e:
             return tool_error(str(e), 'Use a path inside the workspace, e.g. "." or "notes".')
+        if not folder.exists():
+            return tool_error(f'{NO_FOLDER} {path!r}.', f'Call {LIST} on "." to see what is there.')
         if not folder.is_dir():
             return tool_error(f'{path!r} is not a folder.', f'Call {LIST} on "." to see what is there.')
         entries = []
@@ -193,7 +199,7 @@ def file_tools(root: Path) -> list:
         except OutsideWorkspace as e:
             return tool_error(str(e), 'Use a path inside the workspace.')
         if not file.is_file():
-            return tool_error(f'There is no file {path!r}.', f'Call {LIST} to see the files.')
+            return tool_error(f'{NO_FILE} {path!r}.', f'Call {LIST} to see the files.')
         try:
             fd = _open_checked(root, file, os.O_RDONLY)
         except OutsideWorkspace as e:
@@ -240,7 +246,7 @@ def file_tools(root: Path) -> list:
         content = content if isinstance(content, str) else str(content)
         if len(content) > MAX_WRITE_CHARS:
             return tool_error('The content is too large to write in one call.', 'Write it in smaller parts.')
-        file.parent.mkdir(parents=True, exist_ok=True)
+        modes.make_dirs(file.parent)
         try:
             folder = _open_checked(root, file.parent, os.O_RDONLY | os.O_DIRECTORY)
         except OutsideWorkspace as e:

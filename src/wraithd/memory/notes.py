@@ -26,6 +26,7 @@ from pathlib import Path
 import yaml
 
 from wraithd.memory import vault
+from wraithd.store import modes
 
 SOURCE_USER = 'user'  # written or edited by the owner
 SOURCE_DISTILL = 'distill'  # extracted from a conversation by distill
@@ -124,7 +125,7 @@ class Vault:
     def save(self, note: Note) -> None:
         """Writes the note atomically, so an editor or a crash never sees half a file."""
         file = self._file(note.path)
-        file.parent.mkdir(parents=True, exist_ok=True)
+        modes.make_dirs(file.parent)
         handle, temporary = tempfile.mkstemp(dir=file.parent, prefix='.', suffix='.tmp')
         try:
             with os.fdopen(handle, 'w') as out:

@@ -28,6 +28,7 @@ import keyring.errors
 from wraithd import rename
 from wraithd.core import secrets
 from wraithd.mcp.config import McpConfigError, parse_servers
+from wraithd.store import modes
 
 APP = 'wraithd'  # the keychain service name
 HOME_ENV = 'WRAITHD_HOME'
@@ -219,13 +220,16 @@ class Home:
 
     def ensure(self) -> None:
         """Creates the folder layout and a default config on first use. Never overwrites anything."""
+        # Private whatever the umask (Ubuntu's 002 would make them group-writable): store/modes.py
+        modes.tighten_umask()
         for folder in (self.root, self.memory_dir, self.skills_dir, self.files_dir):
-            folder.mkdir(parents=True, exist_ok=True)
+            modes.make_dirs(folder)
         self.root.chmod(0o700)  # memory and the event log are private: only the owner's account can read them
+        modes.repair(self.root)  # a home made under umask 002 before: no group/other write on anything in it
         if not self.config_path.exists():
-            self.config_path.write_text(DEFAULT_CONFIG)
+            modes.write_private(self.config_path, DEFAULT_CONFIG)
         if not self.agents_md.exists():
-            self.agents_md.write_text(AGENTS_MD)
+            modes.write_private(self.agents_md, AGENTS_MD)
 
 
 _warned: set[str] = set()
@@ -444,8 +448,9 @@ def delete_key(provider: str) -> bool:
 
 
 def get_key(provider: str) -> str | None:
-    """The provider's key from the keychain, else its environment variable. Registered for redaction."""
-    value = keychain_get(provider) or os.environ.get(KEY_ENV.get(provider, ''), '') or None
+    """The provider's key from systemd's credentials (secrets.credential: a file named like its environment variable,
+    or like the provider), else the keychain, else its environment variable. Registered for redaction."""
+    value = secrets.credential(KEY_ENV.get(provider, ''), provider) or keychain_get(provider) or os.environ.get(KEY_ENV.get(provider, ''), '') or None
     if value:
         secrets.register_secret(value)  # a key the process holds must never reach the model or the log
     return value

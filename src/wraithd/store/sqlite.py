@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from wraithd.core.events import RUN_END, RUN_START, Event
-from wraithd.store import modules
+from wraithd.store import modes, modules
 from wraithd.store.base import (
     APPROVAL_STATUSES,
     PENDING,
@@ -112,7 +112,7 @@ def _parse(text: str | None) -> datetime | None:
 class SQLiteStore:
     def __init__(self, path: str | Path = ':memory:', migrations: Sequence[modules.Migration] | None = None):
         if str(path) != ':memory:':
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            modes.make_dirs(Path(path).parent)
             # The store holds conversations and third-party text: owner-only, like the folder it sits in
             os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
             os.chmod(path, 0o600)

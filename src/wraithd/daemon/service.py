@@ -36,6 +36,7 @@ LOG_MAX_BYTES = 5_000_000  # rotated past this
 LOG_KEEP = 3  # daemon.log.1 (newest) to .3
 LOG_ROTATE_EVERY_SECONDS = 60
 
+UMASK = 0o077  # the service's umask: files 600, folders 700 (store/modes.py sets the modes too)
 Runner = Callable[[list[str]], subprocess.CompletedProcess]
 
 
@@ -188,6 +189,7 @@ class Launchd(Service):
             'KeepAlive': {'SuccessfulExit': False},  # restart after a crash, not after a clean stop
             'ThrottleInterval': 10,  # a daemon that can't start (bad config) retries every 10 s, not in a tight loop
             'ProcessType': 'Background',
+            'Umask': UMASK,  # what it makes is the owner's alone, whatever the login's umask
             'StandardOutPath': str(self.log_path),
             'StandardErrorPath': str(self.log_path),
         })
@@ -261,6 +263,7 @@ class Systemd(Service):
             '[Service]',
             f'ExecStart={" ".join(_systemd_quote(word) for word in self.program)}',
             f'Environment={environment}',
+            f'UMask={UMASK:04o}',  # what it makes is the owner's alone (Ubuntu's default umask is 002)
             'Restart=on-failure',
             'RestartSec=10',
             f'StandardOutput=append:{log}',

@@ -53,6 +53,7 @@ def test_the_launchd_agent_runs_the_daemon_at_login_and_logs_into_the_home(home,
     assert environment['WRAITHD_HOME'] == str(home.root) and environment['PATH'] == os.environ['PATH']
     assert environment['PYTHONUNBUFFERED'] == '1'
     assert (home.root / 'logs').is_dir()
+    assert plist['Umask'] == 0o077  # what the daemon makes is the owner's alone, whatever the login's umask
 
 
 def test_the_systemd_unit_runs_the_daemon_quoted_and_logs_into_the_home(home, manager):
@@ -64,6 +65,7 @@ def test_the_systemd_unit_runs_the_daemon_quoted_and_logs_into_the_home(home, ma
     assert 'ExecStart="/opt/my tools/python" "-m" "wraithd" "daemon"\n' in unit
     assert 'Environment="WRAITHD_HOME=/home/me/100%% agent" "PATH=/usr/bin"\n' in unit  # % is a specifier
     assert 'Restart=on-failure\n' in unit and 'WantedBy=default.target\n' in unit
+    assert 'UMask=0077\n' in unit  # Ubuntu's default umask 002 would make the home group-writable
     log = home.root / 'logs' / 'daemon.log'
     assert f'StandardOutput=append:{log}\n' in unit and f'StandardError=append:{log}\n' in unit
 
