@@ -201,7 +201,13 @@ async def test_measure_the_first_message_wait(claude_rt, claude_sdk, monkeypatch
           f'sent -> first token before {before:.3f}s, after {after:.3f}s')
     assert before >= START
     expected = max(START - typing, 0.0)
-    assert expected - 0.01 <= after < expected + 0.1 * START + 0.05
+    # Lower bound exact (it can't wait less than the start left); upper bounds by comparison, not a timing margin,
+    # so a loaded machine (the server's 2 vCPU deploy run) doesn't fail it: the early start must save most of the wait.
+    assert after >= expected - 0.01
+    if typing >= START:  # the whole start was hidden while typing: most of the wait is gone (a large margin)
+        assert after < before / 2
+    # (a fast typist saves only `typing` seconds, ~50 ms here: within a loaded machine's noise, so not asserted;
+    # test_a_fast_typist_waits_for_the_start covers that it waits for the start under way)
 
 
 # --- /new: the new conversation's Claude Code starts early too ------------------------------------------------------

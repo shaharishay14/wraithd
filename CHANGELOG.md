@@ -49,6 +49,19 @@
   calendar question skips find/describe (about 500 tokens per turn for two actions; the set changes at most once a
   day, so the warm session restarts at most daily).
 
+### radar: a daily self-improvement digest
+- A built-in skill, `radar` (replaces news-feed for the owner): once a day it reads AI-agent news, GitHub trending,
+  the X watch list and (once signed in) your X bookmarks, and sends ONE Telegram post: 0-3 things worth reading and
+  every new idea wraithd could adopt, ranked, each with the files it would touch and a size. Nothing new: no post.
+  "Every day at 08:00: run radar (scheduled)". Live: 49 s, 7 turns, ~34k weighted tokens.
+- A library (`wraithd library`, `wraithd ideas`): every item read once (by X post id, repo, URL) with a short note,
+  and the ideas with their status, so "that post about X" or "tell me more about #2" is answered from the note.
+  Tools: library_seen, library_save, library_search, ideas, wraithd_index (a read-only map of wraithd itself);
+  about 530 tokens per call. Notes aren't memory, so a daily run never waits for review.
+- `public = true` on an MCP server (owner-set, `wraithd mcp add --public`): its output is third-party but not your
+  private data, so links in it can be opened in a scheduled run (still tainted; writes still ask).
+- Telegram's default `/news` quick action is now `/radar`.
+
 ### Keys and files
 - Every `OP_*` variable (1Password) counts as a secret: no subprocess wraithd starts gets one (shell, MCP servers,
   Claude Code, the login launch, `wraithd update`). Only `op read` for an `op://` reference keeps it.
