@@ -64,7 +64,7 @@ async def test_skills_that_are_off_say_what_turns_them_on(home, make_runtime):
     off = next(line for line in prompt.splitlines() if line.startswith('Skills that are off'))
     assert 'expenses, inbox-triage, morning-brief need an email app (wraithd mcp add)' in off
     assert 'meeting-prep needs a calendar app' in off
-    assert ('news-feed, research-report need web search ([web] search: a key, or "claude" on the Claude '
+    assert ('news-feed, radar, research-report need web search ([web] search: a key, or "claude" on the Claude '
             'subscription)') in off
     assert '- news-feed' not in prompt  # not offered as a skill it can load
 

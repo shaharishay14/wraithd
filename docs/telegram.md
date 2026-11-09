@@ -95,7 +95,7 @@
 
   ```toml
   [telegram.commands]
-  news = "run news-feed"
+  radar = "run radar"
   drafts = "slabbed drafts"
   jobs = "find jobs"
   watchlist = "show my watch list"
@@ -103,9 +103,9 @@
   ```
 
   Setting the table replaces these. The daemon registers them with `setMyCommands` when polling starts, and the
-  owner's `/news` (typed, from the paired chat) is sent as `run news-feed`, exactly as if typed; `/news tech` sends
-  `run news-feed tech`. A name must be a-z, 0-9 and `_`, at most 32; `/pair`, `/mcp_add` and `/start` keep their
-  meaning. A line that breaks these is skipped with a warning. Anyone else's `/news` is ignored like any message.
+  owner's `/radar` (typed, from the paired chat) is sent as `run radar`, exactly as if typed; `/radar ideas only`
+  sends `run radar ideas only`. A name must be a-z, 0-9 and `_`, at most 32; `/pair`, `/mcp_add` and `/start` keep their
+  meaning. A line that breaks these is skipped with a warning. Anyone else's `/radar` is ignored like any message.
 - **Draft buttons**: a notification whose first line is a draft card (`✍️ D2 · reply`, the slabbed-x format) gets
   **Post D2 · Rewrite · Skip**, fixed in code (the model never picks buttons). Post sends `post D2` and Skip sends
   `skip D2` through the same path as typed text, so a destructive `create_post` still shows its approval card.
