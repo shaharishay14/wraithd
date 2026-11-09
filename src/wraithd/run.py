@@ -68,7 +68,10 @@ def setup_line(rt: 'Runtime') -> str:
     """
     engine, model = rt.engine, rt.config.model
     if engine['name'] == 'claude-code':
-        on = (f'Claude Code on the user\'s Claude subscription (no API key): {engine["chat_model"]} for chats, '
+        quick = (engine.get('quick_model') or '').strip()
+        chats = (f'{quick} for short questions, {engine["chat_model"]} for the rest' if quick
+                 else f'{engine["chat_model"]} for chats')
+        on = (f'Claude Code on the user\'s Claude subscription (no API key): {chats}, '
               f'{engine["background_model"]} for background work')
         if rt.models:
             on += f'; pictures: {model.provider} API, {model.default}'

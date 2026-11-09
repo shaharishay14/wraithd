@@ -127,6 +127,13 @@ def test_an_api_engine_says_which_provider_and_that_it_is_paid_per_use(home, mon
 
 def test_claude_code_says_it_is_the_subscription(home, monkeypatch):
     rt = runtime_with(home, '[engine]\nname = "claude-code"\nchat_model = "opus"\n', monkeypatch)
+    assert setup_line(rt) == ('You run on Claude Code on the user\'s Claude subscription (no API key): haiku for '
+                              'short questions, opus for the rest, haiku for background work. Telegram: off.\n')
+    rt.close()
+
+
+def test_without_a_quick_model_chats_use_the_chat_model(home, monkeypatch):
+    rt = runtime_with(home, '[engine]\nname = "claude-code"\nchat_model = "opus"\nquick_model = ""\n', monkeypatch)
     assert setup_line(rt) == ('You run on Claude Code on the user\'s Claude subscription (no API key): opus for '
                               'chats, haiku for background work. Telegram: off.\n')
     rt.close()
