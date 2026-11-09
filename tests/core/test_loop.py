@@ -56,7 +56,9 @@ async def test_a_run_leaves_a_full_event_timeline(make_runtime):
     assert by_type[ev.CONTEXT_BUILT]['tools_offered'] == ['read_website', 'files_list', 'files_read', 'files_write',
                                                           'files_edit', 'schedule_create', 'schedule_list',
                                                           'schedule_cancel',
-                                                          'notify_owner', 'get_weather', 'memory_search', 'memory_read',
+                                                          'notify_owner', 'library_seen', 'library_save',
+                                                          'library_search', 'ideas', 'wraithd_index', 'get_weather',
+                                                          'memory_search', 'memory_read',
                                                           'memory_append', 'memory_write', 'skill_load',
                                                           'skill_propose', 'skill_adjust']
     assert by_type[ev.CONTEXT_BUILT]['skills_offered'] == ['skill-writer', 'weekly-review']

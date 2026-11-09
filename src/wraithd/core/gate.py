@@ -89,11 +89,9 @@ BUILTIN_TOOL_ACCESS = {
     # The library (library/tools.py): reads, and writes to wraithd's own notes only, logged as events
     'library_seen': ToolAccess.READ,
     'library_search': ToolAccess.READ,
-    'idea_list': ToolAccess.READ,
     'wraithd_index': ToolAccess.READ,
     'library_save': ToolAccess.READ,
-    'idea_save': ToolAccess.READ,
-    'idea_status': ToolAccess.READ,
+    'ideas': ToolAccess.READ,
     # <<< capabilities
     # >>> reach
     # <<< reach
@@ -183,7 +181,7 @@ UNTRUSTED_OUTPUT_BUILTINS = {
     # <<< efficiency
     # >>> capabilities
     'browser_open', 'browser_read', 'browser_screenshot', 'browser_click', 'browser_type', 'browser_submit',
-    'library_search', 'idea_list',  # notes made from posts and pages (library/)
+    'library_search', 'ideas',  # notes made from posts and pages (library/)
     # <<< capabilities
     # >>> reach
     # <<< reach

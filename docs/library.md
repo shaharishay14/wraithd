@@ -29,13 +29,16 @@ capabilities blocks of `store/modules.py` (`capabilities_001`), `tools/__init__.
 
 ## Ideas
 
-- **`idea_save(title, plan, size, files?, source_ids?)`** keeps an idea as `suggested` with the id
+One tool, `ideas(action, ...)`, with `action` list, save or status (one schema instead of three):
+
+- **`ideas(action="save", title, plan, size, files?, source_ids?)`** -> `{"idea": "2026-11-09#3"}` keeps an idea as `suggested` with the id
   `<local date>#<n>` (`2026-11-09#3`): n counts from 1 each day in the owner's timezone. The plan is at most 400
   characters, `size` S, M or L, `files` the real paths it would touch, `source_ids` the items it came from. An idea
   whose title is the same words as one already kept (any status) is not added again: the answer carries its id and
   `already: <status>`, so radar doesn't suggest it twice.
-- **`idea_list(status?, limit=50)`**: newest day first, in the order suggested that day.
-- **`idea_status(id, status)`**: suggested, accepted, declined or built.
+- **`ideas(action="list", status?, limit=50)`** -> `{"ideas": [...]}` (list is the default action): newest day
+  first, in the order suggested that day.
+- **`ideas(action="status", id, status)`** -> `{"idea": id, "status": ...}`: suggested, accepted, declined or built.
 
 ## wraithd_index
 
@@ -53,13 +56,14 @@ one-liners a dozen characters each. If even the shortest form doesn't fit, entri
 
 ## Trust
 
-- **Owner runs only.** The tools are offered in the owner's runs (chat, schedules, watches), never to a stranger.
+- **Owner runs only.** The five tools are offered in the owner's runs (chat, schedules, watches), never to a stranger.
+  Their schemas are 534 tokens (o200k) on every owner model call; a test keeps them at 600 or less.
 - **All READ tier.** The writes change only wraithd's own notes, never the owner's data or the outside world, so a
   scheduled radar run never waits for an approval. Each write is an event between runs: `library_saved` (id, kind,
   source, title), `idea_saved` (id, title, size), `idea_status` (id, status, previous).
-- **Notes are third-party data.** They were made from posts and pages, so `library_search` and `idea_list` are in
+- **Notes are third-party data.** They were made from posts and pages, so `library_search` and `ideas` are in
   the gate's `UNTRUSTED_OUTPUT_BUILTINS`: their output is wrapped as untrusted and taints the run, like the page
-  itself would. They're not private data (`PRIVATE_OUTPUT_BUILTINS`): they aren't the owner's accounts.
+  itself would (any `ideas` call taints, save and status too: one tool, one rule). They're not private data (`PRIVATE_OUTPUT_BUILTINS`): they aren't the owner's accounts.
 - **Not memory.** Memory saved after third-party reading waits in the [review queue](review-queue.md); a library
   note is kept as what it is, someone else's text summarized, and never reaches the profile or the vault.
 

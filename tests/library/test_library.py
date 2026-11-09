@@ -33,6 +33,10 @@ async def invoke(tool, **arguments):
         return result
 
 
+async def ideas(tools, action, **arguments):
+    return await invoke(tools['ideas'], action=action, **arguments)
+
+
 def saved(library, item_id='x:1850000000000000001', **fields):
     values = {'kind': 'post', 'title': 'Agents that write their own tools', 'url': 'https://x.com/dana/status/1',
               'note': 'Dana on tool-writing agents: skills as files, tested before use.', 'source': 'x',
@@ -147,19 +151,19 @@ def test_a_bad_kind_or_source_is_refused(store):
 async def test_idea_ids_count_per_local_day(store):
     late = datetime(2026, 11, 9, 23, 30, tzinfo=UTC)  # already 10 November in Jerusalem
     tools = tools_by_name(store, 'Asia/Jerusalem', clock=lambda: late)
-    assert await invoke(tools['idea_save'], title='Spill old results', plan='p', size='s') == {'idea': '2026-11-10#1'}
-    assert await invoke(tools['idea_save'], title='Pin MCP tools', plan='p', size='M') == {'idea': '2026-11-10#2'}
+    assert await ideas(tools, 'save', title='Spill old results', plan='p', size='s') == {'idea': '2026-11-10#1'}
+    assert await ideas(tools, 'save', title='Pin MCP tools', plan='p', size='M') == {'idea': '2026-11-10#2'}
     london = tools_by_name(store, 'Europe/London', clock=lambda: late)
-    assert await invoke(london['idea_save'], title='A third', plan='p', size='L') == {'idea': '2026-11-09#1'}
+    assert await ideas(london, 'save', title='A third', plan='p', size='L') == {'idea': '2026-11-09#1'}
 
 
 async def test_an_idea_suggested_before_is_not_added_again(store):
     tools = tools_by_name(store)
-    first = await invoke(tools['idea_save'], title='Cache the tool list', plan='Keep the prefix stable.', size='S',
+    first = await ideas(tools, 'save', title='Cache the tool list', plan='Keep the prefix stable.', size='S',
                          files=['src/wraithd/core/tokens.py'], source_ids=['x:5', 'gh:A/B', 'junk'])
-    again = await invoke(tools['idea_save'], title='cache the tool-list!', plan='other', size='M')
+    again = await ideas(tools, 'save', title='cache the tool-list!', plan='other', size='M')
     assert again['idea'] == first['idea'] and again['already'] == 'suggested' and 'again' in again['hint']
-    [idea] = (await invoke(tools['idea_list']))['ideas']
+    [idea] = (await ideas(tools, 'list'))['ideas']
     assert idea['files'] == ['src/wraithd/core/tokens.py'] and idea['source_ids'] == ['x:5', 'gh:a/b']
     assert idea['size'] == 'S' and idea['status'] == 'suggested'
 
@@ -167,15 +171,17 @@ async def test_an_idea_suggested_before_is_not_added_again(store):
 async def test_status_changes_are_kept_and_listed(store):
     tools = tools_by_name(store)
     for title in ('One', 'Two', 'Three'):
-        await invoke(tools['idea_save'], title=title, plan='p', size='S')
-    assert await invoke(tools['idea_status'], id='2026-11-09#2', status='accepted') == {
+        await ideas(tools, 'save', title=title, plan='p', size='S')
+    assert await ideas(tools, 'status', id='2026-11-09#2', status='accepted') == {
         'idea': '2026-11-09#2', 'status': 'accepted'}
-    await invoke(tools['idea_status'], id='2026-11-09#3', status='declined')
-    assert [i['id'] for i in (await invoke(tools['idea_list'], status='suggested'))['ideas']] == ['2026-11-09#1']
-    assert [i['title'] for i in (await invoke(tools['idea_list']))['ideas']] == ['One', 'Two', 'Three']
-    assert 'error' in await invoke(tools['idea_status'], id='2026-11-09#9', status='built')
-    assert 'error' in await invoke(tools['idea_status'], id='2026-11-09#1', status='maybe')
-    assert 'error' in await invoke(tools['idea_list'], status='maybe')
+    await ideas(tools, 'status', id='2026-11-09#3', status='declined')
+    assert [i['id'] for i in (await ideas(tools, 'list', status='suggested'))['ideas']] == ['2026-11-09#1']
+    assert [i['title'] for i in (await ideas(tools, 'list'))['ideas']] == ['One', 'Two', 'Three']
+    assert 'error' in await ideas(tools, 'status', id='2026-11-09#9', status='built')
+    assert 'error' in await ideas(tools, 'status', id='2026-11-09#1', status='maybe')
+    assert 'error' in await ideas(tools, 'list', status='maybe')
+    assert 'error' in await ideas(tools, 'delete')
+    assert [i['id'] for i in (await invoke(tools['ideas']))['ideas']][0] == '2026-11-09#1'  # list is the default
     changes = [e.payload for e in store.events_between_runs(10, (ev.IDEA_STATUS,))]
     [changed] = [change for change in changes if change['status'] == 'accepted']
     assert changed == {'id': '2026-11-09#2', 'status': 'accepted', 'previous': 'suggested'}
@@ -204,7 +210,7 @@ def test_every_library_tool_is_read_tier_and_only_search_and_list_taint():
     for name in NAMES:
         assert gate_module.classify_tool(name) == gate_module.ToolAccess.READ
         assert not gate_module.returns_private_data(name)
-    assert {name for name in NAMES if gate_module.returns_untrusted_content(name)} == {'library_search', 'idea_list'}
+    assert {name for name in NAMES if gate_module.returns_untrusted_content(name)} == {'library_search', 'ideas'}
 
 
 async def test_strangers_get_no_library_tools(make_runtime):
@@ -264,6 +270,12 @@ def test_wraithd_index_without_a_checkout_has_modules_only(monkeypatch):
     built = json.loads(index.build())
     assert built['modules'] and built['docs'] == [] and built['changelog_head'] == ''
     index.build.cache_clear()
+
+
+def test_the_five_schemas_stay_small(store):
+    from wraithd.core import tokens
+
+    assert sum(tokens.count(tokens.tool_schema(tool)) for tool in tools_by_name(store).values()) <= 600
 
 
 def test_wraithd_index_takes_no_arguments(store):
