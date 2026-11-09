@@ -12,6 +12,12 @@ What every phone channel shares, so the rules live in one place and a new channe
   answer counts.
 - A run's answer that is exactly NO_REPLY (it already messaged the owner with notify_owner) sends nothing
   (core/silent.py). While a run works, the channel shows it's busy (busy(); Telegram: "typing…").
+- Quick actions: the owner's own `/news` (a command from quick_commands(), typed, not forwarded) is sent as its
+  message, "run news-feed", exactly as if typed. /pair, /mcp_add and /start can't be taken.
+- Draft buttons (Post D<n> / Rewrite / Skip, under a draft card the notifier sent) send "post D<n>" or
+  "skip D<n>" through receive() like typed text, so the owner check, the run and its approvals all hold; a
+  button never approves anything itself. Rewrite asks how, and the owner's next message within REWRITE_MINUTES
+  becomes "rewrite D<n> <it>" (a /command cancels that). Only the owner's taps count; others are logged as ignored.
 - `/mcp_add ...` from the owner (typed, not forwarded) adds an MCP server behind a confirm card (mcp/remote_add.py).
   It's handled here in code, never by a run: no agent tool adds a server, so nothing the agent reads can.
 
@@ -23,8 +29,9 @@ import asyncio
 import base64
 import json
 import logging
+import re
 import secrets
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
 from wraithd import providers, voice
@@ -46,6 +53,8 @@ MAX_FILE_BYTES = 20_000_000
 MAX_PHOTO_BYTES = 5_000_000  # what goes to the model as an image (Anthropic takes up to 5 MB)
 INBOX = 'inbox'  # in workspace/files/
 ALLOW, DENY = 'a', 'd'  # a choice's data is '<a|d>:<approval id>'
+DRAFT_CHOICE = re.compile(r'^draft:([0-9]{1,2}):(post|rewrite|skip)$')  # a draft button's data: draft:<n>:<action>
+REWRITE_MINUTES = 5  # after Rewrite, the owner's next message within this long is the how
 BUSY_SECONDS = 4  # busy() again this often while a run works (Telegram's "typing…" lasts 5 s)
 
 
@@ -140,6 +149,7 @@ class Channel:
         # Called after /mcp_add writes a server, so open MCP connections pick it up (the daemon sets it); returns the
         # new connections, which this channel's runs use from then on
         self.reconnect_mcp = None
+        self.rewriting: tuple[int, datetime] | None = None  # (draft number, until when) after a Rewrite tap
 
     # --- the transport: each channel ---------------------------------------------------------------------
 
@@ -167,6 +177,10 @@ class Channel:
 
     def chat_from_setting(self, value: str):
         return value
+
+    def quick_commands(self) -> dict[str, str]:
+        """The owner's quick actions: command name (no slash) -> the message it sends."""
+        return {}
 
     # --- the owner -----------------------------------------------------------------------------------------
 
@@ -213,12 +227,25 @@ class Channel:
         if chat != self.owner_chat:
             return self.ignore(chat, message.who)
         if remote_add.is_command(text):
+            self.rewriting = None
             return await self.mcp_add(message)
         if not text and message.attachment is None:
             return
         if text == '/start':
             return await self.send(chat, 'Hi. This is a personal assistant. Its owner pairs it with '
                                          f'`wraithd {self.name} pair`.')
+        if text.startswith('/'):
+            self.rewriting = None  # any /command cancels a Rewrite waiting for its how
+            if not message.forwarded:
+                word, _, rest = text[1:].partition(' ')
+                quick = self.quick_commands().get(word.split('@')[0].lower())  # /news@my_bot too
+                if quick:
+                    message = replace(message, text=f'{quick} {rest.strip()}'.strip())
+        elif self.rewriting and text and not message.forwarded:
+            number, until = self.rewriting
+            self.rewriting = None
+            if self.clock() <= until:
+                message = replace(message, text=f'rewrite D{number} {text}')
         task = asyncio.create_task(self.answer(message))  # so choices keep being handled while it runs
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
@@ -391,6 +418,8 @@ class Channel:
         """A choice picked: only the paired owner's chat decides; anyone else is refused (and logged as ignored)."""
         action, _, approval_id = decision.data.partition(':')
         owner = self.owner_chat
+        if (draft := DRAFT_CHOICE.match(decision.data or '')) and decision.chat == owner and owner is not None:
+            return await self.draft_choice(decision, int(draft.group(1)), draft.group(2))
         if decision.chat != owner or action not in (ALLOW, DENY):
             if decision.chat != owner and decision.chat is not None:
                 self.ignore(decision.chat, decision.who)
@@ -401,6 +430,17 @@ class Channel:
         status = approval_card(approval)['status'] if approval else 'unknown'
         await self.acknowledge(decision, status.capitalize() if decided else f'Already {status}.')
         await self._close(approval_id, status)
+
+    async def draft_choice(self, decision: Decision, number: int, action: str) -> None:
+        """The owner tapped Post, Rewrite or Skip under draft D<number>: the text goes in as if they typed it."""
+        if action == 'rewrite':
+            self.rewriting = (number, self.clock() + timedelta(minutes=REWRITE_MINUTES))
+            await self.acknowledge(decision, f'Rewrite D{number}')
+            return await self.send(decision.chat, f'How should I rewrite D{number}? Reply with what to change.')
+        text = f'{action} D{number}'
+        self.rewriting = None
+        await self.acknowledge(decision, f'Sent: {text}')
+        await self.receive(Incoming(chat=decision.chat, who=decision.who, text=text))
 
     async def _close(self, approval_id: str, status: str) -> None:
         where = self.cards.pop(approval_id, None)

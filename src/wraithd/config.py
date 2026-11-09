@@ -38,6 +38,12 @@ PROVIDERS = ('openai', 'anthropic', 'ollama', 'openai-compatible')
 SEARCH_BACKENDS = ('auto', 'openai', 'anthropic', 'duckduckgo', 'serpapi', 'claude')
 # [voice] transcribe: auto is openai if its key is set, else local whisper if installed, else off
 TRANSCRIBERS = ('auto', 'openai', 'whisper', 'elevenlabs')
+# [telegram.commands]: the owner's quick actions, "/news" in the paired chat sends "run news-feed" (the "/" menu).
+# Setting the table replaces these. /pair, /mcp_add and /start keep their meaning and can't be taken.
+TELEGRAM_COMMANDS = (('news', 'run news-feed'), ('drafts', 'slabbed drafts'), ('jobs', 'find jobs'),
+                     ('watchlist', 'show my watch list'), ('review', 'weekly review'))
+TELEGRAM_RESERVED = ('pair', 'mcp_add', 'start')
+TELEGRAM_COMMAND_NAME = re.compile(r'^[a-z0-9_]{1,32}$')  # what Telegram takes as a bot command
 # Where a key comes from when it isn't in the keychain (and the variable is set)
 KEY_ENV = {'openai': 'OPENAI_API_KEY', 'anthropic': 'ANTHROPIC_API_KEY', 'serpapi': 'SERPAPI_KEY',
            'telegram': 'TELEGRAM_BOT_TOKEN', 'elevenlabs': 'ELEVENLABS_API_KEY'}
@@ -187,6 +193,7 @@ class Config:
     shell_enabled: bool = False
     shell_timeout: int = 30
     mcp_servers: tuple = ()  # mcp.config.McpServer, from the [mcp.servers.*] blocks
+    telegram_commands: tuple = TELEGRAM_COMMANDS  # (name, message) pairs, from [telegram.commands]
     daemon_port: int = 7878
     dev_origin: str = ''
     sections: dict = field(default_factory=dict)  # table name -> values, for SECTIONS
@@ -318,6 +325,7 @@ def load_config(home: Home) -> Config:
     if 'answer_strangers' in telegram:
         _warn_once('[telegram] answer_strangers is gone: the bot only ever answers its paired owner. '
                    f'You can delete that line from {home.config_path}.')
+    telegram_commands = _telegram_commands(telegram.get('commands', None))
     timezone = owner.get('timezone', '')
     if timezone:
         try:
@@ -335,6 +343,7 @@ def load_config(home: Home) -> Config:
     return Config(
         sections=sections,
         mcp_servers=mcp_servers,
+        telegram_commands=telegram_commands,
         daemon_port=port,
         dev_origin=dev_origin,
         model=ModelConfig(provider=provider, default=model.get('default', ModelConfig.default),
@@ -351,6 +360,28 @@ def load_config(home: Home) -> Config:
         shell_timeout=_positive_or_none(shell.get('timeout_seconds', Config.shell_timeout), 'timeout_seconds')
         or Config.shell_timeout,
     )
+
+
+def _telegram_commands(table) -> tuple:
+    """[telegram.commands] as (name, message) pairs; the defaults when it isn't set. A name Telegram won't take, a
+    reserved one or an empty message is left out with a warning, so the rest still work."""
+    if table is None:
+        return TELEGRAM_COMMANDS
+    if not isinstance(table, dict):
+        _warn_once('[telegram.commands] must be a table of name = "message" lines; using the defaults.')
+        return TELEGRAM_COMMANDS
+    commands = []
+    for name, message in table.items():
+        if not TELEGRAM_COMMAND_NAME.match(str(name)):
+            _warn_once(f'[telegram.commands] {name!r} is not a Telegram command name (a-z, 0-9 and _, at most 32); '
+                       'it is ignored.')
+        elif name in TELEGRAM_RESERVED:
+            _warn_once(f'[telegram.commands] /{name} keeps its own meaning; that line is ignored.')
+        elif not isinstance(message, str) or not message.strip():
+            _warn_once(f'[telegram.commands] {name} needs a message, e.g. {name} = "run news-feed"; it is ignored.')
+        else:
+            commands.append((name, ' '.join(message.split())))
+    return tuple(commands)
 
 
 def _toml_value(value) -> str:

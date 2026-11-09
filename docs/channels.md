@@ -22,6 +22,8 @@ class Channel:
     async def fetch(self, attachment, limit) -> bytes          # FileTooLarge / ChannelError
     async def acknowledge(self, decision, text) -> None        # "Approved", "Only the owner can decide."
     async def close_prompt(self, where, status) -> None        # replace the choices with the outcome
+    async def busy(self, chat) -> None                         # "typing…" while a run works (optional)
+    def quick_commands(self) -> dict[str, str]                 # "/news" -> "run news-feed" (optional)
 
     # shared
     async def receive(self, Incoming(chat, who, text, caption, attachment))
@@ -38,6 +40,14 @@ class Channel:
 - **Approvals**: `approval_prompt(data)` gives the card's text and two choices, `a:<id>` and `d:<id>`. A channel
   with buttons shows them as buttons; a channel without them would number them. `decide` takes a choice only from
   the paired owner's chat. Anyone else is refused and logged as ignored, and nothing changes in the approval.
+- **Busy and silent**: while a run works, `busy(chat)` is called every 4 s (Telegram: "typing…"); an answer of
+  exactly `NO_REPLY` sends nothing (core/silent.py).
+- **Quick actions**: the owner's own typed `/name` from `quick_commands()` is sent as its message (with any words
+  after it appended). Forwarded text never is, and `/pair`, `/mcp_add` and `/start` can't be taken.
+- **Draft buttons**: a `draft:<n>:post|rewrite|skip` choice (n at most 2 digits; anything else is ignored) from
+  the owner's chat sends `post D<n>` or `skip D<n>` through `receive` like typed text, so the run and its approvals
+  hold: a button never approves anything. `rewrite` asks how, and the owner's next message within 5 minutes becomes
+  `rewrite D<n> <it>`; any `/command` cancels it. Anyone else's tap is refused and logged as ignored.
 - **Pairing** codes are per channel (`base.new_pairing(store, name)`): 6 digits, 10 minutes, five tries.
 
 ## Telegram on it

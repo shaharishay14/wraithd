@@ -16,6 +16,10 @@ Telegram, by long polling over httpx: no public URL, no webhook, no extra librar
   channels/base.py and mcp/remote_add.py.
 - While a run answers the owner, the chat shows "typing…" (sendChatAction, again every 4 s, as it lasts 5 s),
   until the answer is sent or the run fails. An answer that is exactly NO_REPLY sends nothing (core/silent.py).
+- Quick actions: [telegram.commands] (config.py; five by default) are registered with setMyCommands when polling
+  starts, so they're in the "/" menu, and the owner's "/news" is sent as its message ("run news-feed").
+- Draft cards: a notification whose first line is a draft card's (`✍️ D<n> · <type>`, the slabbed-x format) gets
+  Post D<n> · Rewrite · Skip buttons, fixed here, never chosen by the model (channels/base.py, draft_choice).
 - Replies are the model's Markdown turned into Telegram's HTML (bold, italics, code, links, lists, quotes), split
   between messages only at line ends so a tag is never cut; if Telegram still rejects the entities, that part goes
   again as plain text. Approval and confirm cards go plain, so their arguments show exactly as they are.
@@ -48,6 +52,8 @@ FILE_KINDS = {'document': 'file', 'audio': 'audio', 'video': 'video.mp4', 'video
               'animation': 'animation.mp4'}  # saved to the inbox; the value is the name when Telegram gives none
 # A forwarded message carries one of these (forward_origin since Bot API 7.0; the others before it)
 FORWARD_KEYS = ('forward_origin', 'forward_from', 'forward_from_chat', 'forward_sender_name', 'forward_date')
+DRAFT_CARD = re.compile(r'^✍\ufe0f? D([0-9]{1,2}) · \S')  # a draft card's first line: ✍️ D2 · reply
+COMMAND_DESCRIPTION = 256  # Telegram's limit on a command's description
 OWNER_CHAT, OWNER_NAME, PAIRING, OFFSET = 'telegram.owner_chat', 'telegram.owner_name', 'telegram.pairing', \
     'telegram.offset'
 
@@ -270,6 +276,18 @@ class TelegramChannel(base.Channel):
     def chat_from_setting(self, value: str) -> int:
         return int(value)
 
+    def quick_commands(self) -> dict[str, str]:
+        return dict(self.rt.config.telegram_commands)
+
+    async def register_commands(self) -> None:
+        """The quick actions in Telegram's "/" menu (setMyCommands replaces the bot's list, so it matches config)."""
+        commands = [{'command': name, 'description': message[:COMMAND_DESCRIPTION]}
+                    for name, message in self.quick_commands().items()]
+        try:
+            await self.bot.call('setMyCommands', commands=commands)
+        except TelegramError as e:
+            logger.warning(f'Registering the Telegram commands failed: {e}')
+
     async def delete(self, chat, ref) -> None:
         await self.bot.call('deleteMessage', chat_id=chat, message_id=ref)
 
@@ -329,6 +347,7 @@ class TelegramChannel(base.Channel):
         return self.owner_chat is not None
 
     async def run_forever(self) -> None:
+        await self.register_commands()
         while True:
             try:
                 await self.poll_once()
@@ -374,6 +393,17 @@ def _attachment(message: dict) -> base.Attachment | None:
     return None
 
 
+def draft_buttons(text: str) -> list | None:
+    """Post D<n> · Rewrite · Skip under a draft card (its first line names the draft), else None."""
+    match = DRAFT_CARD.match((text or '').lstrip())
+    if not match:
+        return None
+    number = int(match.group(1))
+    return [[{'text': f'Post D{number}', 'callback_data': f'draft:{number}:post'},
+             {'text': 'Rewrite', 'callback_data': f'draft:{number}:rewrite'},
+             {'text': 'Skip', 'callback_data': f'draft:{number}:skip'}]]
+
+
 class TelegramNotifier:
     """notify_owner (and schedules' and the heartbeat's messages) through Telegram when there's a paired owner chat.
     Every message is also kept in the store's inbox (Notifications), sent or not, once: the web UI lists it, and the
@@ -389,7 +419,7 @@ class TelegramNotifier:
         delivered = self.inbox.channel
         if owner:
             try:
-                await self.bot.send(int(owner), text)
+                await self.bot.send(int(owner), text, draft_buttons(text))
                 delivered = self.channel
             except TelegramError as e:
                 logger.warning(f'{e}; kept in the inbox instead')

@@ -86,6 +86,28 @@
   opened again in the next. If Telegram still refuses a part's entities ("can't parse entities"), that part is
   sent again as plain text; any other error isn't retried. Approval and `/mcp_add` cards go plain, with no
   parse mode, so their arguments show exactly as they are. Text with no Markdown goes plain too.
+- **Quick actions** (the "/" menu): `[telegram.commands]` in config.toml, one `name = "message"` per line. Without
+  the table, five are on:
+
+  ```toml
+  [telegram.commands]
+  news = "run news-feed"
+  drafts = "slabbed drafts"
+  jobs = "find jobs"
+  watchlist = "show my watch list"
+  review = "weekly review"
+  ```
+
+  Setting the table replaces these. The daemon registers them with `setMyCommands` when polling starts, and the
+  owner's `/news` (typed, from the paired chat) is sent as `run news-feed`, exactly as if typed; `/news tech` sends
+  `run news-feed tech`. A name must be a-z, 0-9 and `_`, at most 32; `/pair`, `/mcp_add` and `/start` keep their
+  meaning. A line that breaks these is skipped with a warning. Anyone else's `/news` is ignored like any message.
+- **Draft buttons**: a notification whose first line is a draft card (`✍️ D2 · reply`, the slabbed-x format) gets
+  **Post D2 · Rewrite · Skip**, fixed in code (the model never picks buttons). Post sends `post D2` and Skip sends
+  `skip D2` through the same path as typed text, so a destructive `create_post` still shows its approval card.
+  Rewrite asks "How should I rewrite D2?", and your next message within 5 minutes is sent as `rewrite D2 <it>` (any
+  `/command` cancels it). The button's data is only `draft:2:post` and the like; anything else, or a tap from any
+  chat but yours, does nothing (and the other chat is logged as ignored).
 - **Errors** never include the API URL or the file download URL, since the bot token is in both.
 
 ## On a laptop
