@@ -12,11 +12,11 @@ import threading
 import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from wraithd.core.events import RUN_END, RUN_START, Event
+from wraithd.core.events import RUN_END, RUN_START, TOOL_CALL, Event
 from wraithd.store import modes, modules
 from wraithd.store.base import (
     APPROVAL_STATUSES,
@@ -194,6 +194,18 @@ class SQLiteStore:
             "json_extract(payload, '$.tokens'))), 0) AS tokens FROM run_events "
             'WHERE type = ? AND created_at >= ?', (RUN_END, _stamp(since)))
         return int(rows[0]['tokens'])
+
+    def tools_used(self, since, until) -> list[tuple[str, int]]:
+        # The type index narrows it to tool_call rows in the window; the owner check is one lookup per run
+        rows = self._query(
+            "SELECT json_extract(payload, '$.tool') AS tool, COUNT(*) AS uses FROM run_events "
+            "WHERE type = ? AND created_at >= ? AND created_at < ? AND json_extract(payload, '$.allowed') = 1 "
+            'AND run_id IN (SELECT run_id FROM run_events WHERE type = ? AND created_at >= ? AND created_at < ? '
+            "AND json_extract(payload, '$.owner') = 1) "
+            'GROUP BY tool ORDER BY uses DESC, tool',
+            # a run that started the day before the window still counts its calls inside it
+            (TOOL_CALL, _stamp(since), _stamp(until), RUN_START, _stamp(since - timedelta(days=1)), _stamp(until)))
+        return [(row['tool'], row['uses']) for row in rows if row['tool']]
 
     def recent_runs(self, limit=20) -> list[RunInfo]:
         rows = self._query(

@@ -103,6 +103,10 @@ class Store(Protocol):
         """Tokens used by runs that ended after `since` (from their run_end events): weighted_tokens where the run_end
         has it, else tokens."""
 
+    def tools_used(self, since: datetime, until: datetime) -> list[tuple[str, int]]:
+        """(tool, calls) for the tools the owner's runs called, and the gate allowed, from `since` up to `until`;
+        most used first, then by name."""
+
     def recent_runs(self, limit: int = 20) -> list[RunInfo]:
         """The newest runs first, from their run_start events."""
 
