@@ -13,6 +13,11 @@ the OS keychain under that server's name, so each one goes only to its own serve
     tools = ["fetch_emails"]         # optional: only these tools are offered; the rest are never shown or run
     sandbox = true                   # optional, stdio only: runs in docker (wraithd mcp add --sandbox)
     refs = {GMAIL_TOKEN = "op://wraithd/Gmail/token"}  # optional: a 1Password reference instead of a stored value
+    public = true                    # optional: its tools return public content (posts, pages), not your accounts
+
+`public` is the owner's to set (in this file, or `wraithd mcp add --public`), never the agent's: output from a public
+server is still third-party text (it taints the run), but it isn't the owner's private data, so reading it doesn't
+lock links the owner didn't write (core/gate.py).
 
 A reference isn't a secret (it names where the secret is), so it can live in the file; the value is read with
 `op read` each time the server connects, by the daemon's own 1Password CLI login (docs/keys.md).
@@ -64,6 +69,7 @@ class McpServer:
     sandbox: bool = False  # a stdio server that runs inside docker (docs/sandbox.md)
     tools: tuple[str, ...] = ()  # the only tools offered (wraithd mcp add --tools); empty: every tool it lists
     refs: tuple[tuple[str, str], ...] = ()  # (env or header name, op:// reference): read with `op read` on connect
+    public: bool = False  # its tools return public content: untrusted, but not the owner's private data
 
     def offers(self, tool: str) -> bool:
         """The owner's allow-list lets this tool through (no list: every tool does)."""
@@ -113,10 +119,13 @@ def parse_servers(data: dict) -> tuple[McpServer, ...]:
                            provides=_strings(table.get('provides'), f'{where} provides'),
                            always_allow=_strings(table.get('always_allow'), f'{where} always_allow'),
                            sandbox=table.get('sandbox', False),
-                           tools=_strings(table.get('tools'), f'{where} tools'))
+                           tools=_strings(table.get('tools'), f'{where} tools'),
+                           public=table.get('public', False))
         server = replace(server, refs=_refs(table.get('refs'), f'{where} refs', server.env + server.headers))
         if not isinstance(server.sandbox, bool) or server.sandbox and transport != 'stdio':
             raise McpConfigError(f'{where} sandbox must be true or false, and only a local (stdio) server has one.')
+        if not isinstance(server.public, bool):
+            raise McpConfigError(f'{where} public must be true or false.')
         if transport == 'stdio' and not server.command:
             raise McpConfigError(f'{where} needs a command.')
         if transport == 'http' and not server.url.startswith(('http://', 'https://')):
@@ -223,6 +232,8 @@ def render_block(server: McpServer) -> str:
         lines.append(f'tools = {_toml_list(server.tools)}    # only these tools are offered')
     if server.sandbox:
         lines.append('sandbox = true                   # runs inside docker ([sandbox] image and network)')
+    if server.public:
+        lines.append('public = true                    # public content: untrusted, not your private data')
     if server.refs:
         lines.append('refs = {' + ', '.join(f'{json.dumps(k)} = {json.dumps(v)}' for k, v in server.refs)
                      + '}    # 1Password references, read with op on connect')

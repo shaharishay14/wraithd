@@ -50,6 +50,8 @@ def add_arguments(subparsers) -> None:
                      help='run this local server inside docker ([sandbox] image; see docs/sandbox.md)')
     add.add_argument('--tools', default='', metavar='TOOL,TOOL',
                      help='offer only these tools (the server\'s names, comma-separated); the rest never run')
+    add.add_argument('--public', action='store_true',
+                     help='its tools return public content (posts, pages): still untrusted, but not your private data')
     add.set_defaults(server_command=[])
     mcp.add_parser('list', help='the configured servers')
     tools = mcp.add_parser('tools', help='connect to a server and show its tools and their tiers')
@@ -64,6 +66,8 @@ def add_arguments(subparsers) -> None:
 
 
 EITHER = 'Give either a command after -- (a local server) or --url (a remote one).'
+PUBLIC_LOCAL_ONLY = ('--public can\'t be set from a chat: add the server here without it, then set public = true '
+                     'in its block in config.toml, or run wraithd mcp add --public on the machine.')
 
 
 class _Raising(argparse.ArgumentParser):
@@ -86,6 +90,8 @@ def parse_add(words: list[str]) -> argparse.Namespace:
     add_arguments(root.add_subparsers(dest='command', parser_class=_Raising))
     argv, command = split_command(['mcp', 'add', *words])
     args = root.parse_args(argv)
+    if args.public:  # the owner's call, made on the machine: never from a chat message
+        raise McpConfigError(PUBLIC_LOCAL_ONLY)
     args.server_command = command
     return args
 
@@ -101,7 +107,7 @@ def build_server(args, env: dict[str, str], headers: dict[str, str]) -> McpServe
         name=args.name, transport='http' if args.url else 'stdio', command=command[0] if command else '',
         args=tuple(command[1:]), env=tuple(env), url=args.url, headers=tuple(headers),
         provides=tuple(p.strip().lower() for p in args.provides.split(',') if p.strip()),
-        sandbox=bool(getattr(args, 'sandbox', False)),
+        sandbox=bool(getattr(args, 'sandbox', False)), public=bool(getattr(args, 'public', False)),
         tools=tuple(t.strip() for t in (getattr(args, 'tools', '') or '').split(',') if t.strip()),
         refs=tuple((key, value) for key, value in {**env, **headers}.items() if mcp_config.is_reference(value))))
     if args.url and server.sandbox:
@@ -200,6 +206,8 @@ def list_servers(home: Home) -> int:
             print(f'    only these tools: {", ".join(server.tools)}')
         if server.always_allow:
             print(f'    always allowed: {", ".join(server.always_allow)}')
+        if server.public:
+            print('    public: yes (its output is untrusted, but not your private data)')
     return 0
 
 

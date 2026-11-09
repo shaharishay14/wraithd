@@ -527,7 +527,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         gate = PermissionGate(rt.store, callback, history, '' if untrusted_source else message, instructions=orders,
                               owner_email=rt.config.owner_email, tool_access=mcp.access if mcp else None,
                               preapproved=mcp.always_allowed if mcp else (), always_ask=mcp.destructive if mcp else (),
-                              channel=source, run_id=log.run_id)
+                              channel=source, run_id=log.run_id, public_tools=mcp.public if mcp else ())
         if untrusted_source:
             gate.add_untrusted_input(untrusted_source, message)
         for source, text in inherited_taint:

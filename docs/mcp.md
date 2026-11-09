@@ -37,7 +37,15 @@
   ignored, and unattended it's refused. `mcp tools` shows it as `destructive`. Only an explicit hint counts: the
   spec's default (true for any tool that isn't read-only) would leave nothing to always-allow.
 - **Taint:** every MCP result is third-party content (emails, messages, documents are written by other people):
-  wrapped, tainting the run, and tracked as the owner's private data for the link rule.
+  wrapped, tainting the run, and tracked as the owner's private data for the link rule, unless the server is public.
+- **Public servers:** `public = true` in a server's block (or `wraithd mcp add --public`) says its tools return
+  public content: posts, pages, trending repos, not the owner's accounts. Their output is still third-party (wrapped,
+  the run is tainted, a recipient from it still asks or is refused unattended), but it doesn't count as private
+  data, so it doesn't lock links the owner didn't write: a scheduled radar run can open a post's link from a read-only
+  X server. Once a private server is read in the same run, links lock as before. Only the owner sets it: by editing
+  `config.toml` or `mcp add --public` on the machine; `/mcp_add` refuses `--public`, and no agent tool can set it.
+  `mcp list` shows `public: yes`, and `audit` names each public server in an info line. It goes to the gate as
+  `public_tools` (`core/gate.py`, from `Connected.public`).
 - **Skills follow what's connected:** `--provides email` (or `calendar`, or any word) declares what a server gives.
   Skills declare what they need (`requires: [email]`), so the morning brief appears once a connected server
   provides email, and disappears when it's gone or fails to start.
@@ -70,6 +78,8 @@ The paired owner can add a server from the phone with the same arguments as `wra
   `?api_key=`-style parameter, a `--token VALUE` in the command, or anything shaped like a key or token refuses the
   whole command: nothing of it is stored (config, events, approvals, conversation), and the bot deletes the message.
 - **No replacing.** A name that's already configured is refused; `wraithd mcp remove` it on the machine first.
+- **Never public.** `--public` is refused: whether a server's output counts as the owner's private data is decided
+  on the machine (`config.toml` or `wraithd mcp add --public`).
 
 ## 1Password references
 

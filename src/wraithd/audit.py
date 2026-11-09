@@ -147,6 +147,9 @@ def checks(home: Home) -> list[Check]:
     for server in config.mcp_servers:
         add(INFO, f'MCP {server.name}: ' + (f'only {", ".join(server.tools)}' if server.tools else
                                             'every tool it lists (no tools list)'))
+        if server.public:
+            add(INFO, f'MCP {server.name} is public (public = true): its output still taints the run, but reading it '
+                      "doesn't lock links you didn't write")
 
     # --- standing permissions: not problems, but the owner should know they exist -----------------------------
     allowed = [f'{server.name} {tool}' for server in config.mcp_servers for tool in server.always_allow]

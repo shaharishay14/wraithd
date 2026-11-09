@@ -90,6 +90,7 @@ class Connected:
     origin: dict[str, tuple[str, str]] = field(default_factory=dict)  # registered name -> (server, tool)
     pins: dict[str, pinning.Verdict] = field(default_factory=dict)  # registered name -> what pinning decided
     hidden: dict[str, list[str]] = field(default_factory=dict)  # server -> its tools left out by its `tools` list
+    public: set[str] = field(default_factory=set)  # registered names from servers the owner set `public = true`
 
     def marked_destructive(self, server: str, tool: str) -> bool:
         """The server marks its tool (by the server's own name for it) destructive."""
@@ -184,6 +185,8 @@ class McpConnections:
                 elif allowed and not read_only:
                     connected.always_allowed.add(registered)
                 connected.origin[registered] = (server.name, tool.name)
+                if server.public:
+                    connected.public.add(registered)
                 connected.tools.append(_wrap(sdk, server, tool, registered))
         return connected
 

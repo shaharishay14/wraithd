@@ -386,7 +386,7 @@ class PermissionGate:
 
     def __init__(self, store, callback=None, chat_history=None, user_message=None, instructions: str = '',
                  owner_email: str = '', unattended_write_tools=(), tool_access=None, preapproved=(),
-                 always_ask=(), channel: str = '', run_id: str = ''):
+                 always_ask=(), channel: str = '', run_id: str = '', public_tools=()):
         self.store = store
         self.channel, self.run_id = channel, run_id  # shown on the approval card: where it was asked, for which run
         self.callback = callback
@@ -394,6 +394,8 @@ class PermissionGate:
         self.always_ask = set(always_ask)
         self.preapproved = (set(unattended_write_tools) | set(preapproved)) - self.always_ask
         self.tool_access = dict(tool_access or {})
+        # Tools from MCP servers the owner set `public = true` (mcp/config.py): third-party, but not private data
+        self.public_tools = set(public_tools)
 
         # Everything the owner wrote: their message, their earlier messages, and their standing instructions
         # (AGENTS.md). Assistant messages don't count: they can repeat text copied from emails or pages. Values
@@ -426,6 +428,10 @@ class PermissionGate:
         if callback is None and chat_history:
             # Unattended runs reuse stored history, which can hold earlier summaries of emails or pages
             self.untrusted_sources.append('chat history')
+
+    def reads_private_data(self, tool_name: str) -> bool:
+        """returns_private_data, except for tools of a server the owner set public: their output is public content."""
+        return tool_name not in self.public_tools and returns_private_data(tool_name)
 
     def add_untrusted_input(self, source: str, text: str, private: bool = True) -> None:
         """
@@ -509,7 +515,7 @@ class PermissionGate:
             self.url_sources.setdefault(url, tool_name)
         if tool_name == SKILL_LOAD and self.owner_skills:
             self.owner_skill_urls |= self._owner_skill_links(seen)
-        if returns_private_data(tool_name) and tool_name not in self.private_data_sources:
+        if self.reads_private_data(tool_name) and tool_name not in self.private_data_sources:
             self.private_data_sources.append(tool_name)
         if not (returns_untrusted_content(tool_name) if untrusted is None else untrusted):
             return content
