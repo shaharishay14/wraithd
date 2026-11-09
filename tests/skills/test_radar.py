@@ -22,8 +22,7 @@ from wraithd.skills import registry
 from wraithd.tools.notify import MAX_CHARS
 
 # The library tools' contract names (the library worker's tools/library.py), and the x-watch app's read-only tool
-LIBRARY = ('library_seen', 'library_save', 'library_search', 'idea_save', 'idea_list', 'idea_status',
-           'wraithd_index')
+LIBRARY = ('library_seen', 'library_save', 'library_search', 'ideas', 'wraithd_index')
 X_POSTS = 'X-WATCH_NEW_POSTS'  # what wraithd registers the x-watch server's new_posts as (mcp/client.py tool_name)
 WEB_TOOLS = {'web_search', 'read_website'}
 TODAY = '2026-11-09'
@@ -86,7 +85,10 @@ def test_the_steps_name_only_tools_that_exist():
     named = set(re.findall(r'\b[a-z]+(?:_[a-z]+)+\b', instructions))
     assert named <= known, named - known
     # and every tool the daily run and the follow-ups depend on is named
-    assert set(LIBRARY) | {'notify_owner', 'read_website', 'web_search', 'files_read', 'new_posts'} <= named
+    assert (set(LIBRARY) - {'ideas'}) | {'notify_owner', 'read_website', 'web_search', 'files_read',
+                                         'new_posts'} <= named
+    # the ideas tool by its actions: "ideas list" is the tool ideas with action "list"
+    assert all(f'ideas {action}' in instructions for action in ('list', 'save', 'status'))
     assert 'a bookmarks tool, if connected' in instructions and NO_REPLY in instructions
 
 
@@ -95,9 +97,9 @@ def test_the_steps_read_the_web_before_anything_private():
     links aren't the owner's: so every read_website comes in step 1, before files and X."""
     instructions = radar().instructions
     assert instructions.rindex('read_website') < instructions.index('files_read') < instructions.index('new_posts')
-    assert instructions.index('new_posts') < instructions.index('idea_save') < instructions.index('notify_owner')
+    assert instructions.index('new_posts') < instructions.index('ideas save') < instructions.index('notify_owner')
     assert '8 model calls' in instructions  # the run's step limit (core/loop.py MAX_AGENT_STEPS)
-    assert instructions.index('wraithd_index') < instructions.index('idea_save')
+    assert instructions.index('wraithd_index') < instructions.index('ideas save')
     assert 'news/x-accounts.txt' in instructions and '3,500' in instructions
 
 
@@ -120,20 +122,22 @@ class FakeLibrary:
             self.notes[id] = {'id': id, 'kind': kind, 'title': title, 'url': url, 'note': note, 'author': author}
             return {'saved': id}
 
-        def idea_save(title, plan, files, size, source_ids):
-            assert len(plan) <= 400 and size in ('S', 'M', 'L')
-            self.ideas.append({'title': title, 'status': 'suggested'})
-            return {'idea': f'{TODAY}#{len(self.ideas)}'}
-
-        def idea_list(status=None, limit=50):
-            return {'ideas': [idea for idea in self.ideas if status in (None, idea['status'])][:limit]}
+        def ideas(action, status=None, limit=50, **fields):
+            if action == 'save':
+                assert len(fields['plan']) <= 400 and fields['size'] in ('S', 'M', 'L')
+                assert set(fields) == {'title', 'plan', 'files', 'size', 'source_ids'}
+                self.ideas.append({'title': fields['title'], 'status': 'suggested'})
+                return {'idea': f'{TODAY}#{len(self.ideas)}'}
+            if action == 'list':
+                return {'ideas': [idea for idea in self.ideas if status in (None, idea['status'])][:limit]}
+            raise ValueError(f'unexpected action {action!r}')
 
         def wraithd_index():
             return {'version': '0.1.1', 'modules': [{'path': 'src/wraithd/run.py', 'summary': 'one run'}],
                     'docs': [], 'changelog_head': '0.1.1'}
 
         return [fake_tool('library_seen', library_seen), fake_tool('library_save', library_save),
-                fake_tool('idea_save', idea_save), fake_tool('idea_list', idea_list),
+                fake_tool('ideas', ideas),
                 fake_tool('wraithd_index', wraithd_index)]
 
 
@@ -187,14 +191,14 @@ def day():
         [call('3', 'library_seen', {'ids': ['gh:acme/agent-kit']})],
         [call('4', 'read_website', {'url': REPO})],
         [call('5', 'files_read', {'path': 'news/x-accounts.txt'}), call('6', 'wraithd_index', {}),
-         call('7', 'idea_list', {}),
+         call('7', 'ideas', {'action': 'list'}),
          call('8', 'library_save', {'id': 'gh:acme/agent-kit', 'kind': 'repo', 'title': 'acme/agent-kit',
                                     'url': REPO, 'note': 'A harness that caches tool results.', 'source': 'github'})],
         [call('9', X_POSTS, {'accounts': ['simonw']})],
         [call('10', 'library_save', {'id': 'x:1850', 'kind': 'post', 'title': 'MCP caching server',
                                      'url': 'https://x.com/simonw/status/1850', 'author': '@simonw',
                                      'note': 'An MCP server for tool caching.', 'source': 'x'}),
-         call('11', 'idea_save', {'title': 'Cache read-only tool results within a run',
+         call('11', 'ideas', {'action': 'save', 'title': 'Cache read-only tool results within a run',
                                   'plan': 'Keep the last result per (tool, arguments) in run.py.',
                                   'files': ['src/wraithd/run.py'], 'size': 'S',
                                   'source_ids': ['gh:acme/agent-kit', 'x:1850']}),
@@ -244,7 +248,7 @@ async def test_a_day_with_nothing_new_sends_no_post(radar_run):
         [call('2', 'read_website', {'url': TRENDING})],
         [call('3', 'library_seen', {'ids': ['gh:acme/agent-kit']})],
         [call('4', 'files_read', {'path': 'news/x-accounts.txt'}), call('5', 'wraithd_index', {}),
-         call('6', 'idea_list', {})],
+         call('6', 'ideas', {'action': 'list'})],
         [call('7', X_POSTS, {'accounts': ['simonw']})],
         [say(NO_REPLY)],
     ]

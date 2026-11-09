@@ -21,9 +21,9 @@ one turn:
 | 2 | The web: the pages in `sources.md`, GitHub trending first, at most 6, and at most 2 searches | `read_website`, `web_search` |
 | 3 | Which candidates are new, by stable id: `gh:owner/repo`, `url:` plus the item's own link (normalized), `x:` plus a post id | `library_seen` |
 | 4 | Read the new ones worth it in full. Web reading ends here | `read_website` |
-| 5 | The watch list, wraithd's current state, the ideas so far, a note per web item; the bookmarks, if connected | `files_read`, `wraithd_index`, `idea_list`, `library_save` |
+| 5 | The watch list, wraithd's current state, the ideas so far, a note per web item; the bookmarks, if connected | `files_read`, `wraithd_index`, `ideas` (list), `library_save` |
 | 6 | The watched accounts' new posts; which bookmarks are new | `new_posts` (x-watch), `library_seen` |
-| 7 | A note per post and bookmark, each new idea, the post | `library_save`, `idea_save`, `notify_owner` |
+| 7 | A note per post and bookmark, each new idea, the post | `library_save`, `ideas` (save), `notify_owner` |
 | 8 | `NO_REPLY`, so no recap follows the post. Nothing new at all: no post, just `NO_REPLY` | |
 
 - **Why the web comes first.** After a run reads private data (your files, or any app, X included), the gate opens
@@ -35,7 +35,7 @@ one turn:
   The note is written from the post's own text (x-watch returns long posts in full), and the article's link can
   go under "Worth reading" unopened.
 - **Ideas** come only after `wraithd_index` (the repo's modules, docs and changelog head, read-only) and
-  `idea_list` (every status), so radar never suggests what's built or was suggested before.
+  `ideas` with action `list` (every status), so radar never suggests what's built or was suggested before.
 
 The post, plain text that reads the same in Telegram:
 
@@ -81,10 +81,10 @@ pre-approval and it runs unattended.
 Notes go to the library in `state.db`, not to memory: memory written after third-party reading waits in the
 [review queue](review-queue.md), and a daily digest would fill it. In chat, the skill answers from the notes:
 
-- "tell me more about #2", "the other ideas": `idea_list`, and `library_search` for the idea's sources.
+- "tell me more about #2", "the other ideas": `ideas` (list), and `library_search` for the idea's sources.
 - "that post about caching", "what did @simonw say about MCP?": `library_search`, answered from the note with its
   link. The original is read again only if the note doesn't cover the question.
-- "#2 accepted", "declined", "built": `idea_status` (ids are the date plus the number, `2026-11-09#2`). An idea in
+- "#2 accepted", "declined", "built": `ideas` with action `status` (ids are the date plus the number, `2026-11-09#2`). An idea in
   any status is never suggested again.
 
 Search results are third-party text: quoted, never followed.
