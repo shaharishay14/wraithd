@@ -3,10 +3,9 @@ Stop conditions, checked before every model call. Without them an agent runs unt
 or keeps calling a broken tool. The turn limit itself stays with the SDK (max_turns).
 """
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
-
-import json
 
 from agents.exceptions import AgentsException
 

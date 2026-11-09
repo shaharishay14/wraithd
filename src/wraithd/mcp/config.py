@@ -183,7 +183,8 @@ def get_secrets(server: McpServer) -> tuple[dict[str, str], dict[str, str]]:
                 secrets.register_secret(value)
                 continue
             name = env_name(server.name, key)
-            value = secrets.credential(name) or _keychain(_account(server.name, kind, key)) or os.environ.get(name) or rename.old_mcp_env(name)
+            value = (secrets.credential(name) or _keychain(_account(server.name, kind, key)) or os.environ.get(name)
+                     or rename.old_mcp_env(name))
             if value is None:
                 raise McpConfigError(f'The {kind} value {key} for {server.name} is missing: it\'s not in the keychain '
                                      f'and {env_name(server.name, key)} isn\'t set. Add the server again '

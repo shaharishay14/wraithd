@@ -450,7 +450,8 @@ def delete_key(provider: str) -> bool:
 def get_key(provider: str) -> str | None:
     """The provider's key from systemd's credentials (secrets.credential: a file named like its environment variable,
     or like the provider), else the keychain, else its environment variable. Registered for redaction."""
-    value = secrets.credential(KEY_ENV.get(provider, ''), provider) or keychain_get(provider) or os.environ.get(KEY_ENV.get(provider, ''), '') or None
+    variable = KEY_ENV.get(provider, '')
+    value = secrets.credential(variable, provider) or keychain_get(provider) or os.environ.get(variable, '') or None
     if value:
         secrets.register_secret(value)  # a key the process holds must never reach the model or the log
     return value

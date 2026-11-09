@@ -9,6 +9,7 @@ environment (docs/keys.md).
 Each subprocess path is checked at the point the process is really started: the env handed to the spawn call.
 """
 
+import contextlib
 import json
 import subprocess
 import sys
@@ -69,7 +70,7 @@ async def test_an_mcp_stdio_server_gets_only_its_own_values(keys_in_environment,
     monkeypatch.setenv('WRAITHD_MCP_NOTES_NOTES_TOKEN', 'notes-own-token-123456')
     server = mcp_client.sdk_server(McpServer(name='notes', transport='stdio', command=sys.executable,
                                              args=('-c', 'pass'), env=('NOTES_TOKEN',)))
-    with pytest.raises(Exception):  # noqa: B017: whatever the SDK wraps it in, the spawn was attempted
+    with contextlib.suppress(Exception):  # whatever the SDK wraps it in: the spawn was attempted
         await server.connect()
     await server.cleanup()
 
@@ -97,7 +98,7 @@ async def test_claude_code_gets_no_keys(keys_in_environment, monkeypatch):
     options = claude_options('', None, [], 'claude-haiku-5-5')
     options.cli_path = sys.executable
     transport = subprocess_cli.SubprocessCLITransport(prompt='hi', options=options)
-    with pytest.raises(Exception):  # noqa: B017
+    with contextlib.suppress(Exception):
         await transport.connect()
 
     env = started['env']
