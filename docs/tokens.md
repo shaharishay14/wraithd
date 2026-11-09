@@ -98,4 +98,6 @@ this is an estimate of what a run costs the plan, not the plan's count.
   wordier).
 - **The tool list is the largest part.** On the recorded runs it's about 70% of every call's input, ahead of the
   system prompt, and it's sent on every call. Caching ([caching](caching.md)) makes it cheap after the first call.
-  Progressive disclosure ([disclosure](progressive-disclosure.md)) is what makes it smaller.
+  Progressive disclosure ([disclosure](progressive-disclosure.md)) is what makes it smaller. The owner's recently
+  used app actions are the exception it pays for: about 250 tokens each per call (501 for a calendar read and a
+  Gmail search), to save the find and describe turns.

@@ -21,6 +21,27 @@ Up to 12 actions, the schemas go in directly: discovery costs round trips, and w
 schemas are cheap. The run (Phase 2) records which mode it used and the size of its tool definitions, so the
 choice can be measured.
 
+### Recently used actions skip the search
+
+The owner's runs keep asking the same apps the same things. In discovery mode, the actions the owner's runs called,
+and the gate allowed, in the 7 days before today are also offered directly: their schemas are in the tool list, the
+model calls them by name, and `run_app_action` takes them without a describe. Find, describe and run stay for the
+rest. A calendar question goes straight to the calendar action: two or three turns instead of six.
+
+- **At most 10, most used first** (`[mcp] recent_actions = 10`; `0` turns it off). Only actions this run has (after
+  `allowed_tools`), only the owner's runs (a run with `owner=False` gets none), and a call the gate refused doesn't
+  count. One indexed query over the event log per run (`Store.tools_used`).
+- **The same all day.** The window is whole days, from local midnight a week ago to this midnight, so an action
+  used today is offered from tomorrow. The tool list doesn't change within a day: the cached prefix holds, and
+  the warm Claude Code session (which restarts when its tool names change) restarts at most once a day, on the
+  first message after midnight, and only if the set changed.
+- **They taint the run, like direct mode.** Their descriptions are third-party text in the tool list from the
+  first step, so the run adds them (only theirs) as untrusted input, not private data: `context_built` shows
+  `untrusted_context: ["MCP tool descriptions"]` and `recent_actions`.
+- **Cost:** each action's schema on every call, cached after the first. A calendar read and a Gmail search
+  measure 501 tokens per call (`tests/efficiency/test_recent_actions.py`, which holds the budget); one saved
+  find + describe round trip is two model calls with the whole prompt.
+
 The same pattern runs through every registry: memory (profile and keyword map in the prompt, then search,
 then read), skills (one line each, then `skill_load`; skills that are off get one short line saying what turns
 them on, see [Skills](skills.md)), the web (search snippets, then a page in parts).
