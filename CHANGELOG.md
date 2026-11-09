@@ -45,6 +45,10 @@
   switching doesn't restart Claude Code (about 150-250 MB more per open conversation). Live: "What's 12 times 12"
   3.4 s → 0.9 s, a one-file question 5.0 → 1.9 s, "skip D1" 9.1 → 3.5 s.
 
+- App actions your runs used in the last 7 days (up to 10, `[mcp] recent_actions`) are offered directly, so a
+  calendar question skips find/describe (about 500 tokens per turn for two actions; the set changes at most once a
+  day, so the warm session restarts at most daily).
+
 ### Keys and files
 - Every `OP_*` variable (1Password) counts as a secret: no subprocess wraithd starts gets one (shell, MCP servers,
   Claude Code, the login launch, `wraithd update`). Only `op read` for an `op://` reference keeps it.
