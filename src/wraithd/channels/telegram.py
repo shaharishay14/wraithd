@@ -14,12 +14,17 @@ Telegram, by long polling over httpx: no public URL, no webhook, no extra librar
   stranger's attachment is never downloaded. Downloads are capped (Telegram lets bots download 20 MB at most).
 - `/mcp_add` (the owner's own typed message only, never a forwarded one) adds an MCP server behind a confirm card:
   channels/base.py and mcp/remote_add.py.
+- Replies are the model's Markdown turned into Telegram's HTML (bold, italics, code, links, lists, quotes), split
+  between messages only at line ends so a tag is never cut; if Telegram still rejects the entities, that part goes
+  again as plain text. Approval and confirm cards go plain, so their arguments show exactly as they are.
 - The bot token is in the keychain (`wraithd key set telegram`) and registered for redaction; errors never
   include the API URL, since the token is in it.
 """
 
 import asyncio
+import html
 import logging
+import re
 from datetime import UTC, datetime
 
 import httpx
@@ -33,7 +38,8 @@ logger = logging.getLogger(__name__)
 
 API = 'https://api.telegram.org'
 POLL_SECONDS = 30
-MESSAGE_CHARS = 4000  # Telegram's limit is 4096
+MESSAGE_CHARS = 4000  # of Markdown per message
+TELEGRAM_CHARS = 4096  # Telegram's limit
 MAX_FILE_BYTES = 20_000_000  # the Bot API's own limit for downloads
 MAX_PHOTO_BYTES = base.MAX_PHOTO_BYTES
 FILE_KINDS = {'document': 'file', 'audio': 'audio', 'video': 'video.mp4', 'video_note': 'video-note.mp4',
@@ -57,9 +63,132 @@ def new_pairing(store, now: datetime | None = None) -> dict:
     return base.new_pairing(store, 'telegram', now)
 
 
-def _chunks(text: str) -> list[str]:
+def _chunks(text: str, limit: int = MESSAGE_CHARS) -> list[str]:
+    """Plain text in parts of at most limit characters."""
     text = text or '(no answer)'
-    return [text[i:i + MESSAGE_CHARS] for i in range(0, len(text), MESSAGE_CHARS)]
+    return [text[i:i + limit] for i in range(0, len(text), limit)]
+
+
+# --- Markdown to Telegram HTML -------------------------------------------------------------------------------
+# Telegram's HTML takes <b> <i> <s> <code> <pre> <a href> <blockquote>, and & < > must be escaped. Each block is
+# converted on its own and every tag the converter writes is closed in the same line, so the result is always
+# balanced; a part that Telegram still refuses is sent again as plain text (TelegramBot.send).
+
+FENCE = re.compile(r'^\s*(```|~~~)\s*([\w+#.-]*)\s*$')
+HEADING = re.compile(r'^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$')
+BULLET = re.compile(r'^(\s*)[-*+]\s+(.*)$')
+QUOTE = re.compile(r'^\s{0,3}>\s?(.*)$')
+RULE = re.compile(r'^\s{0,3}([-*_])(\s*\1){2,}\s*$')
+TABLE = re.compile(r'^\s*\|.*\|\s*$')
+INLINE_CODE = re.compile(r'(`+)(.+?)\1')
+LINK = re.compile(r'\[([^\]\n]+)\]\(((?:https?://|mailto:|tg://)[^\s)]+)\)')
+BOLD = re.compile(r'\*\*(?=\S)(.+?)(?<=\S)\*\*')
+STRIKE = re.compile(r'~~(?=\S)([^<>~\n]+?)(?<=\S)~~')
+ITALIC = re.compile(r'(?<![\w*])\*(?=[^\s*])([^<>*\n]+?)(?<=[^\s*])\*(?![\w*])'
+                    r'|(?<![\w_])_(?=[^\s_])([^<>_\n]+?)(?<=[^\s_])_(?![\w_])')
+SLOT = '\x00'  # placeholders for code spans and links while the rest is converted
+
+
+def _inline(text: str) -> str:
+    """One line's inline Markdown (code, links, bold, italics, strikethrough) as escaped Telegram HTML."""
+    slots: list[str] = []
+
+    def keep(markup: str) -> str:
+        slots.append(markup)
+        return f'{SLOT}{len(slots) - 1}{SLOT}'
+
+    text = text.replace(SLOT, '')
+    text = INLINE_CODE.sub(lambda m: keep(f'<code>{html.escape(m.group(2).strip(), quote=False)}</code>'), text)
+    text = LINK.sub(lambda m: keep(f'<a href="{html.escape(m.group(2))}">'
+                                   f'{_emphasis(html.escape(m.group(1), quote=False))}</a>'), text)
+    text = _emphasis(html.escape(text, quote=False))
+    return re.sub(f'{SLOT}(\\d+){SLOT}', lambda m: slots[int(m.group(1))], text)
+
+
+def _emphasis(text: str) -> str:
+    text = BOLD.sub(r'<b>\1</b>', text)  # first, so what it wraps has no tags yet
+    text = STRIKE.sub(r'<s>\1</s>', text)
+    return ITALIC.sub(lambda m: f'<i>{m.group(1) or m.group(2)}</i>', text)
+
+
+def markdown_to_html(text: str) -> str:
+    """The model's Markdown as Telegram HTML. Text that isn't Markdown comes out the same, only escaped."""
+    out: list[str] = []
+    lines = (text or '').replace(SLOT, '').split('\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if fence := FENCE.match(line):
+            body, i = [], i + 1
+            closing = re.compile(re.escape(fence.group(1)[0]) + '{3,}')
+            while i < len(lines) and not closing.fullmatch(lines[i].strip()):
+                body.append(lines[i])
+                i += 1
+            language = f' class="language-{fence.group(2)}"' if fence.group(2) else ''
+            out.append(f'<pre><code{language}>{html.escape(chr(10).join(body), quote=False)}</code></pre>')
+            i += 1  # the closing fence (or the end)
+            continue
+        if TABLE.match(line):
+            rows = []
+            while i < len(lines) and TABLE.match(lines[i]):
+                if not re.fullmatch(r'[\s|:-]+', lines[i]):  # the |---|---| line
+                    rows.append(lines[i].strip())
+                i += 1
+            out.append(f'<pre>{html.escape(chr(10).join(rows), quote=False)}</pre>')
+            continue
+        if QUOTE.match(line):
+            quoted = []
+            while i < len(lines) and (match := QUOTE.match(lines[i])):
+                quoted.append(_inline(match.group(1)))
+                i += 1
+            out.append(f'<blockquote>{chr(10).join(quoted)}</blockquote>')
+            continue
+        if heading := HEADING.match(line):
+            out.append(f'<b>{_inline(heading.group(1).replace("**", ""))}</b>')
+        elif RULE.match(line):
+            out.append('──────────')
+        elif bullet := BULLET.match(line):
+            out.append(f'{bullet.group(1)}• {_inline(bullet.group(2))}')
+        else:
+            out.append(_inline(line))
+        i += 1
+    return '\n'.join(out)
+
+
+def _markdown_parts(text: str, limit: int = MESSAGE_CHARS) -> list[str]:
+    """The Markdown split at line ends into parts of at most limit characters, never inside a code block: a block
+    that has to be split is closed at the end of one part and opened again at the start of the next."""
+    parts, current, fence = [], '', None
+
+    def flush():
+        nonlocal current
+        if current.strip():
+            parts.append(current.rstrip('\n') + (f'\n{fence[0]}' if fence else ''))
+        current = f'{fence[0]}{fence[1]}\n' if fence else ''
+
+    for line in (text or '(no answer)').split('\n'):
+        reserve = 4 if fence or FENCE.match(line) else 0  # room to close a code block
+        pieces = [line[j:j + limit - 8] for j in range(0, len(line), limit - 8)] or ['']
+        for piece in pieces:
+            if len(current) + len(piece) + 1 + reserve > limit:
+                flush()
+            current += piece + '\n'
+        if match := FENCE.match(line):
+            fence = None if fence else (match.group(1), match.group(2))
+    flush()
+    return parts or ['(no answer)']
+
+
+def formatted_parts(text: str, limit: int = MESSAGE_CHARS) -> list[tuple[str, str]]:
+    """(html, markdown) per message: the HTML to send and the Markdown it came from, the plain fallback."""
+    out = []
+    for part in _markdown_parts(text, limit):
+        converted = markdown_to_html(part)
+        if len(converted) > TELEGRAM_CHARS and limit > 200:  # escaping made it too long: smaller parts
+            out += formatted_parts(part, limit // 2)
+        else:
+            out.append((converted, part))
+    return out
 
 
 class TelegramBot:
@@ -99,12 +228,24 @@ class TelegramBot:
             raise TelegramError(f'Telegram file download failed ({type(e).__name__}).') from None
         return bytes(data)
 
-    async def send(self, chat_id, text: str, buttons=None) -> int | None:
+    async def send(self, chat_id, text: str, buttons=None, markdown: bool = True) -> int | None:
+        """Sends text (split as needed; buttons go on each part) and returns the last message's id. Markdown is
+        sent as Telegram HTML, and a part Telegram can't parse goes again as the plain Markdown."""
         message_id = None
-        for part in _chunks(text):
-            params = {'chat_id': chat_id, 'text': part}
+        parts = formatted_parts(text) if markdown else [(None, part) for part in _chunks(text)]
+        for converted, plain in parts:
+            params = {'chat_id': chat_id, 'text': plain}
             if buttons:
                 params['reply_markup'] = {'inline_keyboard': buttons}
+            if converted is not None and converted != plain:
+                try:
+                    message_id = (await self.call('sendMessage', **{**params, 'text': converted,
+                                                                     'parse_mode': 'HTML'}))['message_id']
+                    continue
+                except TelegramError as e:
+                    if 'entit' not in str(e).lower() and 'tag' not in str(e).lower():
+                        raise
+                    logger.info('Telegram refused the formatting; sending it plain')
             message_id = (await self.call('sendMessage', **params))['message_id']
         return message_id
 
@@ -134,7 +275,8 @@ class TelegramChannel(base.Channel):
 
     async def send(self, chat, text: str, choices: list[base.Choice] | None = None) -> tuple[int, int | None]:
         buttons = [[{'text': c.label, 'callback_data': c.data} for c in choices]] if choices else None
-        return chat, await self.bot.send(chat, text, buttons)
+        # cards (with choices) go plain: their arguments must show exactly as they are
+        return chat, await self.bot.send(chat, text, buttons, markdown=not choices)
 
     async def fetch(self, attachment: base.Attachment, limit: int) -> bytes:
         return await self.bot.download(attachment.ref, limit)
