@@ -7,6 +7,8 @@ talking and whether anyone is there to approve:
 - the owner, in a conversation, with [shell] enabled: shell_run (never in unattended runs)
 """
 
+import importlib.util
+import sys
 from dataclasses import dataclass
 
 from wraithd.config import get_key
@@ -18,6 +20,7 @@ from wraithd.tools.shell import shell_tool
 from wraithd.tools.web import (
     COST,
     AnthropicSearch,
+    ClaudeSearch,
     DuckDuckGo,
     OpenAISearch,
     SerpAPI,
@@ -37,21 +40,40 @@ class SearchChoice:
     missing_key: str = ''  # off because this key isn't set
 
 
+def _claude_extra() -> bool:
+    """claude-agent-sdk (the claude extra) is installed."""
+    try:
+        return 'claude_agent_sdk' in sys.modules or importlib.util.find_spec('claude_agent_sdk') is not None
+    except (ImportError, ValueError):
+        return False
+
+
 def choose_search(config) -> SearchChoice:
     """
     Which search backend runs get. "auto" (the default) is the model provider's own search for openai and
     anthropic, on the model key, and DuckDuckGo for local models (ollama, openai-compatible), which need no key.
+    On the Claude Code engine "auto" without that key is DuckDuckGo too: the thinking needs no key there, so a
+    missing one shouldn't turn search off.
     """
     setting, provider = config.search, config.model.provider
     if not setting:
         return SearchChoice('', 'off in the settings ([web] search = "")')
+    # On Claude Code the thinking runs on the login, so "your model key" would be unclear: name the provider's key
+    on_claude = config.section('engine')['name'] == 'claude-code'
     backend = setting if setting != 'auto' else provider if provider in NATIVE else 'duckduckgo'
+    if setting == 'auto' and on_claude and backend in NATIVE and not get_key(backend):
+        return SearchChoice('duckduckgo', f'duckduckgo ({COST["duckduckgo"]}, since your '
+                                          f'{KEY_NAMES[backend]} key isn\'t set; [web] search = "claude" searches '
+                                          'through your Claude subscription instead)')
     if backend == 'duckduckgo':
         local = ', since a local model has no provider search' if setting == 'auto' else ''
         return SearchChoice(backend, f'duckduckgo ({COST[backend]}{local})')
+    if backend == 'claude':
+        if not _claude_extra():
+            return SearchChoice('', "off: claude search needs the Claude Code extra (uv tool install "
+                                    "'wraithd[claude]'), which isn't installed")
+        return SearchChoice(backend, f'claude ({COST[backend]})')
     key = get_key(backend)
-    # On Claude Code the thinking runs on the login, so "your model key" would be unclear: name the provider's key
-    on_claude = config.section('engine')['name'] == 'claude-code'
     whose = (f'your {KEY_NAMES.get(backend, backend)} key' if on_claude
              else 'your model key' if backend == provider else f'your {backend} key')
     if not key:
@@ -64,6 +86,8 @@ def search_provider(config, transport=None, web_transport=None):
     choice = choose_search(config)
     if choice.backend == 'duckduckgo':
         return DuckDuckGo(web_transport)  # through the egress guard, which takes a sync transport
+    if choice.backend == 'claude':
+        return ClaudeSearch(config.section('engine'))
     if choice.backend in NATIVE:
         return NATIVE[choice.backend](choice.key, transport)
     return SerpAPI(choice.key, transport) if choice.backend == 'serpapi' else None
