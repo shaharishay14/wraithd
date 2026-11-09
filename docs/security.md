@@ -24,7 +24,11 @@ a tool that can't be wrapped is dropped, never passed through):
   recipients the owner wrote themselves; an action whose recipient can't be checked needs approval. In a live
   conversation, the approval card names the recipients the owner never wrote, and where they came from.
 - **Links.** After the run reads private data, only links the owner wrote open freely, so an attacker can't
-  make the agent "visit" a URL that spells out the data.
+  make the agent "visit" a URL that spells out the data. A link the owner wrote in one of their own skills counts
+  as theirs: one in `workspace/skills/<name>/SKILL.md` or an extra `.md` of that skill, as `skill_load` returned
+  it this run, matched exactly. Not the built-in library, not a draft in `_proposed/`, and never `your-way.md`
+  (the agent's `skill_adjust` writes it). No agent tool writes inside `workspace/skills/` except those two: the
+  file tools stop at `workspace/files/`, and a draft only becomes a skill when the owner approves it.
 - Third-party output is wrapped in `<untrusted_tool_output>`; the wrapper can't be closed from inside, and the
   reminder tag is neutralized so a page can't pose as the harness. That's a hint for the model; the taint
   rules above are the defense.
@@ -48,6 +52,17 @@ hand and re-checked, the connected peer checked again before the body is read, 2
 Key and token shapes, and the owner's own keys by exact value, are replaced with `[REDACTED:kind]` in tool
 results before the model sees them, in every string the event log stores, and (Phase 2) in memory writes.
 It's a pattern scan, so it's best effort.
+
+Keys never reach a process wraithd starts either: not the shell, not Claude Code, not an MCP server (each gets only
+its own values). Every `OP_*` 1Password variable counts as a key ([keys](keys.md#keeping-keys-away-from-the-agent)).
+
+## Private files, whatever the umask
+
+Everything wraithd makes in its state folder is the owner's alone: folders 700, files 600, set explicitly
+(`store/modes.py`), so a umask like Ubuntu's default 002 can't make them group-writable. Each start also clears
+group and other write from the process umask and from anything already in the folder (a home made under 002
+before), and the service unit wraithd writes sets `UMask=0077` (launchd: `Umask`). `wraithd audit` checks that
+nothing in the folder is writable by other accounts.
 
 ## The built-in tools
 

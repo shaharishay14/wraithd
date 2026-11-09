@@ -36,6 +36,10 @@ One message at a time per conversation: a second one waits for the first answer 
 service instead (launchd or systemd), with `daemon start/stop/status/logs`: see [installing and running](install.md).
 To reach it from your phone or another computer, put `tailscale serve` in front of it ([remote access](remote-access.md)).
 
+The service runs with `UMask=0077` (launchd: `Umask` 63), so what it makes is the owner's alone whatever the login's
+umask; a unit you write yourself (a system service with `User=`, [keys](keys.md#recipe-systemd-encrypted-credentials-ubuntu-2404))
+should set it too. wraithd sets its folders and files private explicitly as well ([security](security.md#private-files-whatever-the-umask)).
+
 ## The log
 
 The service appends the daemon's output to `~/.wraithd/logs/daemon.log`. The daemon rotates it itself, at
