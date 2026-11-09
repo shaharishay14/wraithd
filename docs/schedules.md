@@ -19,6 +19,10 @@
 - **`due(now)`:** what the daemon's [scheduler](scheduler.md) calls every minute. It returns the schedules due now
   and, before returning each, moves it to its next time (a one-off is turned off) with a compare-and-set, so a slot fires at
   most once even if two processes ask, and a laptop that slept through three slots fires once when it wakes.
+- **Only the schedule:** a message that sets up a schedule ("every Sunday at 9: use receipt-tracker") only creates
+  it. The built-in prompt and `schedule_create`'s description both say so, and its result's hint says not to do the
+  task now unless the owner asked for it now too. (A run that did the task first spent 268k tokens and never saved
+  the schedule.)
 - **CLI:** `wraithd schedules list [--all]` and `wraithd schedules rm <id>`.
 
 ## Firing

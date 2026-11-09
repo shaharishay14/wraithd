@@ -22,6 +22,10 @@
   owner's taps count.
 - **Busy:** while a run answers the owner, the chat shows "typing…" (`sendChatAction`, again every 4 s since it
   lasts 5), until the answer is sent or the run fails. A failed `sendChatAction` is only logged.
+- **`telegram_sent`:** each answer and each notify that reaches Telegram is logged as a between-runs event:
+  `kind` (answer or notify), `run_id` (None for a notify), `ms` from the run's end (a notify: from its send) until
+  Telegram replied, `chunks`, `parse_mode` (`HTML` or None) and `fallback` (a part went again as plain text). No
+  message content. So the time after a run is measurable with `wraithd events`.
 - **No recap:** when a run already messaged the owner with `notify_owner`, it ends with exactly `NO_REPLY` and
   nothing more is sent (core/silent.py, the same on every channel). The conversation keeps no assistant message
   for it.

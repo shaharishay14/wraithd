@@ -55,6 +55,30 @@ Run 3f2a…: 2 model calls, 6,077 input tokens reported (o200k_base count: 5,773
 
 `--json` gives the same data, with one entry per call.
 
+## Weighted tokens: what the budgets count
+
+The run budget (`[budget] run_tokens`) and the daily budget (`[budget] daily_tokens`) count **weighted tokens**
+(`views.weighted_tokens`): fresh input, cache writes and output at full weight, and cache reads at a tenth. A tenth is
+the ratio of Anthropic's cache-read price to its input price; the Claude plan's own weighting isn't published, so
+this is an estimate of what a run costs the plan, not the plan's count.
+
+- **Only where a model call reports its cache split.** The claude-code engine's `model_output` carries `cache_read`
+  and `cache_write` (its `input_tokens` includes both). The API engine's `model_output` doesn't, so there weighted
+  equals raw and nothing changed.
+- **Why.** On Claude Code most input is cache reads: run 47621a78 (news-feed) had 167,791 input tokens, of which
+  155,024 cache reads. Raw, it counted 168,973; weighted, 29,451. Counting raw, a day of such runs hit the 2,000,000
+  daily default by midday.
+- **`run_end`** records both: `tokens` (raw) and `weighted_tokens`. The daily total sums `weighted_tokens`, and
+  `tokens` for runs that ended before it was recorded. `wraithd runs list` shows both columns, `runs show` both
+  numbers.
+- **On claude-code the run budget applies once a call's usage arrives.** Claude Code reports usage with its result,
+  at the end of the run, so `run_tokens` can't stop a claude-code run partway; it counts toward the next check (and
+  the daily total). A long run is cut by `[engine] max_turns` instead ([claude-subscription](claude-subscription.md)).
+- **The cap message** says it's wraithd's own limit: "wraithd's own daily limit ([budget] daily_tokens = 2,000,000
+  weighted tokens) is reached. This isn't your Claude plan's limit. Raise it in ~/.wraithd/config.toml under
+  [budget], or it resets at midnight."
+- Subagents' tokens count toward the parent's run budget as the child's raw tokens (`delegate.py`).
+
 ## Checked how
 
 - `tests/efficiency/runs/` holds two recorded runs, made with `tests/efficiency/record_runs.py`. The model there

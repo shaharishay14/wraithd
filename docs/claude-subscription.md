@@ -141,8 +141,18 @@ wraithd and your own Claude chats share one plan. When the plan's limit is hit:
   happened yet: no write ran and no text was shown. Otherwise the run stops and says so, so nothing is done twice.
 - Without a fallback, you get one plain line: the plan limit is reached, and it resets later.
 
-The daily token budget is on by default in subscription mode (2,000,000 tokens a day, unless you set
-`[budget] daily_tokens` yourself), and `wraithd runs` shows the tokens per run.
+The daily token budget is on by default in subscription mode (2,000,000 weighted tokens a day, unless you set
+`[budget] daily_tokens` yourself). Cache reads count a tenth ([tokens](tokens.md)), and `wraithd runs list` shows
+raw and weighted tokens per run. It is wraithd's own limit, not the plan's, and its message says so and how to raise
+it.
+
+## Turns
+
+A Claude Code run makes at most `[engine] max_turns` model calls (default 8, the API engine's limit too). When it
+uses them all, Claude Code ends with `error_max_turns`: wraithd logs a `stop` (`max_turns`) and answers plainly that
+the step limit was hit, listing the writes already done (or that nothing was changed), so the owner doesn't repeat
+them. The run's outcome is `answered`, as on the API engine; a warm session stays open. A skill that needs more
+turns (a full receipt-tracker log is about 8 or 9) needs a higher `max_turns`.
 
 ## Switching back to a key or a local model
 
