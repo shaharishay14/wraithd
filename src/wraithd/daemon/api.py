@@ -22,6 +22,7 @@ from wraithd.config import load_config
 from wraithd.core import events as ev
 from wraithd.core import inspector
 from wraithd.core.gate import approval_card
+from wraithd.core.silent import hold_back, is_silent
 from wraithd.mcp import config as mcp_config
 from wraithd.mcp import pinning
 from wraithd.memory import notes as note_files
@@ -152,9 +153,13 @@ def build_api(daemon, ui_dir: Path | None) -> Starlette:
 
         async def answer():
             try:
-                result = await reply(rt, conversation.id, message, callback=callback, source='chat', mcp=daemon.mcp)
-                await queue.put(('done', {'run_id': result.run_id, 'outcome': result.outcome,
-                                          'answer': result.answer}))
+                held = hold_back(callback)  # text that could still be NO_REPLY waits (core/silent.py)
+                result = await reply(rt, conversation.id, message, callback=held, source='chat', mcp=daemon.mcp)
+                await held.finish(result.answer)
+                done = {'run_id': result.run_id, 'outcome': result.outcome, 'answer': result.answer}
+                if is_silent(result.answer):  # it already messaged the owner: nothing more to show
+                    done.update(answer='', silent=True)
+                await queue.put(('done', done))
             except Exception:
                 logger.exception('Web chat run failed')
                 await queue.put(('error', {'code': 'internal', 'message': 'The run failed; see the daemon\'s log.'}))

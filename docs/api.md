@@ -113,6 +113,7 @@ data: {"approval_id": "a1...", "status": "approved"}
 
 event: done                       (always last on success)
 data: {"run_id": "r1...", "outcome": "answered", "answer": "It is 18°C in Paris."}
+                                  (or, after notify_owner: "answer": "", "silent": true)
 
 event: error                      (instead of done)
 data: {"code": "internal", "message": "..."}
@@ -121,7 +122,10 @@ data: {"code": "internal", "message": "..."}
 `approval_resolved` comes once per card, with `approved`, `denied` or `expired`, whether the decision came from
 this UI (`POST /api/approvals/{id}`), another tab, a Telegram button, or the 60-second expiry.
 
-`outcome` is `answered`, `refused` (daily budget) or `failed` (the `answer` then says what happened). Use `answer`
+`outcome` is `answered`, `refused` (daily budget) or `failed` (the `answer` then says what happened).
+When the run already messaged the owner with `notify_owner` and answered exactly `NO_REPLY`, `done` has
+`"answer": ""` and `"silent": true`: show nothing more. Deltas that could still become `NO_REPLY` are held back
+until they can't, so `NO_REPLY` never streams, and the conversation stores no assistant message for that run. Use `answer`
 as the final text: it's complete even if a refusal or failure streamed no deltas. One message at a time per
 conversation: sending while a run is going gets `409 conflict`.
 

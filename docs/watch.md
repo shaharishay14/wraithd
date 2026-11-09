@@ -48,7 +48,7 @@ at least one watch is configured. It checks every minute which watches are due.
   - on a scheduled run's model: the default purpose, like a schedule. On the Claude Code engine, `source: "watch"`
     picks the scheduled-run model (`run.engine_purpose()`).
 - **The answer** goes to the owner through the notifier (Telegram when paired, else the inbox), headed `👀 <name>`.
-  An answer of exactly `NO_REPLY` sends nothing.
+  An answer of exactly `NO_REPLY` sends nothing (the same rule as every channel, core/silent.py).
 - **Marked seen only after the run answered.** A run that fails or is refused leaves its items new, so the next poll
   tries them again. After 3 failed runs on an item it is marked seen anyway, with a `watch_error` saying so.
 - **Errors retry at the next interval**, not every minute: the poll time is recorded either way.

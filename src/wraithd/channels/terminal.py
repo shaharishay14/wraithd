@@ -16,6 +16,7 @@ import sys
 import time
 
 from wraithd.core import compaction
+from wraithd.core.silent import hold_back, is_silent
 from wraithd.mcp.client import McpConnections
 from wraithd.memory import distill
 from wraithd.run import Runtime, run, start_warm_session
@@ -61,8 +62,9 @@ class Terminal:
         self.say('New conversation.')
 
     def answered(self, rt: Runtime, result, state: dict) -> None:
-        # A streamed answer is already on screen; a refusal or failure message never streamed
-        self.say('' if state['streamed'] else result.answer)
+        # A streamed answer is already on screen; a refusal or failure message never streamed; NO_REPLY prints nothing
+        if not is_silent(result.answer):
+            self.say('' if state['streamed'] else result.answer)
 
 
 def _approval_card(data: dict) -> str:
@@ -141,10 +143,13 @@ async def _session(rt: Runtime, terminal: Terminal, mcp, warming: list) -> str:
             rt.store.add_message(conversation.id, 'user', message)
             history = await compaction.history_for(rt.store, conversation.id, rt.completer('compaction'))
             state = {'streamed': False}
-            result = await run(rt, message, history=history, callback=make_callback(rt, terminal, state),
-                               source='chat', mcp=mcp, conversation=conversation.id)
+            callback = hold_back(make_callback(rt, terminal, state))  # text that could be NO_REPLY waits
+            result = await run(rt, message, history=history, callback=callback, source='chat', mcp=mcp,
+                               conversation=conversation.id)
+            await callback.finish(result.answer)
             terminal.answered(rt, result, state)
-            rt.store.add_message(conversation.id, 'assistant', result.answer, run_id=result.run_id)
+            if not is_silent(result.answer):  # NO_REPLY stays out of the history (core/silent.py)
+                rt.store.add_message(conversation.id, 'assistant', result.answer, run_id=result.run_id)
     finally:
         await _remember(rt, terminal, conversation.id)
     return conversation.id
@@ -361,7 +366,7 @@ class RichTerminal(Terminal):
         view = state.get('view')
         if view:
             view.close()
-        if not state['streamed']:
+        if not state['streamed'] and not is_silent(result.answer):
             self.console.print(Answer(result.answer))
         events = rt.store.run_events(result.run_id)
         seconds = time.monotonic() - view.started if view else 0.0

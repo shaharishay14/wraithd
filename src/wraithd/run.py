@@ -47,7 +47,8 @@ MCP_DESCRIPTIONS = 'MCP tool descriptions'  # the taint source when MCP tools ar
 BASE_INSTRUCTIONS = (
     'You are wraithd, a personal assistant that runs on the user\'s own computer. Be direct and useful. '
     'Use your tools when they help; never claim you did something a tool didn\'t do. '
-    'When there is one right next step or question, end with it; never a generic "anything else?".\n'
+    'When there is one right next step or question, end with it; never a generic "anything else?". '
+    'If you already messaged the user with notify_owner, end with exactly NO_REPLY instead of a recap.\n'
 )
 TELEGRAM_PAIRED = 'telegram.owner_chat'  # channels/telegram.OWNER_CHAT (not imported: channels import this module)
 

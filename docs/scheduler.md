@@ -21,7 +21,8 @@
   `notify_owner` during the run.
 - **Silent runs:** an answer that is exactly `NO_REPLY` (after trimming spaces) delivers nothing, like the
   heartbeat's `HEARTBEAT_OK`. A skill that sends its items with `notify_owner` ends a scheduled run that way, so no
-  extra "⏰" message follows them. The run and its answer are still in the run log (`wraithd runs show`).
+  extra "⏰" message follows them. The run and its answer are still in the run log (`wraithd runs show`). The same
+  rule holds on every channel (core/silent.py: Telegram, the terminal chat and the web chat show nothing for it).
 - **Tests** call `tick(now)` with a fake clock: nothing fires before its time, it fires once at it, and a terminal
   session's schedule fires in a daemon with no terminal, answering in the owner's (fake) Telegram chat. A
   `NO_REPLY` answer sends nothing and any other answer still does (`tests/daemon/test_scheduler.py`).

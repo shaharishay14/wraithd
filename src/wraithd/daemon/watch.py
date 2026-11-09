@@ -38,6 +38,7 @@ from zoneinfo import ZoneInfo
 from wraithd.config import ConfigError
 from wraithd.core import egress
 from wraithd.core import events as ev
+from wraithd.core.silent import NO_REPLY, is_silent
 from wraithd.daemon.heartbeat import QUIET, in_quiet_hours
 from wraithd.mcp.client import McpConnections
 from wraithd.schedules import local_timezone
@@ -46,7 +47,6 @@ logger = logging.getLogger(__name__)
 
 SOURCE = 'watch'
 TICK_SECONDS = 60  # the job checks this often which watches are due
-NO_REPLY = 'NO_REPLY'  # the run's answer when there is nothing to tell the owner (same rule as schedules)
 MIN_MINUTES = 5
 MAX_FEED_BYTES = 1_000_000
 MAX_SEEN = 5_000  # seen keys kept per watch, newest
@@ -323,7 +323,7 @@ class Watcher:
             save_state(self.rt.store, watch.name, state)
             return result.run_id, False
         answer = result.answer.strip()
-        if answer and answer != NO_REPLY:
+        if answer and not is_silent(answer):
             await self.rt.notifier.deliver(f'👀 {watch.name}\n\n{answer}')
         return result.run_id, True
 

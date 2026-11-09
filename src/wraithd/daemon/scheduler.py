@@ -14,12 +14,13 @@ import logging
 from datetime import UTC, datetime
 
 from wraithd import schedules
+from wraithd.core.silent import NO_REPLY, is_silent
 from wraithd.run import run
 
 logger = logging.getLogger(__name__)
 
 TICK_SECONDS = 60
-SILENT = 'NO_REPLY'  # a scheduled run's answer that delivers nothing
+SILENT = NO_REPLY  # a scheduled run's answer that delivers nothing (core/silent.py)
 
 
 class Scheduler:
@@ -39,7 +40,7 @@ class Scheduler:
         except Exception:
             logger.exception(f'Schedule {schedule.id} failed')
             return None
-        if result.answer.strip() == SILENT:
+        if is_silent(result.answer):
             logger.info(f'Schedule {schedule.id} answered {SILENT}: nothing sent')
         else:
             await self.rt.notifier.deliver(f'⏰ {schedule.message}\n\n{result.answer}')

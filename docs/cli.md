@@ -67,6 +67,10 @@ workspace. Each tool call is one dim line with a spinner, then `✓ tool  allowe
 third-party text, or third-party text read earlier in the run, is a red warning at the top of the box. After each
 answer, a dim footer: tokens and time.
 
+An answer of exactly `NO_REPLY` (the run already messaged you with `notify_owner`) prints nothing, in both looks:
+text that could still become `NO_REPLY` waits until it can't, so it never flashes on screen. The rich look still
+shows the tool lines and the footer. The conversation keeps no assistant message for it.
+
 A message that starts with a path (`/etc/hosts what's in it?`) goes to the agent; a single unknown `/word` is
 taken as a typo.
 

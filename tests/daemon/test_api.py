@@ -68,6 +68,17 @@ async def test_chat_streams_the_answer_and_keeps_the_conversation(make_daemon):
                                                              ('user', 'still there?'), ('assistant', 'Still here.')]
 
 
+async def test_no_reply_after_notify_owner_shows_nothing_in_the_web_chat(make_daemon):
+    model = ScriptedModel([[call('1', 'notify_owner', {'message': 'Sent 1 item.'})], [say('NO_REPLY')]])
+    daemon, client = await make_daemon(model)
+    events = events_of((await client.post('/api/chat', json={'message': 'run news-feed'})).text)
+    assert [event for event, _ in events if event == 'delta'] == []  # NO_REPLY never streamed
+    assert events[-1] == ('done', {'run_id': events[0][1]['run_id'], 'outcome': 'answered', 'answer': '',
+                                   'silent': True})
+    messages = (await client.get(f'/api/conversations/{events[0][1]["conversation_id"]}/messages')).json()
+    assert [m['role'] for m in messages] == ['user']
+
+
 async def test_an_approval_in_the_web_chat_is_decided_through_the_api(make_daemon, home):
     model = ScriptedModel([[call('1', 'skill_adjust', {'skill': 'weekly-review', 'rule': 'Five lines at most'})],
                            [say('Saved: five lines at most.')]])

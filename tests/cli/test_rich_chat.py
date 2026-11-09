@@ -37,6 +37,14 @@ async def test_an_answer_is_markdown_with_a_header_and_a_footer(make_runtime, ri
     assert out.rstrip().endswith('s') and 's\n' in out  # the footer: time (and tokens, when the model reports them)
 
 
+async def test_no_reply_prints_no_answer(make_runtime, rich):
+    model = ScriptedModel([[call('1', 'notify_owner', {'message': 'Sent 1 item.'})], [say('NO_REPLY')], [FACTS]])
+    with rich('run news-feed' + ENTER + CTRL_D) as term:
+        await chat(make_runtime(model), term)
+    out = term.out.getvalue()
+    assert 'NO_REPLY' not in out and 'notify_owner' in out  # the tool line stays; no answer after it
+
+
 async def test_an_approval_is_a_card_and_deny_is_the_default(make_runtime, rich, monkeypatch):
     monkeypatch.setattr(gate_module, 'APPROVAL_POLL_SECONDS', 0.01)
     model = ScriptedModel([[ADJUST], [say('Not saved.')], [FACTS]])

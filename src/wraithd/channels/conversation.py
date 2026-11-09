@@ -1,12 +1,13 @@
 """
 One message in a conversation, the same way for every channel: store it, compact the history, run, store the
-answer. Conversations run one message at a time, so a second message waits for the first answer instead of
-racing it (the web API refuses it instead of waiting, see daemon/api.py).
+answer (none for exactly NO_REPLY: core/silent.py). Conversations run one message at a time, so a second message
+waits for the first answer instead of racing it (the web API refuses it instead of waiting, see daemon/api.py).
 """
 
 import asyncio
 
 from wraithd.core import compaction
+from wraithd.core.silent import is_silent
 from wraithd.run import RunResult, Runtime, run
 
 _locks: dict[str, asyncio.Lock] = {}
@@ -22,5 +23,6 @@ async def reply(rt: Runtime, conversation_id: str, message: str, **run_options) 
         rt.store.add_message(conversation_id, 'user', message)
         history = await compaction.history_for(rt.store, conversation_id, rt.completer('compaction'))
         result = await run(rt, message, history=history, conversation=conversation_id, **run_options)
-        rt.store.add_message(conversation_id, 'assistant', result.answer, run_id=result.run_id)
+        if not is_silent(result.answer):  # NO_REPLY stays out of the history
+            rt.store.add_message(conversation_id, 'assistant', result.answer, run_id=result.run_id)
         return result

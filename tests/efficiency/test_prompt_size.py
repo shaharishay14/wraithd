@@ -22,8 +22,9 @@ OWNER_SKILLS = {
 }
 BODY = 'Step 1. Read the sources.\nStep 2. Write the digest.'
 # Tokens (core/tokens.py) of the whole system prompt. 0.1.0 had 414 (empty) and 451 (typical); 0.1.1 adds the
-# setup line, the next-step rule and the off-skills line
-BUDGET = {'empty': 530, 'typical': 575}
+# setup line, the next-step rule and the off-skills line, then the no-recap rule (NO_REPLY after notify_owner,
+# 21 tokens)
+BUDGET = {'empty': 551, 'typical': 596}
 
 
 def write_owner_skills(home: Home) -> None:
