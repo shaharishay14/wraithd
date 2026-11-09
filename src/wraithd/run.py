@@ -431,6 +431,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         own += [propose_tool, adjust_tool] if owner else []
         # Tools that need this run's gate or event log. Each worker adds its own, inside its block only.
         # >>> security
+        gate.trust_owner_skills(skills)  # links in the owner's own skill files count as the owner's (gate.py)
         # <<< security
         # >>> efficiency
         # <<< efficiency

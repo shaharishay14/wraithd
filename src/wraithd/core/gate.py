@@ -203,6 +203,9 @@ URL_FETCH_TOOLS = {
     # >>> sandbox
     # <<< sandbox
 }
+SKILL_LOAD = 'skill_load'  # its result can carry the owner's own skill text (trust_owner_skills)
+# The start of a skill_load result (skills/tools.py): which skill, and its instructions or which of its files
+SKILL_RESULT = re.compile(r'^\{"skill": "([a-z0-9]+(?:-[a-z0-9]+)*)", "(file|instructions)": ("(?:[^"\\]|\\.)*")?')
 URL_PATTERN = re.compile(r'https?://[^\s<>"\'`)\]}]+')
 
 # Argument names that say where an action goes: recipient_email, extra_recipients, to_email, cc, bcc,
@@ -388,6 +391,10 @@ class PermissionGate:
         # found here (links, recipients) were chosen by the owner, not by an attacker.
         self.user_text = '\n'.join([user_message or '', instructions or ''] + _history_user_texts(chat_history)).lower()
         self.user_urls = extract_urls(self.user_text)
+        # Links in the owner's own skill files count as the owner's too, once skill_load has returned them this run
+        # (trust_owner_skills, record_output). Exact, not lowercased: only the link as the owner wrote it.
+        self.owner_skills: dict[str, Any] = {}  # skill name -> its SkillSpec, for skills with source 'user'
+        self.owner_skill_urls: set[str] = set()
 
         # Third-party text seen this run (tool, lowercased content), to say where a value came from
         self.untrusted_texts: list[tuple[str, str]] = []
@@ -425,6 +432,38 @@ class PermissionGate:
         for url in extract_urls(text):
             self.url_sources.setdefault(url, source)
 
+    def trust_owner_skills(self, skills) -> None:
+        """
+        The skills this run offers. Only the owner's own (source 'user': a folder in workspace/skills/, which the
+        agent's tools can't write to) count: not the built-in library (wraithd's authors wrote those links, not the
+        owner), and drafts in _proposed/ are never loaded as skills. Of each, only SKILL.md's instructions and its
+        extra .md files, as read when the run started: never your-way.md, which skill_adjust (the agent) writes.
+        """
+        self.owner_skills = {skill.name: skill for skill in skills if getattr(skill, 'source', '') == 'user'}
+
+    def _owner_skill_links(self, text: str) -> set[str]:
+        """
+        The links in a skill_load result that the owner wrote in that skill's own files: each one in the loaded
+        file (SKILL.md's instructions, or the extra .md file asked for), and in the result exactly as written there.
+        Read from the result's start, so a result cut short (a long skill, capped) still counts for what it shows.
+        """
+        match = SKILL_RESULT.match(text or '')
+        skill = self.owner_skills.get(match.group(1)) if match else None
+        if skill is None:
+            return set()
+        if match.group(2) == 'file':
+            try:
+                written = skill.files.get(json.loads(match.group(3) or '""'))
+            except ValueError:
+                return set()
+        else:
+            written = skill.instructions  # SKILL.md's own text: the Your way rules after it don't count
+        if not isinstance(written, str):
+            return set()
+        # as the result spells it: JSON-escaped (skill_load's json.dumps escapes non-ASCII; either form counts)
+        return {url for url in extract_urls(written)
+                if json.dumps(url)[1:-1] in text or json.dumps(url, ensure_ascii=False)[1:-1] in text}
+
     def access(self, tool_name: str) -> ToolAccess:
         """This tool's tier in this run: its MCP tier if it has one, else the name rules."""
         return self.tool_access.get(tool_name) or classify_tool(tool_name)
@@ -458,6 +497,8 @@ class PermissionGate:
         seen = content if seen is None else seen
         for url in extract_urls(seen):
             self.url_sources.setdefault(url, tool_name)
+        if tool_name == SKILL_LOAD and self.owner_skills:
+            self.owner_skill_urls |= self._owner_skill_links(seen)
         if returns_private_data(tool_name) and tool_name not in self.private_data_sources:
             self.private_data_sources.append(tool_name)
         if not (returns_untrusted_content(tool_name) if untrusted is None else untrusted):
@@ -576,7 +617,7 @@ class PermissionGate:
             return None
 
         url = normalize_url(arguments.get(url_argument, ''))
-        if url in self.user_urls:
+        if url in self.user_urls or url in self.owner_skill_urls:
             return None
 
         source = self.url_sources.get(url)
