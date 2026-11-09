@@ -176,3 +176,146 @@ async def test_few_actions_are_still_given_directly(make_runtime):
     model, events = await discovery_run(make_runtime, [[say('Hi')]], 'hi', [], actions=2)
     assert 'GMAIL_SEND_EMAIL' in model.tool_names[0] and 'find_app_actions' not in model.tool_names[0]
     assert of_type(events, ev.CONTEXT_BUILT)[0].payload['disclosure'] == 'direct'
+
+
+# --- recent actions: what the owner's runs used last week is offered directly ---------------------------------
+
+def past_run(store, calls, days_ago=1, owner=True):
+    """A finished run `days_ago` days back that called each (tool, allowed) in `calls`."""
+    from datetime import datetime, timedelta
+    when = datetime.now().astimezone() - timedelta(days=days_ago)
+    run_id = f'past-{days_ago}-{owner}-{len(calls)}-{calls[0][0] if calls else ""}'
+    events = [ev.Event(0, ev.RUN_START, {'source': 'chat', 'message': 'x', 'owner': owner}, when)]
+    events += [ev.Event(i + 1, ev.TOOL_CALL, {'tool': tool, 'arguments': {}, 'allowed': allowed}, when)
+               for i, (tool, allowed) in enumerate(calls)]
+    store.save_events(run_id, events)
+
+
+async def recent_run(rt, model, owner=True, mcp=None, **kwargs):
+    if mcp is not None:
+        return await run_once(rt, 'what is new?', owner=owner, builtins=False, mcp=mcp, **kwargs)
+    return await run_once(rt, 'what is new?', owner=owner, builtins=False, app_tools=fake_app_tools([]),
+                          app_guides=GUIDES, **kwargs)
+
+
+async def test_an_action_used_yesterday_is_offered_directly(make_runtime):
+    model = ScriptedModel([[call('1', 'GMAIL_FETCH_EMAILS', {'query': 'is:unread'})], [say('Two new emails.')]])
+    rt = make_runtime(model)
+    past_run(rt.store, [('GMAIL_FETCH_EMAILS', True), ('GMAIL_FETCH_EMAILS', True), ('get_weather', True)])
+    _, events = await recent_run(rt, model)
+    offered = model.tool_names[0]
+    assert 'GMAIL_FETCH_EMAILS' in offered and 'get_weather' not in offered  # only app actions of this run
+    assert {'find_app_actions', 'describe_app_action', 'run_app_action'} <= set(offered)  # the rest still there
+    assert 'GMAIL_SEND_EMAIL' not in offered
+    built = of_type(events, ev.CONTEXT_BUILT)[0].payload
+    assert built['disclosure'] == 'discovery' and built['recent_actions'] == ['GMAIL_FETCH_EMAILS']
+    assert 'used recently are in your tool list' in model.instructions[0]
+    # Called straight away: through the gate, logged as the real action
+    assert [(e.payload['tool'], e.payload['allowed']) for e in of_type(events, ev.TOOL_CALL)] == \
+        [('GMAIL_FETCH_EMAILS', True)]
+
+
+async def test_run_app_action_takes_an_offered_action_without_describe(make_runtime):
+    model = ScriptedModel([[call('1', 'run_app_action', {'action': 'GMAIL_FETCH_EMAILS', 'arguments': {}})],
+                           [say('ok')]])
+    rt = make_runtime(model)
+    past_run(rt.store, [('GMAIL_FETCH_EMAILS', True)])
+    _, events = await recent_run(rt, model)
+    assert [e.payload.get('rejected_by') for e in of_type(events, ev.TOOL_CALL)] == [None]
+
+
+async def test_old_denied_and_other_peoples_calls_dont_count(make_runtime):
+    model = ScriptedModel([[say('Hi')]])
+    rt = make_runtime(model)
+    past_run(rt.store, [('GMAIL_SEND_EMAIL', True)], days_ago=8)  # older than a week
+    past_run(rt.store, [('GMAIL_FETCH_EMAILS', False)])  # the gate refused it
+    past_run(rt.store, [('SLACK_LIST_CHANNELS_1', True)], owner=False)  # not the owner's run
+    past_run(rt.store, [('SLACK_LIST_CHANNELS_2', True)], days_ago=0)  # today: counts from tomorrow
+    _, events = await recent_run(rt, model)
+    assert 'recent_actions' not in of_type(events, ev.CONTEXT_BUILT)[0].payload
+    assert not any(name.startswith(('GMAIL_', 'SLACK_')) for name in model.tool_names[0])
+    assert 'Their actions are not listed here' in model.instructions[0]
+
+
+async def test_the_cap_holds_most_used_first(make_runtime):
+    model = ScriptedModel([[say('Hi')]])
+    rt = make_runtime(model)
+    calls = [(f'SLACK_LIST_CHANNELS_{i}', True) for i in range(13) for _ in range(i + 1)]  # 12 used most
+    past_run(rt.store, calls)
+    _, events = await recent_run(rt, model)
+    recent = of_type(events, ev.CONTEXT_BUILT)[0].payload['recent_actions']
+    assert recent == [f'SLACK_LIST_CHANNELS_{i}' for i in range(12, 2, -1)]  # 10, most used first
+    assert {name for name in model.tool_names[0] if name.startswith('SLACK_')} == set(recent)
+
+
+async def test_recent_actions_off_and_allowed_tools(make_runtime, home):
+    model = ScriptedModel([[say('Hi')]])
+    rt = make_runtime(model)
+    past_run(rt.store, [('GMAIL_FETCH_EMAILS', True), ('GMAIL_SEND_EMAIL', True)])
+    allowed = {f'SLACK_LIST_CHANNELS_{i}' for i in range(13)} | {'GMAIL_FETCH_EMAILS'}
+    _, events = await recent_run(rt, model, allowed_tools=allowed)
+    assert of_type(events, ev.CONTEXT_BUILT)[0].payload['recent_actions'] == ['GMAIL_FETCH_EMAILS']
+
+    home.config_path.write_text('[mcp]\nrecent_actions = 0\n')
+    model = ScriptedModel([[say('Hi')]])
+    _, events = await recent_run(make_runtime(model), model)
+    assert 'recent_actions' not in of_type(events, ev.CONTEXT_BUILT)[0].payload
+
+
+async def test_a_non_owner_run_gets_no_recent_actions(make_runtime):
+    model = ScriptedModel([[say('Hi')]])
+    rt = make_runtime(model)
+    past_run(rt.store, [('GMAIL_FETCH_EMAILS', True)])
+    _, events = await recent_run(rt, model, owner=False)
+    assert 'recent_actions' not in of_type(events, ev.CONTEXT_BUILT)[0].payload
+    assert 'GMAIL_FETCH_EMAILS' not in model.tool_names[0]
+
+
+async def test_recent_third_party_descriptions_taint_the_run(make_runtime, monkeypatch):
+    from wraithd.core.gate import PermissionGate, ToolAccess
+    from wraithd.mcp.client import Connected
+
+    added = []
+    original = PermissionGate.add_untrusted_input
+
+    def spy(self, source, text, private=True):
+        added.append((source, text, private))
+        return original(self, source, text, private)
+
+    monkeypatch.setattr(PermissionGate, 'add_untrusted_input', spy)
+    tools = fake_app_tools([])
+    mcp = Connected(tools=tools, access={tool.name: ToolAccess.READ for tool in tools},
+                    origin={tool.name: ('apps', tool.name.lower()) for tool in tools})
+    model = ScriptedModel([[say('Hi')]])
+    rt = make_runtime(model)
+    past_run(rt.store, [('GMAIL_FETCH_EMAILS', True)])
+    _, events = await recent_run(rt, model, mcp=mcp)
+    assert of_type(events, ev.CONTEXT_BUILT)[0].payload['untrusted_context'] == ['MCP tool descriptions']
+    # Only the offered action's description, and as untrusted text, not the owner's private data
+    assert added == [('MCP tool descriptions', ACTIONS['GMAIL_FETCH_EMAILS'][0], False)]
+
+
+async def test_without_recent_actions_discovery_stays_untainted(make_runtime):
+    tools = fake_app_tools([])
+    from wraithd.core.gate import ToolAccess
+    from wraithd.mcp.client import Connected
+    mcp = Connected(tools=tools, access={tool.name: ToolAccess.READ for tool in tools},
+                    origin={tool.name: ('apps', tool.name.lower()) for tool in tools})
+    model = ScriptedModel([[say('Hi')]])
+    _, events = await recent_run(make_runtime(model), model, mcp=mcp)
+    assert of_type(events, ev.CONTEXT_BUILT)[0].payload['untrusted_context'] == []
+
+
+def test_the_recent_set_is_the_same_all_day():
+    from datetime import datetime
+
+    from wraithd.store import SQLiteStore
+    store = SQLiteStore()
+    morning = datetime.now().astimezone().replace(hour=8, minute=0)
+    names = set(ACTIONS)
+    past_run(store, [('GMAIL_FETCH_EMAILS', True)])
+    assert disclosure.recent_actions(store, names, now=morning) == ['GMAIL_FETCH_EMAILS']
+    past_run(store, [('GMAIL_SEND_EMAIL', True)] * 3, days_ago=0)  # used today, more than the other
+    evening = morning.replace(hour=23, minute=59)
+    assert disclosure.recent_actions(store, names, now=evening) == ['GMAIL_FETCH_EMAILS']
+    assert disclosure.recent_actions(store, names, limit=0, now=evening) == []

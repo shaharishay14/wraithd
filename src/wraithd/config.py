@@ -199,6 +199,7 @@ class Config:
     shell_enabled: bool = False
     shell_timeout: int = 30
     mcp_servers: tuple = ()  # mcp.config.McpServer, from the [mcp.servers.*] blocks
+    mcp_recent_actions: int = 10  # [mcp] recent_actions: app actions used last week, offered directly (0: off)
     telegram_commands: tuple = TELEGRAM_COMMANDS  # (name, message) pairs, from [telegram.commands]
     daemon_port: int = 7878
     dev_origin: str = ''
@@ -342,6 +343,9 @@ def load_config(home: Home) -> Config:
         mcp_servers = parse_servers(data)
     except McpConfigError as e:
         raise ConfigError(str(e)) from None
+    recent_actions = (data.get('mcp') or {}).get('recent_actions', Config.mcp_recent_actions)
+    if not isinstance(recent_actions, int) or isinstance(recent_actions, bool) or recent_actions < 0:
+        raise ConfigError('[mcp] recent_actions must be a number, 0 or more (0 turns it off).')
     sections = load_sections(data)
     daily_tokens = _positive_or_none(budget.get('daily_tokens'), 'daily_tokens')
     if 'daily_tokens' not in budget and sections.get('engine', {}).get('name') == 'claude-code':
@@ -349,6 +353,7 @@ def load_config(home: Home) -> Config:
     return Config(
         sections=sections,
         mcp_servers=mcp_servers,
+        mcp_recent_actions=recent_actions,
         telegram_commands=telegram_commands,
         daemon_port=port,
         dev_origin=dev_origin,

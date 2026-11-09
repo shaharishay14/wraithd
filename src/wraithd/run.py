@@ -592,14 +592,24 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
 
         use_discovery = len(app_tools) > disclosure.DIRECT_ACTIONS_LIMIT
         untrusted_context = []  # third-party text in what the model is given before any tool runs
+        recent = []  # app actions the owner's runs used last week: offered directly in discovery mode too
         if use_discovery:
             # App actions stay out of the model's tool list: run_app_action calls their guarded versions
             catalog = disclosure.AppCatalog(guard_function_tools(list(app_tools), gate, log, after_result,
                                                                  result_hooks=result_hooks),
                                             guides=app_guides, third_party=mcp.origin if mcp else ())
-            find_tool, describe_tool, run_tool = disclosure.discovery_tools(catalog, log, label=gate.label)
+            if owner:  # the same all day (disclosure.recent_window), so the tool list and the warm session hold
+                recent = disclosure.recent_actions(rt.store, catalog.tools, rt.config.mcp_recent_actions)
+            find_tool, describe_tool, run_tool = disclosure.discovery_tools(catalog, log, label=gate.label,
+                                                                            offered=recent)
             guarded = guard_function_tools([*tools, *own, find_tool, describe_tool], gate, log, after_result,
-                                           prechecks, result_hooks) + [run_tool]
+                                           prechecks, result_hooks) + [catalog.tools[name] for name in recent] \
+                + [run_tool]
+            third_party = [catalog.tools[name].description or '' for name in recent if name in catalog.third_party]
+            if third_party:
+                # Only the recent actions' descriptions are in the tool list: third-party text, as in direct mode
+                gate.add_untrusted_input(MCP_DESCRIPTIONS, '\n'.join(third_party), private=False)
+                untrusted_context.append(MCP_DESCRIPTIONS)
         else:
             guarded = guard_function_tools([*tools, *app_tools, *own], gate, log, after_result, prechecks,
                                            result_hooks)
@@ -623,7 +633,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
                             + sections[tokens.SKILLS])
         if use_discovery:
             instructions += disclosure.discovery_instructions(sorted({disclosure.app_of(t.name) for t in app_tools}),
-                                                              len(app_tools))
+                                                              len(app_tools), recent=bool(recent))
         instructions += sections[tokens.PROFILE]
         if warm_up:  # both chat models' sessions, side by side: the first message may need either
             if not (use_claude and lease):
@@ -640,6 +650,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
                    **({'engine': 'claude-code'} if use_claude else {}),
                    **({'model_reason': model_reason} if model_reason else {}),
                    disclosure='discovery' if use_discovery else 'direct', app_actions=len(app_tools),
+                   **({'recent_actions': recent} if recent else {}),
                    tools_offered=[tool.name for tool in guarded], tool_schema_chars=disclosure.schema_chars(guarded),
                    memory_notes=len(notes) if owner else None, skills_offered=[skill.name for skill in skills],
                    instructions_chars=len(instructions), untrusted_context=untrusted_context,

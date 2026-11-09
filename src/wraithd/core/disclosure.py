@@ -13,11 +13,16 @@ guarded tool as a direct call, so the permission gate and the event log see the 
 
 A third-party action's description (and its app's guide) is written by whoever runs the server, so describe marks
 its result untrusted: the gate wraps it and the run is tainted from then on, like after reading an email.
+
+The actions the owner's runs used in the last week are offered directly as well (recent_actions): a calendar question
+goes straight to the calendar action, not through find and describe first. Their descriptions are then in the
+tool list from the start, so run() marks the run untrusted, as it does when every action is offered directly.
 """
 
 import difflib
 import json
 import re
+from datetime import datetime, timedelta
 from typing import Any
 
 from agents import FunctionTool
@@ -28,6 +33,11 @@ from wraithd.core.gate import ToolAccess, classify_tool, parse_arguments
 # Up to this many actions, schemas go to the model directly: discovery costs round trips, and with a
 # handful of tools the schemas are cheap. Past it, the long tail is discovered on demand.
 DIRECT_ACTIONS_LIMIT = 12
+
+# Recent actions: called by the owner's runs, and allowed, in the RECENT_DAYS before today. Computed from whole days,
+# so the set (and the tool list) stays the same all day: the warm Claude Code session restarts at most once a day.
+RECENT_DAYS = 7
+RECENT_LIMIT = 10  # [mcp] recent_actions' default
 
 FIND_LIMIT = 8
 SUMMARY_CHARS = 120
@@ -129,12 +139,31 @@ def described_actions(events) -> set:
             for event in events if event.type == ev.TOOL_CALL and event.payload.get('tool') == DESCRIBE}
 
 
-def discovery_tools(catalog: AppCatalog, log: ev.EventLog, label=None) -> list[FunctionTool]:
+def recent_window(now: datetime) -> tuple[datetime, datetime]:
+    """From local midnight RECENT_DAYS ago up to this local midnight: today's calls count from tomorrow."""
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight - timedelta(days=RECENT_DAYS), midnight
+
+
+def recent_actions(store, names, limit: int = RECENT_LIMIT, now: datetime | None = None) -> list[str]:
+    """
+    The actions among `names` that the owner's runs called, and the gate allowed, in the recent window: most
+    used first, at most `limit` (0: none). One indexed query over the event log.
+    """
+    if limit <= 0 or not names:
+        return []
+    since, until = recent_window(now or datetime.now().astimezone())
+    return [tool for tool, _ in store.tools_used(since, until) if tool in names][:limit]
+
+
+def discovery_tools(catalog: AppCatalog, log: ev.EventLog, label=None, offered=()) -> list[FunctionTool]:
     """
     The three tools that replace the catalog's schemas. find and describe still go through the
     permission gate like any tool (they're read-only); run is a dispatcher whose check is the
-    guarded action it calls.
+    guarded action it calls. offered: actions whose schemas the model already has (recent ones), which
+    run_app_action takes without a describe first.
     """
+    offered = set(offered)
     label = label or (lambda name: ACCESS_LABELS[classify_tool(name)])  # the run's gate knows MCP tiers
     guides_shown = set()  # apps whose guide this run's model has already seen
 
@@ -189,7 +218,7 @@ def discovery_tools(catalog: AppCatalog, log: ev.EventLog, label=None) -> list[F
             problem = json.dumps({'error': f'There is no action {action!r}.',
                                   'did_you_mean': catalog.suggestions(action),
                                   'hint': f'Use {FIND} to search for actions.'})
-        elif action not in described_actions(log.events):
+        elif action not in offered and action not in described_actions(log.events):
             problem = json.dumps({'error': f'{action} has not been described in this run.',
                                   'hint': f'Call {DESCRIBE} with "action": "{action}" first, then run it.'})
         else:
@@ -246,11 +275,13 @@ def discovery_tools(catalog: AppCatalog, log: ev.EventLog, label=None) -> list[F
     ]
 
 
-def discovery_instructions(apps: list[str], action_count: int) -> str:
+def discovery_instructions(apps: list[str], action_count: int, recent: bool = False) -> str:
     """The short part of the system prompt that explains the flow (the tools enforce it)."""
+    listed = ('The ones used recently are in your tool list: call those directly. For the rest: '
+              if recent else 'Their actions are not listed here. To use one: ')
     return (
         f"\nCONNECTED APPS: {', '.join(apps)} ({action_count} actions).\n"
-        f"Their actions are not listed here. To use one: {FIND} (search) -> {DESCRIBE} (see its arguments) "
+        f"{listed}{FIND} (search) -> {DESCRIBE} (see its arguments) "
         f"-> {RUN} (do it). Search with what you want to do, in plain words.\n"
     )
 
