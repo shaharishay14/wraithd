@@ -6,9 +6,13 @@ own Claude Pro or Max login (claude_options.py has the rules). Claude Code sees 
 Two ways to run:
 - run_once(): one Claude Code process for one run. Background work (heartbeat, schedules), rt.complete() (memory
   distill, compaction) and any run without a conversation.
-- WarmSession: one Claude Code process per conversation, kept between messages so only the first one pays the
-  ~4.6s start. SessionPool (owned by the Runtime) keys them by conversation id and closes idle ones. `wraithd chat`
-  starts its conversation's session as soon as it opens (run.warm_up), so the start overlaps the owner's typing.
+- WarmSession: one Claude Code process per conversation and model, kept between messages so only the first one
+  pays the ~4.6s start. Claude Code fixes its model when it connects, so a conversation with [engine] quick_model on
+  keeps up to two: chat_model's and quick_model's (run.py picks one per message). SessionPool (owned by the
+  Runtime) keys them by (conversation id, model), shares one taint per conversation between them, and closes a
+  conversation's sessions together (idle, /new, /quit, shutdown). `wraithd chat` starts its conversation's sessions
+  as soon as it opens (run.warm_up), so the start overlaps the owner's typing; a channel without that (Telegram)
+  starts the other model's session right after the first answer (SessionPool.prestart).
 
 wraithd stays the source of truth: its (compacted) history goes to a new session as a transcript, and its event
 log records every tool call and the tokens used, so the budgets count.
@@ -226,11 +230,12 @@ class WarmSession:
         claude = sdk()
         self.slot = RunSlot()
         server, self.names = bridge(guarded, self.slot)
-        self.key = (tuple(self.names), instructions, model)
+        self.key, self.model = (tuple(self.names), instructions, model), model
         self.client = claude.ClaudeSDKClient(options=claude_options(instructions, server, self.names, model,
                                                                     stream=True, max_turns=max_turns))
         self.lock = asyncio.Lock()
         self.connected, self.fresh, self.last_used = False, True, time.monotonic()
+        self.closed = False  # close() ran: a start() that hadn't begun yet never connects
         self.answering: asyncio.Task | None = None  # the task in ask() or start(), while it runs
         self.early_seconds: float | None = None  # how long start()'s connect took, until the first message logs it
 
@@ -238,7 +243,7 @@ class WarmSession:
         """Connects now, before any message (`wraithd chat` as it opens), so Claude Code starts while the owner
         types. A message that comes first waits for it (the lock). Its time is logged by the first message."""
         async with self.lock:
-            if self.connected:
+            if self.connected or self.closed:
                 return
             self.answering = asyncio.current_task()
             try:
@@ -287,6 +292,7 @@ class WarmSession:
 
     async def close(self) -> None:
         """Disconnects, after any message still answering has stopped (cancelled) and closed its messages."""
+        self.closed = True
         answering = self.answering
         if answering is not None and answering is not asyncio.current_task() and not answering.done():
             answering.cancel()
@@ -302,7 +308,7 @@ class WarmSession:
 
 
 class Lease:
-    """One run's hold on a conversation's warm session (SessionPool.conversation)."""
+    """One run's hold on a conversation's warm sessions (SessionPool.conversation). key: the conversation id."""
 
     def __init__(self, pool: 'SessionPool', key: str):
         self.pool, self.key = pool, key
@@ -313,15 +319,8 @@ class Lease:
         return list(self.pool.taint.get(self.key, []))
 
     async def session(self, instructions: str, guarded, model: str, max_turns: int = MAX_AGENT_STEPS) -> WarmSession:
-        """The conversation's session, or a new one when there is none or its tools, prompt or model differ."""
-        current = self.pool.sessions.get(self.key)
-        if current is not None and not current.fits(instructions, guarded, model):
-            await self.pool.drop(self.key)
-            current = None
-        if current is None:
-            current = self.pool.sessions[self.key] = WarmSession(instructions, guarded, model, max_turns)
-            self.pool.start_reaper()
-        return current
+        """The conversation's session on this model, or a new one when there is none or its tools or prompt differ."""
+        return await self.pool.session(self.key, instructions, guarded, model, max_turns)
 
     async def warm(self, instructions: str, guarded, model: str, max_turns: int = MAX_AGENT_STEPS) -> bool:
         """Starts the conversation's session before its first message. False if it couldn't: the session is
@@ -331,19 +330,19 @@ class Lease:
             return True
         except Exception as e:
             logger.info(f'Claude Code could not start early: {type(e).__name__}: {e}')
-            await self.pool.drop(self.key)
+            await self.pool.drop(self.key, model)
             return False
         except BaseException:  # cancelled (the chat ended before its first message): closed now, not left half open
-            await self.pool.drop(self.key)
+            await self.pool.drop(self.key, model)
             raise
 
     async def ask(self, session: WarmSession, text: str, guarded, *, untrusted_texts=lambda: (), **options):
         """session.ask(); any failure closes and drops the session, so the next message starts fresh. What the run
-        read from third parties is kept for the conversation's next messages either way."""
+        read from third parties is kept for the conversation's next messages either way, on either model."""
         try:
             return await session.ask(text, guarded, **options)
         except BaseException:
-            await self.pool.drop(self.key)
+            await self.pool.drop(self.key, session.model, only=session)
             raise
         finally:
             kept = self.pool.taint.setdefault(self.key, [])
@@ -351,12 +350,15 @@ class Lease:
 
 
 class SessionPool:
-    """The warm sessions, by conversation id. Owned by the Runtime; sessions unused for idle_minutes are closed."""
+    """The warm sessions, by (conversation id, model). Owned by the Runtime; a conversation whose sessions were all
+    unused for idle_minutes has them closed. Taint is per conversation: what one model's session read taints the
+    other's next run too."""
 
     def __init__(self, idle_minutes: int = 10):
         self.idle_seconds = idle_minutes * 60
-        self.sessions: dict[str, WarmSession] = {}
+        self.sessions: dict[tuple[str, str], WarmSession] = {}
         self.taint: dict[str, list[tuple[str, str]]] = {}
+        self._starting: set[asyncio.Task] = set()  # prestart()s under way
         self.locks: dict[str, asyncio.Lock] = {}
         self._reaper: asyncio.Task | None = None
         self._closing = False
@@ -367,18 +369,76 @@ class SessionPool:
         async with self.locks.setdefault(key, asyncio.Lock()):
             yield Lease(self, key)
 
-    async def drop(self, key: str) -> None:
-        session = self.sessions.pop(key, None)
-        if session is not None:
-            await session.close()
+    async def session(self, conversation: str, instructions: str, guarded, model: str,
+                      max_turns: int = MAX_AGENT_STEPS) -> WarmSession:
+        """The conversation's session on this model, or a new one when there is none or its tools or prompt differ
+        (only that model's session is replaced)."""
+        current = self.sessions.get((conversation, model))
+        if current is not None and not current.fits(instructions, guarded, model):
+            await self.drop(conversation, model)
+            current = None
+        if current is None:
+            current = self.sessions[(conversation, model)] = WarmSession(instructions, guarded, model, max_turns)
+            self.start_reaper()
+        return current
+
+    def models_of(self, conversation: str) -> list[str]:
+        """The models this conversation has a session on."""
+        return [model for key, model in self.sessions if key == conversation]
+
+    def prestart(self, conversation: str, instructions: str, guarded, model: str,
+                 max_turns: int = MAX_AGENT_STEPS) -> asyncio.Task | None:
+        """
+        Starts the conversation's session on this model in the background, if it has none: the other model's, after
+        a message (Telegram has no chat-opens moment to start it). It doesn't hold the conversation: a message that
+        needs it waits for its start (the session's lock); one on the other model doesn't wait at all. A failure
+        only drops it, and the message that needs it starts one as it always did. None when there was nothing to do.
+        """
+        if (conversation, model) in self.sessions or self._closing:
+            return None
+
+        async def start() -> None:
+            session = None
+            try:
+                session = await self.session(conversation, instructions, guarded, model, max_turns)
+                await session.start()
+            except Exception as e:
+                logger.info(f'Claude Code ({model}) could not start early: {type(e).__name__}: {e}')
+                if session is not None:
+                    await self.drop(conversation, model, only=session)
+            except BaseException:  # cancelled (the conversation closed while it started): closed now
+                if session is not None:
+                    await self.drop(conversation, model, only=session)
+                raise
+
+        task = asyncio.get_running_loop().create_task(start())
+        self._starting.add(task)
+        task.add_done_callback(self._starting.discard)
+        return task
+
+    async def drop(self, conversation: str, model: str | None = None, only: WarmSession | None = None) -> None:
+        """Closes and drops the conversation's sessions: every model's, or one model's (and then only if it is
+        still `only`, when that is given)."""
+        keys = [key for key in self.sessions if key[0] == conversation and model in (None, key[1])]
+        for key in keys:
+            if only is not None and self.sessions.get(key) is not only:
+                continue
+            session = self.sessions.pop(key, None)
+            if session is not None:
+                await session.close()
 
     async def reap(self, now: float | None = None) -> list[str]:
-        """Closes and drops sessions idle longer than idle_seconds (not one that is answering). Their keys."""
+        """Closes and drops the sessions of conversations idle longer than idle_seconds: all of a conversation's
+        sessions together, when none was used since and none is answering. The conversations' ids."""
         now = time.monotonic() if now is None else now
-        idle = [key for key, session in self.sessions.items()
-                if now - session.last_used > self.idle_seconds and not session.lock.locked()]
-        for key in idle:
-            await self.drop(key)
+        conversations: dict[str, list[WarmSession]] = {}
+        for (conversation, _), session in self.sessions.items():
+            conversations.setdefault(conversation, []).append(session)
+        idle = [conversation for conversation, sessions in conversations.items()
+                if all(now - session.last_used > self.idle_seconds and not session.lock.locked()
+                       for session in sessions)]
+        for conversation in idle:
+            await self.drop(conversation)
         return idle
 
     def start_reaper(self) -> None:
@@ -401,8 +461,11 @@ class SessionPool:
                 await asyncio.shield(self._close_sessions())
 
     async def _close_sessions(self) -> None:
-        for key in list(self.sessions):
-            await self.drop(key)
+        for task in list(self._starting):
+            if task is not asyncio.current_task():
+                task.cancel()
+        for conversation in {conversation for conversation, _ in self.sessions}:
+            await self.drop(conversation)
 
     async def close(self) -> None:
         """Closes every session (wraithd is shutting down)."""
