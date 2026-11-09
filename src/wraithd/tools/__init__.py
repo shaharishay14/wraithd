@@ -110,6 +110,10 @@ def builtin_tools(rt, owner: bool, attended: bool) -> list:
     # >>> efficiency
     # <<< efficiency
     # >>> capabilities
+    if owner:
+        from wraithd.library.tools import library_tools
+
+        tools += library_tools(rt.store, local_timezone(rt.config.timezone))
     # <<< capabilities
     # >>> reach
     # <<< reach

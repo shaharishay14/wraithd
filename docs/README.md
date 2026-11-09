@@ -76,6 +76,7 @@ says what changed for running on one person's laptop.
 | [Skill proposals](skill-proposals.md) | Skills the agent proposes wait in the review queue; tainted ones are flagged. |
 | [Heartbeat](heartbeat.md) | A periodic, read-only check that messages the owner only when something is worth it. Off by default. |
 | [Feed watches](watch.md) | `[watch.<name>]`: a JSON feed polled in code; the agent runs only on new items, so quiet polls cost 0 tokens. |
+| [The library](library.md) | What radar has read, with a note each, and the ideas it suggested, with a status; `wraithd_index` says what's built. |
 
 ## Where the ideas come from
 

@@ -108,6 +108,9 @@ def build_parser() -> argparse.ArgumentParser:
     from wraithd.daemon import watch
 
     watch.add_arguments(commands)
+    from wraithd.library import cli as library_cli
+
+    library_cli.add_arguments(commands)
     # <<< capabilities
     # >>> reach
     # <<< reach
@@ -492,6 +495,10 @@ def main(argv: list[str] | None = None) -> int:
         from wraithd.daemon import watch
 
         return watch.main(home, args)
+    if args.command in ('library', 'ideas'):
+        from wraithd.library import cli as library_cli
+
+        return library_cli.main(home, args)
     # <<< capabilities
     # >>> reach
     # <<< reach

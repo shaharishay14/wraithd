@@ -56,6 +56,9 @@ HEARTBEAT_SILENT = 'heartbeat_silent'  # ...and found nothing worth a message, s
 WATCH_CHECKED = 'watch_checked'  # a feed watch polled (daemon/watch.py): items, new, status, ms; on change only
 WATCH_FIRED = 'watch_fired'  # ...found new items and ran the agent once on them: how many, the run
 WATCH_ERROR = 'watch_error'  # ...couldn't fetch or read the feed, or the run on new items failed: the reason
+LIBRARY_SAVED = 'library_saved'  # library_save kept an item read: its id, kind, source, title (library/tools.py)
+IDEA_SAVED = 'idea_saved'  # idea_save kept a new idea: its id (date#n), title, size
+IDEA_STATUS = 'idea_status'  # an idea's status changed: id, status, previous
 # <<< capabilities
 # >>> reach
 MCP_ADDED = 'mcp_added'  # the owner added an MCP server from Telegram: name, transport, tool count (mcp/remote_add.py)
@@ -80,6 +83,7 @@ BETWEEN_RUNS = (
     # >>> capabilities
     HEARTBEAT_RUN, HEARTBEAT_SILENT,
     WATCH_CHECKED, WATCH_FIRED, WATCH_ERROR,
+    LIBRARY_SAVED, IDEA_SAVED, IDEA_STATUS,
     # <<< capabilities
     # >>> reach
     MCP_ADDED,

@@ -86,6 +86,14 @@ BUILTIN_TOOL_ACCESS = {
     'browser_submit': ToolAccess.WRITE,
     # A subagent (core/delegate.py): its own gate checks every tool it calls
     'delegate': ToolAccess.READ,
+    # The library (library/tools.py): reads, and writes to wraithd's own notes only, logged as events
+    'library_seen': ToolAccess.READ,
+    'library_search': ToolAccess.READ,
+    'idea_list': ToolAccess.READ,
+    'wraithd_index': ToolAccess.READ,
+    'library_save': ToolAccess.READ,
+    'idea_save': ToolAccess.READ,
+    'idea_status': ToolAccess.READ,
     # <<< capabilities
     # >>> reach
     # <<< reach
@@ -175,6 +183,7 @@ UNTRUSTED_OUTPUT_BUILTINS = {
     # <<< efficiency
     # >>> capabilities
     'browser_open', 'browser_read', 'browser_screenshot', 'browser_click', 'browser_type', 'browser_submit',
+    'library_search', 'idea_list',  # notes made from posts and pages (library/)
     # <<< capabilities
     # >>> reach
     # <<< reach

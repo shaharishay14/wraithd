@@ -73,6 +73,38 @@ CREATE TABLE security_mcp_tools (
     # >>> efficiency
     # <<< efficiency
     # >>> capabilities
+    # The library (library/__init__.py): items read, with a note, and ideas suggested, with a status
+    Migration('capabilities_001', '''
+CREATE TABLE capabilities_library_items (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT NOT NULL DEFAULT '',
+    author TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,
+    read_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX capabilities_library_items_read ON capabilities_library_items (read_at);
+CREATE TABLE capabilities_library_ideas (
+    id TEXT PRIMARY KEY,
+    day TEXT NOT NULL,
+    n INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    title_key TEXT NOT NULL,
+    plan TEXT NOT NULL DEFAULT '',
+    files TEXT NOT NULL DEFAULT '[]',
+    size TEXT NOT NULL,
+    source_ids TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'suggested',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (day, n)
+);
+CREATE INDEX capabilities_library_ideas_status ON capabilities_library_ideas (status, day);
+CREATE INDEX capabilities_library_ideas_title ON capabilities_library_ideas (title_key);
+'''),
     # <<< capabilities
     # >>> reach
     # <<< reach
