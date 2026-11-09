@@ -432,3 +432,19 @@ async def test_search_errors_never_echo_the_url(status, message):
     transport, _ = serpapi(status)
     error = await search_error(web.SerpAPI(SERP_KEY, transport))
     assert message in error and SERP_KEY not in error and 'serpapi.com' not in error
+
+
+@pytest.mark.parametrize('provider, key_name', [('openai', 'OpenAI'), ('anthropic', 'Anthropic')])
+def test_on_claude_code_auto_without_the_key_falls_back_to_duckduckgo(provider, key_name):
+    """The Claude engine needs no key to think, so a missing provider key mustn't turn search off."""
+    on_claude = dataclasses.replace(settings(provider, 'auto'), sections={'engine': {'name': 'claude-code'}})
+    choice = choose_search(on_claude)
+    assert choice.backend == 'duckduckgo' and not choice.missing_key
+    assert choice.why == (f'duckduckgo (free, no key, since your {key_name} key isn\'t set; [web] search = "claude" '
+                          'searches through your Claude subscription instead)')
+    assert type(search_provider(on_claude)) is web.DuckDuckGo
+    config.set_key(provider, f'{provider}-test-key-0123456789')  # with the key: the provider's own search, as before
+    assert choose_search(on_claude).backend == provider
+    config.delete_key(provider)  # a backend named outright still needs its key: only "auto" falls back
+    named = dataclasses.replace(settings(provider, provider), sections={'engine': {'name': 'claude-code'}})
+    assert choose_search(named).backend == '' and choose_search(named).missing_key == provider

@@ -17,6 +17,17 @@ from wraithd.config import get_key, load_config, set_key
 from wraithd.daemon.service import Launchd
 from wraithd.store import SQLiteStore
 
+REAL_LAUNCH = onboard.launch_claude  # tested on its own, with subprocess.run faked
+
+
+@pytest.fixture(autouse=True)
+def no_claude_launch(monkeypatch):
+    """Never hand a test's terminal to the real `claude`, even under pytest -s at a real terminal."""
+    def refuse(program):
+        raise AssertionError('a test tried to start the real claude')
+    monkeypatch.setattr(onboard, 'has_tty', lambda: False)
+    monkeypatch.setattr(onboard, 'launch_claude', refuse)
+
 BOT_TOKEN = '123456:fake-bot-token-abcdefghij'
 OPENAI_KEY, SERP_KEY = 'sk-test-onboard-0123456789', 'serp-test-0123456789'
 OWNER = 1001
@@ -276,7 +287,7 @@ async def test_the_subscription_writes_claude_code_and_never_asks_for_a_key(mana
     assert not [prompt for prompt in asked if 'not shown' in prompt or 'key' in prompt.lower() or 'token' in prompt]
     assert (get_key('openai'), get_key('anthropic')) == (None, None)
     text = term.text
-    assert 'claude\n' in text and '/login' in text and 'open it on any device' in text
+    assert 'claude\n' in text and onboard.LOGIN_STEPS in text and 'open the link on any device' in text
     assert 'Check: Claude subscription login in use. wraithd will think with your Claude plan.' in text
     assert 'Model:     Claude subscription (Claude Code, your own login)' in text
 
@@ -330,3 +341,100 @@ async def test_running_it_again_keeps_the_subscription_and_can_switch_back(manag
     assert await subscription_wizard(term, manager).run() == 0
     assert term.lines == []
     assert engine_of(home) == 'agents-sdk' and get_key('openai') == OPENAI_KEY
+
+
+# --- signing in: on a real terminal the real `claude` takes it over, and wraithd reads nothing --------------------
+
+class Launch:
+    """Stands in for onboard.launch_claude: records the program it was given and when, relative to what was said."""
+
+    def __init__(self, term):
+        self.term, self.programs, self.said_before = term, [], ''
+
+    def __call__(self, program):
+        self.programs.append(program)
+        self.said_before = self.term.text
+        return 0
+
+
+def at_a_terminal(term, manager, login=None, program='/usr/local/bin/claude'):
+    found = subscription_wizard(term, manager, login)
+    found.has_tty, found.claude_program = (lambda: True), (lambda: program)
+    found.launch_claude = Launch(term)
+    return found
+
+
+async def test_at_a_terminal_claude_opens_here_after_the_steps_then_the_login_is_checked(manager):
+    login = LoginCheck()
+    term = ScriptedTerminal('subscription', '', 'n', 'n')  # Enter: open Claude Code here
+    found = at_a_terminal(term, manager, login)
+    assert await found.run() == 0
+    assert found.launch_claude.programs == ['/usr/local/bin/claude'] and login.calls == 1
+    steps = ('type /login → pick your Claude account → open the link → sign in → copy the code → paste it here → '
+             '/exit')
+    assert steps == onboard.LOGIN_STEPS and steps in found.launch_claude.said_before  # shown before it opened
+    assert 'Check: Claude subscription login in use.' in term.text and engine_of(onboard_home()) == 'claude-code'
+    assert 'In another terminal' not in term.text
+
+
+async def test_signed_in_already_checks_without_opening_claude(manager):
+    login = LoginCheck()
+    found = at_a_terminal(ScriptedTerminal('subscription', 'check', 'n', 'n'), manager, login)
+    assert await found.run() == 0
+    assert found.launch_claude.programs == [] and login.calls == 1 and engine_of(onboard_home()) == 'claude-code'
+
+
+async def test_a_login_that_did_not_take_can_open_claude_again(manager):
+    login = LoginCheck((False, "Claude Code isn't signed in: run `claude` and type /login"),
+                       (True, 'Claude subscription login in use'))
+    found = at_a_terminal(ScriptedTerminal('subscription', '', '', 'n', 'n'), manager, login)
+    assert await found.run() == 0
+    assert len(found.launch_claude.programs) == 2 and login.calls == 2
+    assert "Not yet: Claude Code isn't signed in" in found.term.text
+
+
+async def test_without_a_terminal_it_prints_the_steps_and_never_opens_claude(manager):
+    login = LoginCheck()
+    found = at_a_terminal(ScriptedTerminal('subscription', '', 'n', 'n'), manager, login)
+    found.has_tty = lambda: False
+    assert await found.run() == 0
+    assert found.launch_claude.programs == [] and login.calls == 1
+    assert onboard.LOGIN_STEPS in found.term.text and 'In another terminal, run:\n  claude' in found.term.text
+
+
+def test_launch_hands_claude_the_terminal_and_reads_nothing(monkeypatch):
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return type('Done', (), {'returncode': 0})()
+
+    monkeypatch.setattr(onboard.subprocess, 'run', run)
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-test-0123456789')
+    monkeypatch.setenv('CLAUDE_CODE_OAUTH_TOKEN', 'sk-ant-oat01-test')
+    monkeypatch.setenv('KEEP_ME', 'yes')
+    assert REAL_LAUNCH('/opt/claude') == 0
+    [(argv, kwargs)] = calls
+    assert argv == ['/opt/claude']
+    # no pipes, no capture: stdin, stdout and stderr are the terminal's
+    assert not {'stdin', 'stdout', 'stderr', 'capture_output', 'input', 'text'} & set(kwargs)
+    assert 'ANTHROPIC_API_KEY' not in kwargs['env'] and 'CLAUDE_CODE_OAUTH_TOKEN' not in kwargs['env']
+    assert kwargs['env']['KEEP_ME'] == 'yes'
+
+
+def test_claude_program_prefers_path_then_the_sdks_bundled_copy(monkeypatch, tmp_path):
+    import importlib.util
+    import types
+
+    monkeypatch.setattr(onboard.shutil, 'which', lambda name: '/usr/bin/claude')
+    assert onboard.claude_program() == '/usr/bin/claude'
+    bundled = tmp_path / '_bundled' / 'claude'
+    bundled.parent.mkdir()
+    bundled.write_text('#!/bin/sh\n')
+    bundled.chmod(0o755)
+    monkeypatch.setattr(onboard.shutil, 'which', lambda name: None)
+    monkeypatch.setattr(importlib.util, 'find_spec',
+                        lambda name: types.SimpleNamespace(submodule_search_locations=[str(tmp_path)]))
+    assert onboard.claude_program() == str(bundled)
+    monkeypatch.setattr(importlib.util, 'find_spec', lambda name: None)
+    assert onboard.claude_program() is None

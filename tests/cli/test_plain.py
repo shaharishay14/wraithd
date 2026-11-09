@@ -22,7 +22,7 @@ from wraithd.daemon.service import Launchd
 
 CHAT_PROMPTS = ['\n> ', '\n> ', 'Allow? [y/N] ', '\n> ']
 CHAT_OUTPUT = (
-    'wraithd. Type /quit to end; what you share is remembered for next time.\n'
+    'wraithd. Type /new for a fresh conversation, /quit to end; what you share is remembered for next time.\n'
     'Hi.\n'
     '\n'
     'The agent wants to run skill_adjust:\n'

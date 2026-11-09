@@ -190,3 +190,53 @@ async def test_measure_the_first_message_wait(claude_rt, claude_sdk, monkeypatch
     assert before >= START
     expected = max(START - typing, 0.0)
     assert expected - 0.01 <= after < expected + 0.1 * START + 0.05
+
+
+# --- /new: the new conversation's Claude Code starts early too ------------------------------------------------------
+
+async def test_new_closes_the_old_session_and_starts_the_next_one_early(claude_rt, claude_sdk):  # noqa: F811
+    fake = claude_sdk([init(), text_delta('hi'), result('hi')],  # 'hello', in conversation one
+                      [init(), result('[]')],  # distill of conversation one, after /new (a one-shot)
+                      [init(), text_delta('again'), result('again')],  # 'again', in conversation two
+                      start_seconds=0.05)
+    rt = claude_rt()
+    terminal = TypingTerminal('hello', '/new', 'again', typing=0.1)
+    await chat(rt, terminal)
+    first, second = fake.ClaudeSDKClient.instances
+    assert first.connects == 1 and first.disconnects == 1 and len(first.texts) == 1  # closed at /new
+    assert second.connects == 1 and len(second.texts) == 1 and 'USER: again' in second.texts[0]
+    assert 'hello' not in second.texts[0]  # a fresh conversation
+    assert 'New conversation.' in terminal.text
+    # the second conversation's first message used the early start: engine_connect says so
+    connects = [p for info in rt.store.recent_runs(10) for p in engine_connects(rt, info.run_id)
+                if p['kind'] == 'session']
+    assert len(connects) == 2 and all(p.get('early') for p in connects)
+    assert rt.sessions.sessions == {}
+
+
+async def test_new_while_the_first_start_is_under_way_stops_it(claude_rt, claude_sdk):  # noqa: F811
+    fake = claude_sdk([init(), result('two')], start_seconds=0.2)
+    rt = claude_rt()
+    await chat(rt, TypingTerminal('/new', 'two', typing=0.0))
+    first, second = fake.ClaudeSDKClient.instances
+    assert first.texts == [] and second.connects == 1 and len(second.texts) == 1  # one connect for the new one
+
+
+@pytest.mark.parametrize('typed', [('/new',), ('/new', '/quit')], ids=['ctrl-d', 'quit'])
+def test_quitting_right_after_new_is_clean(claude_rt, claude_sdk, capfd, typed):  # noqa: F811
+    fake = claude_sdk(start_seconds=0.05)
+    rt = claude_rt()
+    problems = []
+
+    async def main():
+        await chat(rt, TypingTerminal(*typed, typing=0.1), problems)
+        assert rt.sessions.sessions == {}
+
+    asyncio.run(main())
+    assert problems == [] and capfd.readouterr().err == ''
+    clients = fake.ClaudeSDKClient.instances
+    assert len(clients) == 2 and all(client.texts == [] for client in clients)
+    first, second = clients
+    assert first.connects == first.disconnects == 1  # the old conversation's session closed at /new
+    # the new one closed too, or was cut short while starting (then there is nothing to disconnect, as on open)
+    assert second.connects == 1 and second.disconnects in (0, 1)

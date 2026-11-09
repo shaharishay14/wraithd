@@ -104,7 +104,7 @@ async def claude_login_check(home: Home | None = None) -> tuple[bool, str]:
     too).
     """
     try:
-        from wraithd.engines.claude_code import SubscriptionUnavailable
+        from wraithd.engines.claude_code import SubscriptionUnavailable, close_leftover_pipes, one_shot
         from wraithd.engines.claude_options import LOGIN, claude_options, model_for, subscription_env_problem
     except ImportError as e:  # the claude extra (claude-agent-sdk) isn't installed
         return False, f'Claude Code extra not installed ({e.name or e}): {CLAUDE_EXTRA}'
@@ -116,12 +116,13 @@ async def claude_login_check(home: Home | None = None) -> tuple[bool, str]:
         options = claude_options('Reply with OK.', None, [], model_for(settings, 'heartbeat'))
     except SubscriptionUnavailable as e:
         return False, str(e)
-    from claude_agent_sdk import ResultMessage, SystemMessage, query
+    import claude_agent_sdk as claude
+    from claude_agent_sdk import ResultMessage, SystemMessage
 
     async def init_and_result() -> tuple[dict | None, object]:
         """The init message's data, then the ResultMessage of the one short reply (or None for either)."""
         init = None
-        async with contextlib.aclosing(query(prompt='Reply with OK.', options=options)) as messages:
+        async with contextlib.aclosing(one_shot(claude, 'Reply with OK.', options)) as messages:
             async for message in messages:
                 if isinstance(message, SystemMessage) and message.subtype == 'init':
                     init = dict(message.data)
@@ -137,6 +138,8 @@ async def claude_login_check(home: Home | None = None) -> tuple[bool, str]:
         return False, f'Claude Code did not answer within {LOGIN_TIMEOUT} seconds'
     except Exception as e:  # the SDK's own errors: the program is missing, or it exited at once
         return False, f'Claude Code did not start ({type(e).__name__}: {e})'
+    finally:  # closed while the event loop runs, so nothing is left for the loop's end ("Event loop is closed")
+        await close_leftover_pipes()
     if init is None:
         return False, 'Claude Code did not start: is it installed?'
     source = init.get('apiKeySource')

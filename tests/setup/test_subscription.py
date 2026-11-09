@@ -24,6 +24,15 @@ from wraithd.config import set_key, set_values
 from wraithd.daemon.service import Launchd
 from wraithd.doctor import FAIL, OK, WARN
 
+
+@pytest.fixture(autouse=True)
+def no_claude_launch(monkeypatch):
+    """Never hand a test's terminal to the real `claude`, even under pytest -s at a real terminal."""
+    def refuse(program):
+        raise AssertionError('a test tried to start the real claude')
+    monkeypatch.setattr(onboard, 'has_tty', lambda: False)
+    monkeypatch.setattr(onboard, 'launch_claude', refuse)
+
 CLAUDE_TOKEN = 'sk-ant-oat01-' + 'x' * 40  # the shape of a Claude login token; wraithd must never hold one
 BLOCKED_ENV = ('CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY')
 INSTALL_HINT = "Claude Code isn't installed for wraithd: run `pip install 'wraithd[claude]'` (or the uv/pipx same)."
@@ -98,6 +107,11 @@ class FakeClaude:
         options.subscription_env_problem = self.subscription_env_problem
         engine = types.ModuleType('wraithd.engines.claude_code')
         engine.SubscriptionUnavailable = SubscriptionUnavailable
+        engine.one_shot = lambda claude, prompt, options: claude.query(prompt=prompt, options=options)
+
+        async def close_leftover_pipes():
+            return 0
+        engine.close_leftover_pipes = close_leftover_pipes
         monkeypatch.setitem(sys.modules, 'claude_agent_sdk', sdk)
         if importlib.util.find_spec('wraithd.engines') is None:  # before the engine branch is merged
             package = types.ModuleType('wraithd.engines')
