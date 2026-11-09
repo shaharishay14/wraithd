@@ -170,3 +170,29 @@ def test_an_mcp_value_comes_from_the_credentials_folder(credentials, isolated):
     env, _ = mcp_config.get_secrets(McpServer(name='notes', transport='stdio', command='x', env=('NOTES_TOKEN',)))
     assert env == {'NOTES_TOKEN': 'notes-token-from-systemd'}
     assert secrets.redact_text('notes-token-from-systemd') == '[REDACTED:owner_secret]'
+
+
+def test_the_search_helper_and_the_login_launch_get_no_keys(monkeypatch):
+    """Merge check (0.1.1): the WebSearch helper's Claude Code and onboarding's `claude` launch blank or drop
+    OP_* and every other key, like the engine's Claude Code."""
+    pytest.importorskip('claude_agent_sdk')
+    import subprocess
+
+    from wraithd import onboard
+    from wraithd.engines import claude_search
+
+    monkeypatch.setenv('OP_SERVICE_ACCOUNT_TOKEN', 'ops_secret_value_1234567890')
+    monkeypatch.setenv('OPENAI_API_KEY', 'sk-test-key-value-1234567890abcd')
+    env = claude_search.search_options('haiku').env
+    assert env['OP_SERVICE_ACCOUNT_TOKEN'] == '' and env['OPENAI_API_KEY'] == '' and env['ANTHROPIC_API_KEY'] == ''
+
+    seen = {}
+
+    def fake_run(argv, env=None, check=False):
+        seen['env'] = env
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(onboard.subprocess, 'run', fake_run)
+    assert onboard.launch_claude('claude') == 0
+    assert 'OP_SERVICE_ACCOUNT_TOKEN' not in seen['env'] and 'OPENAI_API_KEY' not in seen['env']
+    assert 'PATH' in seen['env']

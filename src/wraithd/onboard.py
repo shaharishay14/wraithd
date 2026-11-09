@@ -43,6 +43,7 @@ from wraithd.config import (
     set_key,
     set_values,
 )
+from wraithd.core import secrets
 from wraithd.daemon import service as service_module
 from wraithd.daemon.service import ServiceError
 from wraithd.doctor import CLAUDE_ENGINE, CLAUDE_EXTRA, DEFAULT_ENGINE, engine_name
@@ -107,7 +108,7 @@ def launch_claude(program: str) -> int:
     so wraithd reads nothing of it, not the link and not the code. API keys and tokens in wraithd's environment
     are left out, so Claude Code signs in with the account and doesn't quietly use them.
     """
-    env = {name: value for name, value in os.environ.items()
+    env = {name: value for name, value in secrets.scrubbed_environment().items()
            if name not in ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN')}
     try:
         return subprocess.run([program], env=env, check=False).returncode

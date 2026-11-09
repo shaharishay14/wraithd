@@ -221,7 +221,7 @@ def available_skills(user_skills, available: set[str], adjustments: dict[str, li
 REQUIREMENT_WORDS = {
     'email': 'an email app (wraithd mcp add)',
     'calendar': 'a calendar app (wraithd mcp add)',
-    'web_search': 'web search ([web] search and its key)',
+    'web_search': 'web search ([web] search: a key, or "claude" on the Claude subscription)',
     'read_website': 'web reading ([web] read = true)',
     'shell_run': 'the shell ([shell] enabled = true)',
     'memory': 'the owner', 'owner': 'the owner',
@@ -229,7 +229,7 @@ REQUIREMENT_WORDS = {
 
 
 def missing_requirements(requires, available: set[str]) -> list[str]:
-    """The requirements that aren't met, each in words ("web search ([web] search and its key)")."""
+    """The requirements that aren't met, each in words ("web search ([web] search: a key, or \"claude\"...)")."""
     words = []
     for requirement in requires:
         options = [option.strip() for option in requirement.split('|')]

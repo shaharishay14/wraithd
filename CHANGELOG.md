@@ -1,6 +1,40 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.1 (unreleased)
+
+### Telegram and the prompt
+- Telegram shows the model's Markdown: bold, italics, code, links, lists and quotes, as Telegram HTML (escaped; a
+  long answer splits at line ends, never inside a tag). If Telegram rejects the formatting, that part goes as plain
+  text. Approval cards stay plain.
+- The agent knows what it runs on: one line in its prompt names the engine and models (Claude subscription, API
+  key or local model) and whether Telegram is paired.
+- Skills that are off are named in one line with what turns them on, so the agent can tell you. Replies end with
+  the one right next step or question, when there is one. The prompt grew by about 100 tokens.
+
+### Claude subscription
+- `[web] search = "claude"`: web search through your Claude login. wraithd's web_search runs a separate one-shot
+  Claude Code whose only tool is WebSearch; its results come back as third-party text (tainted, logged, counted).
+  The main engine still gets no tools of its own; the audit allows exactly this helper.
+- With `search = "auto"` on the Claude engine and no key, search falls back to DuckDuckGo (and says so).
+- `wraithd onboard` → "Claude subscription" opens the real `claude` in your terminal for `/login` (wraithd reads
+  nothing of it), then checks the login.
+- `/new` in chat starts the new conversation's Claude Code right away, like opening chat does.
+- `wraithd doctor` (and other one-shot runs) no longer print "Event loop is closed" on exit.
+
+### Keys and files
+- Every `OP_*` variable (1Password) counts as a secret: no subprocess wraithd starts gets one (shell, MCP servers,
+  Claude Code, the login launch, `wraithd update`). Only `op read` for an `op://` reference keeps it.
+- systemd encrypted credentials: with `$CREDENTIALS_DIRECTORY` set, keys are read from it first. docs/keys.md has
+  the Ubuntu 24.04 setup (`systemd-creds encrypt`, `LoadCredentialEncrypted=`).
+- Private modes whatever the umask (Ubuntu's 002 made the workspace group-writable and failed wraithd's own
+  audit): folders 700, files 600, an existing home is repaired, and the service sets `UMask=0077`.
+
+### Runs and skills
+- Reading a file or folder that doesn't exist no longer counts toward the stop after 3 failed tool calls.
+- Links written in your own skills' files (SKILL.md and its .md files, not your-way.md) count as yours once the
+  skill is loaded, so opening them doesn't ask in chat or get refused in a scheduled run.
+
+## 0.1.0 (2026-11-08)
 
 ### Run on your Claude subscription
 - **A second engine: Claude Code on your own Claude Pro/Max login, no API key.** Pick "Claude subscription" in

@@ -47,7 +47,7 @@ def search_options(model: str):
         raise ValueError('search_options() needs a model: without one Claude Code picks Opus.')
     return sdk().ClaudeAgentOptions(
         system_prompt=PROMPT, tools=[SEARCH_TOOL], allowed_tools=[SEARCH_TOOL], mcp_servers={},
-        strict_mcp_config=True, setting_sources=[], env={'ANTHROPIC_API_KEY': ''},
+        strict_mcp_config=True, setting_sources=[], env=options_module.claude_env(),
         extra_args={'no-session-persistence': None}, max_turns=MAX_TURNS, model=model)
 
 
