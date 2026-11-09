@@ -14,7 +14,14 @@
    one-line answer.
 3. **Builds the context:** a short base prompt with the date and time, `AGENTS.md` (the owner's standing
    orders), memory L0 and L1, one line per skill, and what `<system-reminder>` notes are. agent-studio's prompt
-   was over 17,000 characters before the user said anything; this one starts under 2,000.
+   was over 17,000 characters before the user said anything; this one starts near 2,000 (about 510 tokens on an
+   empty home, `tests/efficiency/test_prompt_size.py` holds the budget). The base prompt ends with the next-step
+   rule (end with the one right next step or question when there is one, never a generic "anything else?"), and
+   then one setup line (`setup_line`): which engine and models it runs on, said so that "are you on my Claude
+   subscription?" gets a true answer (Claude Code on the subscription, or a provider's API on the user's own key,
+   paid per use, or a local model), and whether Telegram is paired. Only what's fixed for a conversation goes in
+   it, never a key, a URL or the per-run model choice: the prefix stays cacheable and a warm Claude Code session,
+   whose prompt is fixed at connect, stays right.
 4. **Wires the tools:** the built-ins (`read_website` for everyone, `web_search` unless it's off ([The web](web.md)); files and schedules
    for the owner; the shell for the owner in a conversation, if enabled), memory and skill tools for the owner,
    the owner's MCP servers (connected once per terminal session or for the daemon's life, else for the run;

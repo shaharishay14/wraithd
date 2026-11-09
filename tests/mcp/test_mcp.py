@@ -315,7 +315,9 @@ async def test_a_server_that_does_not_start_is_reported_not_fatal(make_runtime, 
     owner = ScriptedTerminal('hi')
     await terminal.chat(make_runtime(model), owner)
     assert 'MCP server broken is not available this session' in owner.text and 'hi' in owner.text
-    assert 'morning-brief' not in model.instructions[0]  # what it would provide isn't counted
+    assert '- morning-brief' not in model.instructions[0]  # what it would provide isn't counted
+    off = next(line for line in model.instructions[0].splitlines() if line.startswith('Skills that are off'))
+    assert 'morning-brief' in off
 
 
 def test_descriptions_and_instructions_cannot_pose_as_the_harness():
