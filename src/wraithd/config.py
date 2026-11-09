@@ -38,9 +38,9 @@ PROVIDERS = ('openai', 'anthropic', 'ollama', 'openai-compatible')
 SEARCH_BACKENDS = ('auto', 'openai', 'anthropic', 'duckduckgo', 'serpapi', 'claude')
 # [voice] transcribe: auto is openai if its key is set, else local whisper if installed, else off
 TRANSCRIBERS = ('auto', 'openai', 'whisper', 'elevenlabs')
-# [telegram.commands]: the owner's quick actions, "/news" in the paired chat sends "run news-feed" (the "/" menu).
+# [telegram.commands]: the owner's quick actions, "/radar" in the paired chat sends "run radar" (the "/" menu).
 # Setting the table replaces these. /pair, /mcp_add and /start keep their meaning and can't be taken.
-TELEGRAM_COMMANDS = (('news', 'run news-feed'), ('drafts', 'slabbed drafts'), ('jobs', 'find jobs'),
+TELEGRAM_COMMANDS = (('radar', 'run radar'), ('drafts', 'slabbed drafts'), ('jobs', 'find jobs'),
                      ('watchlist', 'show my watch list'), ('review', 'weekly review'))
 TELEGRAM_RESERVED = ('pair', 'mcp_add', 'start')
 TELEGRAM_COMMAND_NAME = re.compile(r'^[a-z0-9_]{1,32}$')  # what Telegram takes as a bot command

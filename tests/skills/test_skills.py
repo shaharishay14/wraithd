@@ -26,7 +26,7 @@ def write_skill(home, name, description='d', body='Do it.', **meta):
 def test_every_builtin_skill_parses_and_is_short():
     skills = {skill.name: skill for skill in registry.builtin_skills()}
     assert set(skills) == {'morning-brief', 'inbox-triage', 'meeting-prep', 'research-report', 'weekly-review',
-                           'skill-writer'}
+                           'skill-writer', 'radar'}
     for skill in skills.values():
         assert registry.validate(skill.name, skill.description, skill.instructions) is None
         assert len(skill.instructions) < 2500, f'{skill.name} should stay compact'

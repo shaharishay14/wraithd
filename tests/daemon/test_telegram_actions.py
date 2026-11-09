@@ -55,7 +55,7 @@ def answers(fake):
 
 def test_the_commands_table_defaults_to_five_and_skips_what_telegram_or_wraithd_wont_take(home, caplog):
     assert dict(config.load_config(home).telegram_commands) == {
-        'news': 'run news-feed', 'drafts': 'slabbed drafts', 'jobs': 'find jobs',
+        'radar': 'run radar', 'drafts': 'slabbed drafts', 'jobs': 'find jobs',
         'watchlist': 'show my watch list', 'review': 'weekly review'}
     home.config_path.write_text(home.config_path.read_text() + '\n[telegram.commands]\nnews = "run news-feed"\n'
                                 '"Bad-Name" = "x"\npair = "steal pairing"\nmcp_add = "x"\nempty = ""\n'
@@ -80,20 +80,20 @@ async def test_the_menu_is_registered_when_polling_starts(make_daemon, fake_tele
     polling.cancel()
     await asyncio.gather(polling, return_exceptions=True)
     [menu] = [p for m, p in fake_telegram.calls if m == 'setMyCommands']
-    assert menu['commands'][0] == {'command': 'news', 'description': 'run news-feed'}
-    assert [c['command'] for c in menu['commands']] == ['news', 'drafts', 'jobs', 'watchlist', 'review']
+    assert menu['commands'][0] == {'command': 'radar', 'description': 'run radar'}
+    assert [c['command'] for c in menu['commands']] == ['radar', 'drafts', 'jobs', 'watchlist', 'review']
 
 
 async def test_the_owners_news_runs_its_message_and_a_strangers_is_ignored(make_daemon, fake_telegram):
     model = ScriptedModel([[say('Here is the news.')], [say('With more.')]])
     daemon = await daemon_for(make_daemon, fake_telegram, model)
-    fake_telegram.message(STRANGER, '/news')
-    fake_telegram.message(OWNER, '/news')
+    fake_telegram.message(STRANGER, '/radar')
+    fake_telegram.message(OWNER, '/radar')
     await poll(daemon)
-    fake_telegram.message(OWNER, '/news@wraithd_bot tech only')
+    fake_telegram.message(OWNER, '/radar@wraithd_bot tech only')
     await poll(daemon)
-    assert [run.message for run in reversed(daemon.rt.store.recent_runs(5))] == ['run news-feed',
-                                                                                  'run news-feed tech only']
+    assert [run.message for run in reversed(daemon.rt.store.recent_runs(5))] == ['run radar',
+                                                                                  'run radar tech only']
     assert fake_telegram.sent(STRANGER) == []
     assert fake_telegram.sent(OWNER)[-2]['text'] == 'Here is the news.'
     assert ignored(daemon)
@@ -183,14 +183,14 @@ async def test_a_command_or_time_cancels_a_rewrite(make_daemon, fake_telegram):
     daemon = await daemon_for(make_daemon, fake_telegram, model)
     fake_telegram.press(OWNER, 'draft:3:rewrite')
     await poll(daemon)
-    fake_telegram.message(OWNER, '/news')
+    fake_telegram.message(OWNER, '/radar')
     await poll(daemon)
     fake_telegram.press(OWNER, 'draft:3:rewrite')
     await poll(daemon)
     daemon.telegram.rewriting = (3, daemon.telegram.clock() - timedelta(seconds=1))  # over 5 minutes ago
     fake_telegram.message(OWNER, 'hello')
     await poll(daemon)
-    assert [run.message for run in reversed(daemon.rt.store.recent_runs(5))] == ['run news-feed', 'hello']
+    assert [run.message for run in reversed(daemon.rt.store.recent_runs(5))] == ['run radar', 'hello']
 
 
 async def test_a_forged_tap_does_nothing(make_daemon, fake_telegram):
