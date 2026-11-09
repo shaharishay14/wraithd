@@ -15,15 +15,20 @@ The key check makes one small request to the provider (its model list, not a mod
 skipped, and is passed in as `check_key` so tests never make it.
 
 The Claude subscription never asks for a key or a token (docs/claude-subscription.md): the owner signs in to Claude
-Code themselves (`claude`, then /login), and wraithd only checks which credential Claude Code chose (doctor's
-claude_login_check, passed in as `check_login` so tests never start Claude Code).
+Code themselves. On a real terminal the wizard hands the terminal to the real `claude` (inherited stdin, stdout and
+stderr: wraithd reads nothing, not the link and not the code) with the steps shown first; elsewhere it prints them.
+Then it only checks which credential Claude Code chose (doctor's claude_login_check, passed in as `check_login`, and
+the launch as `launch_claude`, so tests never start Claude Code).
 """
 
 import asyncio
 import importlib.util
+import os
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -64,6 +69,11 @@ KEY_PROVIDERS = tuple(p for p in PROVIDERS if p != 'ollama')
 LOGIN_CHECKS = 3  # how many times the owner can press Enter before the login is left for later
 
 
+# What the owner does in Claude Code, shown before it opens (the link and the code stay between them and Anthropic)
+LOGIN_STEPS = 'type /login → pick your Claude account → open the link → sign in → copy the code → paste it here → /exit'
+LOGIN, CHECK, SKIP = 'login', 'check', 'skip'
+
+
 class Stopped(Exception):
     """The owner ended input (Ctrl-D)."""
 
@@ -71,6 +81,38 @@ class Stopped(Exception):
 def claude_installed() -> tuple[bool, bool]:
     """(the Claude Agent SDK is importable, a `claude` command is on PATH). Looks, doesn't import or start it."""
     return importlib.util.find_spec('claude_agent_sdk') is not None, shutil.which('claude') is not None
+
+
+def claude_program() -> str | None:
+    """The `claude` on PATH, else the one bundled with claude-agent-sdk (found without importing it), or None."""
+    found = shutil.which('claude')
+    if found:
+        return found
+    spec = importlib.util.find_spec('claude_agent_sdk')
+    for folder in (spec.submodule_search_locations or []) if spec else []:
+        bundled = Path(folder) / '_bundled' / ('claude.exe' if os.name == 'nt' else 'claude')
+        if bundled.is_file() and os.access(bundled, os.X_OK):
+            return str(bundled)
+    return None
+
+
+def has_tty() -> bool:
+    """A person at a real terminal: Claude Code can take it over for the login."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def launch_claude(program: str) -> int:
+    """
+    Runs Claude Code in this terminal for the owner to sign in: it inherits stdin, stdout and stderr (no pipes),
+    so wraithd reads nothing of it, not the link and not the code. API keys and tokens in wraithd's environment
+    are left out, so Claude Code signs in with the account and doesn't quietly use them.
+    """
+    env = {name: value for name, value in os.environ.items()
+           if name not in ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN')}
+    try:
+        return subprocess.run([program], env=env, check=False).returncode
+    except OSError:
+        return -1
 
 
 def check_key(provider: str, key: str | None, base_url: str = '') -> tuple[bool, str]:
@@ -102,6 +144,9 @@ class Wizard:
     check_key: object = check_key
     check_login: object = None  # async (home) -> (ok, message); None: doctor.claude_login_check
     claude_installed: object = claude_installed
+    claude_program: object = None  # () -> path or None; None: claude_program
+    has_tty: object = None  # () -> bool; None: has_tty
+    launch_claude: object = None  # (program) -> exit code; None: launch_claude (hands it the terminal)
     telegram_transport: httpx.AsyncBaseTransport | None = None
     health_transport: httpx.BaseTransport | None = None
     summary: dict = field(default_factory=dict)
@@ -220,26 +265,37 @@ class Wizard:
             return
 
     async def subscription(self) -> bool:
-        """Claude Code on the owner's own login. Never asks for a key or token. True once [engine] is set."""
+        """Claude Code on the owner's own login. Never asks for a key or token, and never sees the login: on a real
+        terminal Claude Code itself opens here for the owner to sign in. True once [engine] is set."""
         sdk, cli = self.claude_installed()
         if not sdk:
             self.term.say(f'Claude Code isn\'t installed with wraithd yet. Install it with: {CLAUDE_EXTRA}\n'
                           '(or pip install \'wraithd[claude]\'), then run `wraithd onboard` again.')
             return False
-        self.term.say('Sign in to Claude Code yourself; wraithd never sees the login. In another terminal:\n'
-                      '  claude\n'
-                      'then type /login and sign in with your Claude account. On a machine with no browser, it '
-                      'prints a link: open it on any device and paste the code back.')
-        if not cli:
+        program = (self.claude_program or claude_program)()
+        here = bool(program) and (self.has_tty or has_tty)()
+        self.term.say('Sign in to Claude Code yourself; wraithd never sees the login, the link or the code.\n'
+                      f'Steps: {LOGIN_STEPS}')
+        if not here:
+            self.term.say('In another terminal, run:\n  claude\nthen follow the steps. On a machine with no '
+                          'browser, open the link on any device and paste the code back.')
+        if not here and not cli:
             self.term.say('No `claude` command here yet: install Claude Code (https://claude.com/claude-code) '
-                          'to sign in. wraithd runs the copy that came with it.')
+                          'to sign in' + (f', or run the copy that came with wraithd: {program}' if program else '')
+                          + '. wraithd runs the copy that came with it.')
         check = self.check_login
         if check is None:
             from wraithd.doctor import claude_login_check as check
         for _ in range(LOGIN_CHECKS):
-            if not await self.ready('Press Enter once you\'ve signed in (or type "skip")', 'Signed in?',
-                                    'I\'ve signed in: check'):
+            action = await self.login_action() if here else (
+                CHECK if await self.ready('Press Enter once you\'ve signed in (or type "skip")', 'Signed in?',
+                                          'I\'ve signed in: check') else SKIP)
+            if action == SKIP:
                 break
+            if action == LOGIN:
+                self.term.say(f'Opening Claude Code here. {LOGIN_STEPS}')
+                await asyncio.to_thread(self.launch_claude or launch_claude, program)
+                self.term.say('Back in wraithd setup: checking the login.')
             ok, message = await check(self.home)
             if ok:
                 set_values(self.home, 'engine', {'name': CLAUDE_ENGINE})
@@ -250,6 +306,18 @@ class Wizard:
         self.term.say('The login isn\'t checked yet, so wraithd stays as it was. Once you\'ve signed in, run '
                       '`wraithd onboard` again (or `wraithd doctor` to see what Claude Code uses).')
         return False
+
+    async def login_action(self) -> str:
+        """On a real terminal: open Claude Code here to sign in (the default), check a login made already, or skip."""
+        if self.rich:
+            from wraithd.tui.pick import Option
+
+            return await self.picked('Sign in to Claude', [Option(LOGIN, 'open Claude Code here to sign in'),
+                                                           Option(CHECK, 'I\'m signed in already: check'),
+                                                           Option(SKIP, 'skip for now')], LOGIN)
+        answer = (await self.ask('Press Enter to open Claude Code here and sign in (or type "check" if you\'re '
+                                 'signed in already, "skip" to leave it)')).strip().lower()
+        return answer if answer in (CHECK, SKIP) else LOGIN
 
     async def model(self, local: bool = False) -> None:
         self.section('Model')

@@ -5,6 +5,7 @@ import pytest
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
+from wraithd import onboard
 from wraithd.channels.terminal import RichTerminal
 from wraithd.tui import theme
 
@@ -27,3 +28,12 @@ def _rich(keys: str = ''):
 @pytest.fixture
 def rich():
     return _rich
+
+
+@pytest.fixture(autouse=True)
+def no_claude_launch(monkeypatch):
+    """Never hand a test's terminal to the real `claude`, even under pytest -s at a real terminal."""
+    def refuse(program):
+        raise AssertionError('a test tried to start the real claude')
+    monkeypatch.setattr(onboard, 'has_tty', lambda: False)
+    monkeypatch.setattr(onboard, 'launch_claude', refuse)

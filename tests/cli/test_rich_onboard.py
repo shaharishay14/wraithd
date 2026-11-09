@@ -68,3 +68,21 @@ async def test_a_model_from_the_list_another_by_name_and_stopping(rich):
     assert (model.provider, model.default, model.strong) == ('anthropic', 'claude-opus-5-5', 'my-strong')
     assert '✓ Model for every run claude-opus-5-5' in out and '✓ Check it with one small request' in out
     assert get_key('anthropic') == 'sk-ant-test-123'
+
+
+async def test_at_a_terminal_the_picker_opens_claude_code_to_sign_in(rich):
+    launched = []
+
+    async def login(home):
+        return True, 'Claude subscription login in use'
+
+    # subscription, Enter on "open Claude Code here", then no web key; Telegram no, service no
+    keys = ['subscription' + ENTER, ENTER, 'n' + ENTER, 'n' + ENTER]
+    with rich() as term:
+        w = wizard(term, check_login=login, claude_installed=lambda: (True, True), has_tty=lambda: True,
+                   claude_program=lambda: '/usr/local/bin/claude', launch_claude=launched.append)
+        code, _ = await asyncio.gather(run(w), typed(term, keys))
+    out = term.out.getvalue()
+    assert code == 0 and launched == ['/usr/local/bin/claude']
+    assert '✓ Sign in to Claude open Claude Code here to sign in' in out
+    assert onboard.LOGIN_STEPS in ' '.join(out.split()) and engine_name(Home.locate()) == 'claude-code'
