@@ -12,8 +12,9 @@ import sys
 from pathlib import Path
 
 from wraithd.config import Home
+from wraithd.core import secrets
 from wraithd.daemon import service as service_module
-from wraithd.daemon.service import ServiceError, run_command
+from wraithd.daemon.service import ServiceError
 
 PACKAGE = 'wraithd'
 COMMANDS = {'uv': ['uv', 'tool', 'upgrade', PACKAGE], 'pipx': ['pipx', 'upgrade', PACKAGE]}
@@ -29,7 +30,13 @@ def installer(prefix: Path | None = None) -> str | None:
     return None
 
 
-def update(home: Home, runner=run_command, prefix: Path | None = None, which=shutil.which, service=None,
+def upgrade_command(argv: list[str]) -> subprocess.CompletedProcess:
+    """Runs uv or pipx without the keys wraithd knows about (secrets.is_secret_variable: model keys, MCP values,
+    every OP_* 1Password variable): an installer, and the build scripts it may run, have no need for them."""
+    return subprocess.run(argv, capture_output=True, text=True, check=False, env=secrets.scrubbed_environment())
+
+
+def update(home: Home, runner=upgrade_command, prefix: Path | None = None, which=shutil.which, service=None,
            say=print) -> int:
     tool = installer(prefix)
     if tool is None:

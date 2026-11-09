@@ -3,6 +3,9 @@
 the installer, upgrading through a fake runner, restarting the service).
 """
 
+import os
+import subprocess
+
 import httpx
 import pytest
 
@@ -159,6 +162,27 @@ def test_update_with_uv_upgrades_then_restarts_the_service(home, manager, tmp_pa
     assert ['uv', 'tool', 'upgrade', 'wraithd'] in manager.calls
     assert manager.commands('launchctl')[-1][:3] == ['launchctl', 'kickstart', '-k']
     assert said[-1] == 'Restarted the background service on the new version.'
+
+
+def test_the_upgrade_runs_without_the_owners_keys(home, manager, tmp_path, monkeypatch):
+    """uv / pipx (and the build scripts they may run) get no model key, MCP value or 1Password variable."""
+    keys = {'OP_SERVICE_ACCOUNT_TOKEN': 'ops_service-account-token-value', 'OP_SESSION_team': 'op-session-123456',
+            'OPENAI_API_KEY': 'sk-should-not-leak-1234567890', 'WRAITHD_MCP_X_X_TOKEN': 'mcp-token-value-1234'}
+    for name, value in keys.items():
+        monkeypatch.setenv(name, value)
+    started = []
+
+    def run(argv, **kwargs):
+        started.append((argv, kwargs))
+        return subprocess.CompletedProcess(argv, 0, stdout='', stderr='')
+
+    monkeypatch.setattr(update.subprocess, 'run', run)
+    (tmp_path / 'uv-receipt.toml').write_text('[tool]\n')
+    assert update.update(home, prefix=tmp_path, which=lambda name: name, service=Systemd(home, runner=manager),
+                         say=lambda text: None) == 0
+    argv, kwargs = started[0]
+    assert argv == ['uv', 'tool', 'upgrade', 'wraithd']
+    assert not set(kwargs['env']) & set(keys) and kwargs['env']['PATH'] == os.environ['PATH']
 
 
 def test_update_with_pipx_and_no_service_only_upgrades(home, manager, tmp_path):

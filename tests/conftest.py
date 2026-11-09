@@ -45,6 +45,10 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.delenv(app_module.UI_ENV, raising=False)
     for variable in KEY_ENV.values():  # a key in the developer's environment would turn tools on
         monkeypatch.delenv(variable, raising=False)
+    # nor keys from a service's systemd credentials (the server's deploy runs pytest from one), or 1Password's
+    monkeypatch.delenv(secrets.CREDENTIALS_ENV, raising=False)
+    for variable in [name for name in os.environ if name.startswith(secrets.OP_ENV_PREFIX)]:
+        monkeypatch.delenv(variable, raising=False)
     # a release build in this checkout (scripts/release.sh) must not change what the tests see
     monkeypatch.setattr(app_module, 'PACKAGE_UI', tmp_path / 'no-ui')
     previous = keyring.get_keyring()
