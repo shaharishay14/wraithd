@@ -163,6 +163,9 @@ async def test_the_rich_look_starts_claude_code_as_it_opens(home, rich, monkeypa
         assert connect['early'] is True
     finally:
         rt.close()
-    (client,) = fake.ClaudeSDKClient.instances
-    assert client.connects == 1 and 'USER: hello' in client.texts[0] and client.disconnects == 1
+    # Both chat models start as it opens ([engine] quick_model): "hello" is short, so the quick one answers it
+    clients = {client.options.model: client for client in fake.ClaudeSDKClient.instances}
+    assert sorted(clients) == ['haiku', 'sonnet']
+    assert all(client.connects == 1 and client.disconnects == 1 for client in clients.values())
+    assert 'USER: hello' in clients['haiku'].texts[0] and clients['sonnet'].texts == []
     assert 'Hi.' in term.out.getvalue()

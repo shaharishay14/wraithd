@@ -12,6 +12,7 @@ reminders) goes after the owner's message or in tool results.
 
 import asyncio
 import logging
+import re
 import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
@@ -34,6 +35,7 @@ from wraithd.providers import engine_models, model_for, model_settings
 from wraithd.skills import registry
 from wraithd.skills.tools import skill_tools
 from wraithd.store import SQLiteStore, Store
+from wraithd.store import base as store_base
 from wraithd.tools import builtin_tools, schedules
 from wraithd.tools.notify import StoreNotifier
 
@@ -251,15 +253,79 @@ def engine_purpose(purpose: str, source: str) -> str:
     return 'schedule' if source in UNATTENDED_SOURCES else purpose
 
 
-def claude_model(engine: dict, purpose: str, source: str, message: str, skills) -> tuple[str, str | None]:
+QUICK_MAX_CHARS = 200  # a chat message this long or shorter can go to [engine] quick_model
+# "think ..." or "/sonnet ..." at the start of a chat message: chat_model, and the words are left out of the message
+STRONG_PREFIX = re.compile(r'^\s*(?:think|/sonnet)(?![\w-])[\s:,.;!-]*', re.IGNORECASE)
+
+
+def quick_model(engine: dict) -> str:
+    """[engine] quick_model, or '' when it's off (or the same as chat_model: nothing to switch to)."""
+    quick = (engine.get('quick_model') or '').strip()
+    return quick if quick and quick != engine['chat_model'] else ''
+
+
+def strong_prefix(message: str) -> tuple[str, bool]:
+    """(the message without a leading "think" or "/sonnet", whether it had one). A message that is only the prefix
+    stays as it is."""
+    found = STRONG_PREFIX.match(message)
+    if found is None:
+        return message, False
+    return message[found.end():] or message, True
+
+
+def skill_named(message: str, skills) -> str | None:
+    """The first skill whose name the message names as a whole word (registry.strong_skill_named's rule), or None."""
+    for skill in skills:
+        if re.search(rf'(?<![\w-]){re.escape(skill.name)}(?![\w-])', message, re.IGNORECASE):
+            return skill.name
+    return None
+
+
+def approval_waiting(store, channel: str) -> bool:
+    """An approval card on this channel still waits for the owner: their message may be about it."""
+    return any(approval.card.get('channel') == channel for approval in store.list_approvals(store_base.PENDING))
+
+
+def chat_reason(engine: dict, message: str, skills, *, forced: bool = False, images=(), not_quick: str = '',
+                approval: bool = False) -> str:
+    """
+    Why a chat message runs where it does: 'quick' for [engine] quick_model, else why it stays on chat_model:
+    'prefix' ("think" / "/sonnet"), 'attachment' (an image; or a voice note or file, as the channel says),
+    'rewrite' (the how after a Rewrite tap), 'approval' (a card waits), 'command' (a /command), 'skill' (it names
+    one), 'length' (over QUICK_MAX_CHARS). Anything that might need tools or thought goes to chat_model.
+    """
+    if forced:
+        return 'prefix'
+    if images:
+        return 'attachment'
+    if not_quick:
+        return not_quick
+    if approval:
+        return 'approval'
+    if message.lstrip().startswith('/'):
+        return 'command'
+    if skill_named(message, skills):
+        return 'skill'
+    if len(message) > QUICK_MAX_CHARS:
+        return 'length'
+    return 'quick'
+
+
+def claude_model(engine: dict, purpose: str, source: str, message: str, skills, *, forced: bool = False, images=(),
+                 not_quick: str = '', approval: bool = False) -> tuple[str, str | None]:
     """
     A run's Claude Code model, picked before it starts (Claude Code can't switch mid-run like the API engine's
-    _strong_upgrade), and why, for a scheduled run. A scheduled run whose message names a `model: strong` skill runs
-    on chat_model; any other on schedule_model (background_model unless set). Nothing else moves it up.
+    _strong_upgrade), and why. A chat message goes to quick_model when chat_reason() says 'quick' (and quick_model
+    is on), else chat_model. A scheduled run whose message names a `model: strong` skill runs on chat_model; any
+    other on schedule_model (background_model unless set). Nothing else moves it up.
     """
     chosen = engine_purpose(purpose, source)
+    if chosen == 'chat' and quick_model(engine):
+        reason = chat_reason(engine, message, skills, forced=forced, images=images, not_quick=not_quick,
+                             approval=approval)
+        return (quick_model(engine) if reason == 'quick' else engine['chat_model']), reason
     if chosen != 'schedule':
-        return claude_code.model_for(engine, chosen), None
+        return claude_code.model_for(engine, chosen), 'prefix' if forced and chosen == 'chat' else None
     strong = registry.strong_skill_named(message, skills)
     if strong:
         return engine['chat_model'], f'skill {strong} is model: strong'
@@ -274,12 +340,14 @@ def warm_eligible(rt: Runtime, conversation: str | None, purpose: str, source: s
 
 
 async def _run_claude(rt, log, gate, policy, instructions, chat, guarded, callback, model, lease=None,
-                      new_from: int = 0):
+                      new_from: int = 0, other_model: str = ''):
     """
     The run on Claude Code (engines/claude_code.py): (answer, outcome, run_end extras), or None to fall back to the
     Agents SDK engine. Fallback happens only when the login can't be used or the plan's limit hit, [engine] fallback
     is on, an API model exists, no write has happened and the owner saw no text: the same rule as
-    RunAlreadyStartedError, so nothing (an email) is ever done twice.
+    RunAlreadyStartedError, so nothing (an email) is ever done twice. other_model: the conversation's other chat
+    model (quick_model or chat_model): its session starts in the background once this run has answered, if it has
+    none yet, so the next message on it doesn't wait for Claude Code to start.
     """
     def stop():
         """The run's stop rules (StopPolicy), checked before every tool call: the Agents SDK engine's run hooks."""
@@ -310,6 +378,8 @@ async def _run_claude(rt, log, gate, policy, instructions, chat, guarded, callba
             return subscription_message(str(e), writes), 'refused', {'engine': 'claude-code'}
         log.append(ev.STOP, reason='engine_fallback', message=str(e))
         return None
+    if lease is not None and other_model:
+        rt.sessions.prestart(lease.key, instructions, guarded, other_model, max_turns)
     if claude_code.hit_max_turns(result):  # Claude Code has no final tool-less call: the answer says what ran
         answer = step_limit_message(max_turns, gate.completed_writes())
     return answer, 'answered', {'engine': 'claude-code', 'claude_session': result.session_id if result else None}
@@ -320,7 +390,7 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
               mcp: Connected | None = None, untrusted_source: str = '', images=(), parent_run_id: str | None = None,
               inherited_taint=(), budget: dict | None = None, purpose: str = 'chat',
               allowed_tools=None, conversation: str | None = None, system_prompt: str | None = None,
-              warm_up: bool = False) -> RunResult:
+              warm_up: bool = False, not_quick: str = '') -> RunResult:
     """
     Runs the agent on one message.
 
@@ -348,7 +418,11 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
     conversation (engines/claude_code.py); third-party text its earlier messages read taints this one too.
     system_prompt: a short prompt for a tool-less run (the lean heartbeat): it replaces the base instructions, the
     reminders and the skills list; the standing orders and the memory profile stay.
-    warm_up: start_warm_session(): build the context, start its warm session, and return; no run happens.
+    warm_up: start_warm_session(): build the context, start its warm sessions, and return; no run happens.
+    not_quick: why this chat message must stay on chat_model even when it is short, as only the channel knows it:
+    'attachment' (a voice note or file became its text), 'rewrite' (the how after a Rewrite tap). On Claude Code a
+    short chat message otherwise goes to [engine] quick_model (claude_model), and a leading "think" or "/sonnet"
+    is taken off the message and keeps it on chat_model.
     """
     async with AsyncExitStack() as stack:
         lease = None
@@ -363,7 +437,8 @@ async def run(rt: Runtime, message: str, *, history=(), callback=None, source: s
                           mcp=mcp if owner else None, untrusted_source=untrusted_source, images=images,
                           parent_run_id=parent_run_id, inherited_taint=tuple(inherited_taint), budget=budget,
                           purpose=purpose, allowed_tools=None if allowed_tools is None else set(allowed_tools),
-                          stack=stack, lease=lease, system_prompt=system_prompt, warm_up=warm_up)
+                          stack=stack, lease=lease, system_prompt=system_prompt, warm_up=warm_up,
+                          not_quick=not_quick)
 
 
 async def start_warm_session(rt: Runtime, conversation: str, *, mcp: Connected | None = None) -> bool:
@@ -395,7 +470,7 @@ def user_content(message: str, images=()):
 
 async def _run(rt, message, *, history, callback, source, owner, tools, app_tools, app_guides, builtins, mcp,
                untrusted_source, images, parent_run_id, inherited_taint, budget, purpose, allowed_tools, stack,
-               lease=None, system_prompt=None, warm_up=False):
+               lease=None, system_prompt=None, warm_up=False, not_quick=''):
     started = time.monotonic()
     history = list(history)
     log = ev.EventLog(None if warm_up else rt.store)  # a warm-up is no run: nothing of it is saved
@@ -428,6 +503,10 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
             log.append(ev.STOP, reason='images', message='No model that can read images is set up.')
             end('refused')
             return RunResult(NO_IMAGES_MESSAGE, log.run_id, 'refused')
+        # "think ..." / "/sonnet ...": chat_model, and the model sees the message without it (run_start keeps it)
+        forced = False
+        if use_claude and engine_purpose(purpose, source) == 'chat':
+            message, forced = strong_prefix(message)
 
         if builtins:
             given = {tool.name for tool in tools}
@@ -460,8 +539,12 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         skills = registry.available_skills(user_skills, can_use, rt.skills.adjustments() if owner else {})
         # The owner hears which skills are off and what turns each on (not in a run limited to some tools)
         hidden = registry.hidden_skills(user_skills, can_use) if owner and allowed_tools is None else []
-        engine_model, model_reason = claude_model(engine, purpose, source, message, skills) if use_claude \
-            else (None, None)
+        engine_model, model_reason = claude_model(
+            engine, purpose, source, message, skills, forced=forced, images=images, not_quick=not_quick,
+            approval=bool(quick_model(engine)) and approval_waiting(rt.store, source)) if use_claude else (None, None)
+        # The conversation's other chat model: both keep a warm session (engines/claude_code.py)
+        other_model = '' if lease is None or engine_purpose(purpose, source) != 'chat' or not quick_model(engine) \
+            else ({engine['chat_model'], quick_model(engine)} - {engine_model}).pop()
         situation = reminders.Situation(
             message=message, events=log.events, owner=owner, skills=skills,
             previous_run=reminders.previous_run_events(rt.store, log.run_id) if owner else [],
@@ -539,9 +622,14 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
             instructions += disclosure.discovery_instructions(sorted({disclosure.app_of(t.name) for t in app_tools}),
                                                               len(app_tools))
         instructions += sections[tokens.PROFILE]
-        if warm_up:
-            return bool(use_claude and lease) and await lease.warm(instructions, guarded, engine_model,
-                                                                   engine['max_turns'])
+        if warm_up:  # both chat models' sessions, side by side: the first message may need either
+            if not (use_claude and lease):
+                return False
+            first = lease.warm(instructions, guarded, engine_model, engine['max_turns'])
+            if not other_model:
+                return await first
+            started = await asyncio.gather(first, lease.warm(instructions, guarded, other_model, engine['max_turns']))
+            return started[0]
 
         model = engine_model or rt.model_for(purpose)
         # What the model starts with: the size of this is what progressive disclosure shrinks
@@ -570,7 +658,7 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
 
         if use_claude:
             outcome = await _run_claude(rt, log, gate, policy, instructions, chat, guarded, callback, engine_model,
-                                        lease, new_from=len(history))
+                                        lease, new_from=len(history), other_model=other_model)
             if outcome is not None:
                 answer, status, extra = outcome
                 end(status, **extra)

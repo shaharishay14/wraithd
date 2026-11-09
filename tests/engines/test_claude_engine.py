@@ -103,7 +103,8 @@ async def test_complete_uses_a_tool_less_call_and_the_background_model(claude_rt
 
 
 @pytest.mark.parametrize('options, model', [
-    ({}, 'sonnet'), ({'source': 'telegram'}, 'sonnet'), ({'source': 'schedule'}, 'haiku'),
+    ({}, 'haiku'), ({'source': 'telegram'}, 'haiku'), ({'source': 'schedule'}, 'haiku'),
+    ({'purpose': 'strong'}, 'sonnet'),
     ({'source': 'heartbeat', 'purpose': 'heartbeat'}, 'haiku')])
 async def test_each_run_picks_its_model(claude_rt, claude_sdk, options, model):
     fake = claude_sdk()
@@ -405,7 +406,7 @@ async def test_plan_limit_rate_limit_event_before_result_counts(claude_rt, claud
 
 async def test_a_conversation_keeps_one_session(claude_rt, claude_sdk):
     fake = claude_sdk([init(), result('one')], [result('two')])
-    rt = claude_rt()
+    rt = claude_rt(quick_model='')  # one model, one session (test_quick_model.py has both)
     await run(rt, 'first', conversation='c1', tools=TOOLS)
     await run(rt, 'second', history=[{'role': 'user', 'content': 'first'}, {'role': 'assistant', 'content': 'one'}],
               conversation='c1', tools=TOOLS)

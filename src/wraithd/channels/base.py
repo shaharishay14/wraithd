@@ -18,6 +18,8 @@ What every phone channel shares, so the rules live in one place and a new channe
   "skip D<n>" through receive() like typed text, so the owner check, the run and its approvals all hold; a
   button never approves anything itself. Rewrite asks how, and the owner's next message within REWRITE_MINUTES
   becomes "rewrite D<n> <it>" (a /command cancels that). Only the owner's taps count; others are logged as ignored.
+- A voice note, file or Rewrite's how stays on [engine] chat_model however short its text (not_quick(); run.py
+  picks quick_model for other short messages on Claude Code).
 - `/mcp_add ...` from the owner (typed, not forwarded) adds an MCP server behind a confirm card (mcp/remote_add.py).
   It's handled here in code, never by a run: no agent tool adds a server, so nothing the agent reads can.
 
@@ -91,6 +93,7 @@ class Incoming:
     attachment: Attachment | None = None
     forwarded: bool = False  # someone else's message, passed on: never a command
     ref: object = None  # the channel's id for the message (what delete() takes)
+    rewrite: bool = False  # the how after a Rewrite tap, made "rewrite D<n> ..." (receive())
 
 
 @dataclass(frozen=True)
@@ -246,7 +249,7 @@ class Channel:
             number, until = self.rewriting
             self.rewriting = None
             if self.clock() <= until:
-                message = replace(message, text=f'rewrite D{number} {text}')
+                message = replace(message, text=f'rewrite D{number} {text}', rewrite=True)
         task = asyncio.create_task(self.answer(message))  # so choices keep being handled while it runs
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
@@ -263,7 +266,8 @@ class Channel:
         busy = asyncio.create_task(self._busy(chat))
         try:
             result = await reply(self.rt, conversation.id, text, source=self.name,
-                                 callback=self.approval_callback(chat), mcp=self.mcp, images=images)
+                                 callback=self.approval_callback(chat), mcp=self.mcp, images=images,
+                                 not_quick=self.not_quick(message))
         finally:
             ended = time.monotonic()  # the run has ended: what follows is the channel's own time
             busy.cancel()
@@ -271,6 +275,14 @@ class Channel:
         if is_silent(result.answer):  # the run already messaged the owner: no recap
             return
         await self.send_answer(chat, result, ended)
+
+    @staticmethod
+    def not_quick(message: Incoming) -> str:
+        """Why the message stays on [engine] chat_model however short its text (run.py): an attachment (a voice
+        note's or file's text says so only in words) or a Rewrite's how. '' when its text decides."""
+        if message.attachment is not None:
+            return 'attachment'
+        return 'rewrite' if message.rewrite else ''
 
     async def send_answer(self, chat, result, ended: float) -> None:
         """Sends a run's answer. ended: time.monotonic() when the run ended, for a channel that measures its send

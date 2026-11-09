@@ -68,7 +68,7 @@ async def chat(rt, terminal, problems=None):
 
 async def test_chat_starts_claude_code_before_the_first_message(claude_rt, claude_sdk):  # noqa: F811
     fake = claude_sdk(start_seconds=0.05)
-    rt = claude_rt()
+    rt = claude_rt(quick_model='')  # one session per conversation (test_quick_model.py has two)
     terminal = TypingTerminal(typing=0.2)  # types nothing: Ctrl-D after a while
     await chat(rt, terminal)
     (client,) = fake.ClaudeSDKClient.instances
@@ -78,7 +78,7 @@ async def test_chat_starts_claude_code_before_the_first_message(claude_rt, claud
 async def test_the_first_message_reuses_the_early_session(claude_rt, claude_sdk):  # noqa: F811
     """No second connect: the early start used the very tools, prompt and model the first message's run needs."""
     fake = claude_sdk([init(), text_delta('hi'), result('hi')], [result('two')], start_seconds=0.05)
-    rt = claude_rt()
+    rt = claude_rt(quick_model='')  # one session per conversation (test_quick_model.py has two)
     await chat(rt, TypingTerminal('hello', 'again', typing=0.1))
     (client,) = fake.ClaudeSDKClient.instances
     assert client.connects == 1 and len(client.texts) == 2
@@ -91,7 +91,7 @@ async def test_the_first_message_reuses_the_early_session(claude_rt, claude_sdk)
 
 async def test_a_fast_typist_waits_for_the_start(claude_rt, claude_sdk):  # noqa: F811
     fake = claude_sdk([init(), text_delta('hi'), result('hi')], start_seconds=0.2)
-    rt = claude_rt()
+    rt = claude_rt(quick_model='')  # one session per conversation (test_quick_model.py has two)
     terminal = TypingTerminal('hello', typing=0.0)
     await chat(rt, terminal)
     assert len(fake.ClaudeSDKClient.instances) == 1 and fake.ClaudeSDKClient.instances[0].connects == 1
@@ -103,7 +103,7 @@ async def test_a_fast_typist_waits_for_the_start(claude_rt, claude_sdk):  # noqa
 def test_quitting_before_the_first_message_closes_it_cleanly(claude_rt, claude_sdk, capfd, typed,  # noqa: F811
                                                             typing):
     fake = claude_sdk(start_seconds=0.05)
-    rt = claude_rt()
+    rt = claude_rt(quick_model='')  # one session per conversation (test_quick_model.py has two)
     problems = []
 
     def started():  # the early start has connected: quitting now has a session to close
@@ -125,7 +125,7 @@ def test_quitting_before_the_first_message_closes_it_cleanly(claude_rt, claude_s
 
 def test_ctrl_c_while_starting_closes_it_cleanly(claude_rt, claude_sdk, capfd):  # noqa: F811
     fake = claude_sdk(start_seconds=5)
-    rt = claude_rt()
+    rt = claude_rt(quick_model='')  # one session per conversation (test_quick_model.py has two)
     problems = []
 
     async def main():
@@ -144,7 +144,7 @@ def test_ctrl_c_while_starting_closes_it_cleanly(claude_rt, claude_sdk, capfd): 
 async def test_a_failed_early_start_falls_back_to_starting_on_the_first_message(claude_rt, claude_sdk):  # noqa: F811
     fake = claude_sdk([init(), text_delta('hi'), result('hi')])
     fake.ClaudeSDKClient.connect_errors.append(RuntimeError('no claude'))
-    rt = claude_rt()
+    rt = claude_rt(quick_model='')  # one session per conversation (test_quick_model.py has two)
     terminal = TypingTerminal('hello', typing=0.05)
     await chat(rt, terminal)
     first, second = fake.ClaudeSDKClient.instances
@@ -159,7 +159,7 @@ async def test_changed_tools_after_the_early_start_open_a_new_session(claude_rt,
     from tests.engines.test_claude_engine import TOOLS
 
     fake = claude_sdk()
-    rt = claude_rt()
+    rt = claude_rt(quick_model='')  # one session per conversation (test_quick_model.py has two)
     conversation = rt.store.start_conversation('terminal').id
     assert await start_warm_session(rt, conversation)
     await run(rt, 'hello', conversation=conversation, callback=lambda *a: asyncio.sleep(0), tools=TOOLS)
@@ -180,7 +180,7 @@ async def test_nothing_starts_early_off_claude_code(home):
 
 async def _wait(claude_rt, claude_sdk, typing: float) -> float:  # noqa: F811
     claude_sdk([init(), text_delta('hi'), result('hi')], start_seconds=START)
-    rt = claude_rt()
+    rt = claude_rt(quick_model='')  # one session per conversation (test_quick_model.py has two)
     terminal = TypingTerminal('hello', typing=typing)
     await chat(rt, terminal)
     return terminal.first_token - terminal.sent
@@ -211,7 +211,7 @@ async def test_new_closes_the_old_session_and_starts_the_next_one_early(claude_r
                       [init(), result('[]')],  # distill of conversation one, after /new (a one-shot)
                       [init(), text_delta('again'), result('again')],  # 'again', in conversation two
                       start_seconds=0.05)
-    rt = claude_rt()
+    rt = claude_rt(quick_model='')  # one session per conversation (test_quick_model.py has two)
     terminal = TypingTerminal('hello', '/new', 'again', typing=0.1)
     await chat(rt, terminal)
     first, second = fake.ClaudeSDKClient.instances
@@ -228,7 +228,7 @@ async def test_new_closes_the_old_session_and_starts_the_next_one_early(claude_r
 
 async def test_new_while_the_first_start_is_under_way_stops_it(claude_rt, claude_sdk):  # noqa: F811
     fake = claude_sdk([init(), result('two')], start_seconds=0.2)
-    rt = claude_rt()
+    rt = claude_rt(quick_model='')  # one session per conversation (test_quick_model.py has two)
     await chat(rt, TypingTerminal('/new', 'two', typing=0.0))
     first, second = fake.ClaudeSDKClient.instances
     assert first.texts == [] and second.connects == 1 and len(second.texts) == 1  # one connect for the new one
@@ -237,7 +237,7 @@ async def test_new_while_the_first_start_is_under_way_stops_it(claude_rt, claude
 @pytest.mark.parametrize('typed', [('/new',), ('/new', '/quit')], ids=['ctrl-d', 'quit'])
 def test_quitting_right_after_new_is_clean(claude_rt, claude_sdk, capfd, typed):  # noqa: F811
     fake = claude_sdk(start_seconds=0.05)
-    rt = claude_rt()
+    rt = claude_rt(quick_model='')  # one session per conversation (test_quick_model.py has two)
     problems = []
 
     async def main():
