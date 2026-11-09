@@ -30,6 +30,15 @@
 - `/new` in chat starts the new conversation's Claude Code right away, like opening chat does.
 - `wraithd doctor` (and other one-shot runs) no longer print "Event loop is closed" on exit.
 
+### Budgets and turns
+- On the Claude engine the daily and per-run caps count cache reads at 1/10 (weighted tokens), so re-reading the
+  same prompt no longer uses the day up by noon; `wraithd runs list` shows raw and weighted. The cap message says
+  it's wraithd's own limit, not your Claude plan's, and where to raise it.
+- A run that reaches the Claude engine's turn limit stops cleanly with a plain answer (and what it already did),
+  not an error. `[engine] max_turns` (default 8) sets the limit.
+- A message that sets up a schedule ("every Sunday at 9: ...") only creates it; one-action messages ("skip D1")
+  answer in the same turn. Telegram sends are logged (`telegram_sent`).
+
 ### Keys and files
 - Every `OP_*` variable (1Password) counts as a secret: no subprocess wraithd starts gets one (shell, MCP servers,
   Claude Code, the login launch, `wraithd update`). Only `op read` for an `op://` reference keeps it.
