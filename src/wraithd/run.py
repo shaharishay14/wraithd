@@ -46,8 +46,31 @@ MCP_DESCRIPTIONS = 'MCP tool descriptions'  # the taint source when MCP tools ar
 
 BASE_INSTRUCTIONS = (
     'You are wraithd, a personal assistant that runs on the user\'s own computer. Be direct and useful. '
-    'Use your tools when they help; never claim you did something a tool didn\'t do.\n'
+    'Use your tools when they help; never claim you did something a tool didn\'t do. '
+    'When there is one right next step or question, end with it; never a generic "anything else?".\n'
 )
+TELEGRAM_PAIRED = 'telegram.owner_chat'  # channels/telegram.OWNER_CHAT (not imported: channels import this module)
+
+
+def setup_line(rt: 'Runtime') -> str:
+    """
+    One line on what the agent runs on and which channels are on, so "are you on my Claude subscription?" gets a
+    true answer. It's in the stable prefix, so it holds only what is fixed for a conversation: the engine, the
+    configured models (never a key) and whether Telegram is paired.
+    """
+    engine, model = rt.engine, rt.config.model
+    if engine['name'] == 'claude-code':
+        on = (f'Claude Code on the user\'s Claude subscription (no API key): {engine["chat_model"]} for chats, '
+              f'{engine["background_model"]} for background work')
+        if rt.models:
+            on += f'; pictures: {model.provider} API, {model.default}'
+    elif model.provider == 'ollama':
+        on = f'a local model (Ollama, {model.default}), no subscription or API key'
+    else:
+        strong = f' ({model.strong} for harder skills)' if model.strong and model.strong != model.default else ''
+        on = f'the {model.provider} API on the user\'s own key, paid per use, no subscription: {model.default}{strong}'
+    telegram = 'paired' if rt.store.get_setting(TELEGRAM_PAIRED) else 'off'
+    return f'You run on {on}. Telegram: {telegram}.\n'
 # Claude Code engine, a picture and no API model to read it
 NO_IMAGES_MESSAGE = "I can't read images yet on your Claude subscription. Send me the text instead."
 # The time changes every minute, so it goes after the owner's message, never in the cached prefix
@@ -410,9 +433,11 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         # Skills: one line each in the prompt, instructions on skill_load. The owner's own skills and rules only
         # for the owner, and only the owner can change them.
         offered_names = [tool.name for tool in [*tools, *app_tools]]
-        skills = registry.available_skills(rt.skills.user_skills() if owner else [],
-                                           registry.capabilities(offered_names, owner, mcp.provides if mcp else ()),
-                                           rt.skills.adjustments() if owner else {})
+        user_skills = rt.skills.user_skills() if owner else []
+        can_use = registry.capabilities(offered_names, owner, mcp.provides if mcp else ())
+        skills = registry.available_skills(user_skills, can_use, rt.skills.adjustments() if owner else {})
+        # The owner hears which skills are off and what turns each on (not in a run limited to some tools)
+        hidden = registry.hidden_skills(user_skills, can_use) if owner and allowed_tools is None else []
         engine_model, model_reason = claude_model(engine, purpose, source, message, skills) if use_claude \
             else (None, None)
         situation = reminders.Situation(
@@ -479,13 +504,13 @@ async def _run(rt, message, *, history, callback, source, owner, tools, app_tool
         # conversation (docs/caching.md). Memory comes last: distill changes it more often than the rest.
         sections = {tokens.AGENTS_MD: f'\nSTANDING ORDERS (from the user, in every conversation):\n{orders}\n'
                                       if orders else '',
-                    tokens.SKILLS: registry.registry_prompt(skills, can_adjust=owner),
+                    tokens.SKILLS: registry.registry_prompt(skills, can_adjust=owner, hidden=hidden),
                     tokens.PROFILE: vault.memory_context(notes) if owner else ''}  # L0 + L1; the rest on demand
         if system_prompt is not None:  # a tool-less run's short prompt: no skills list, no reminders
             sections[tokens.SKILLS] = ''
             instructions = system_prompt + sections[tokens.AGENTS_MD]
         else:
-            instructions = (BASE_INSTRUCTIONS + reminders.PREAMBLE + sections[tokens.AGENTS_MD]
+            instructions = (BASE_INSTRUCTIONS + setup_line(rt) + reminders.PREAMBLE + sections[tokens.AGENTS_MD]
                             + sections[tokens.SKILLS])
         if use_discovery:
             instructions += disclosure.discovery_instructions(sorted({disclosure.app_of(t.name) for t in app_tools}),

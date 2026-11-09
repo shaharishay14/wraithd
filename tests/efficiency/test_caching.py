@@ -61,8 +61,8 @@ async def test_the_prefix_is_the_same_on_every_turn_and_every_run(make_runtime, 
 async def test_the_prefix_follows_the_agreed_order(make_runtime):
     model, *_ = await scenarios.a_tool_run(make_runtime)
     system = model.instructions[0]
-    order = [system.index(marker) for marker in ('You are wraithd', 'The app may add short notes',
-                                                 'STANDING ORDERS', 'SKILLS (', 'MEMORY (')]
+    order = [system.index(marker) for marker in ('You are wraithd', 'You run on', 'The app may add short notes',
+                                                 'STANDING ORDERS', 'SKILLS.', 'MEMORY (')]
     assert order == sorted(order)
 
 

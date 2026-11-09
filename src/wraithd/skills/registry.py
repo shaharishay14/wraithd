@@ -198,18 +198,50 @@ class SkillFolder:
         return folder
 
 
+def _merged(user_skills) -> dict[str, SkillSpec]:
+    """Built-in skills by name, with the owner's replacing any of the same name."""
+    by_name = {skill.name: skill for skill in builtin_skills()}
+    for skill in user_skills:
+        by_name[skill.name] = skill
+    return dict(sorted(by_name.items()))
+
+
 def available_skills(user_skills, available: set[str], adjustments: dict[str, list[str]] | None = None) \
         -> list[SkillSpec]:
     """
     Built-in and the owner's skills this run can use, each with the owner's adjustments.
     An owner's skill replaces a built-in one of the same name.
     """
-    by_name = {skill.name: skill for skill in builtin_skills()}
-    for skill in user_skills:
-        by_name[skill.name] = skill
     adjustments = adjustments or {}
     return [replace(skill, adjustments=tuple(adjustments.get(name, ())))
-            for name, skill in sorted(by_name.items()) if requirements_met(skill.requires, available)]
+            for name, skill in _merged(user_skills).items() if requirements_met(skill.requires, available)]
+
+
+# What turns a requirement on, in words, for the off-skills lines. Anything else is named as a tool.
+REQUIREMENT_WORDS = {
+    'email': 'an email app (wraithd mcp add)',
+    'calendar': 'a calendar app (wraithd mcp add)',
+    'web_search': 'web search ([web] search and its key)',
+    'read_website': 'web reading ([web] read = true)',
+    'shell_run': 'the shell ([shell] enabled = true)',
+    'memory': 'the owner', 'owner': 'the owner',
+}
+
+
+def missing_requirements(requires, available: set[str]) -> list[str]:
+    """The requirements that aren't met, each in words ("web search ([web] search and its key)")."""
+    words = []
+    for requirement in requires:
+        options = [option.strip() for option in requirement.split('|')]
+        if not any(option in available for option in options):
+            words.append(' or '.join(REQUIREMENT_WORDS.get(option, f'the {option} tool') for option in options))
+    return words
+
+
+def hidden_skills(user_skills, available: set[str]) -> list[tuple[str, list[str]]]:
+    """The skills this run can't offer, each with what it's missing in words: (name, missing)."""
+    return [(name, missing_requirements(skill.requires, available)) for name, skill in _merged(user_skills).items()
+            if not requirements_met(skill.requires, available)]
 
 
 def strong_skill_named(message: str, skills) -> str | None:
@@ -224,16 +256,28 @@ def strong_skill_named(message: str, skills) -> str | None:
     return None
 
 
-def registry_prompt(skills: list[SkillSpec], can_adjust: bool = False) -> str:
-    """One line per skill. The instructions (and the owner's adjustments) stay out of the prompt until skill_load."""
-    if not skills:
+def registry_prompt(skills: list[SkillSpec], can_adjust: bool = False, hidden=()) -> str:
+    """
+    One line per skill (name and description). The instructions, files and the owner's adjustments stay out of the
+    prompt until skill_load. hidden: (name, missing) for skills that are off, named with what turns them on (one
+    line per missing requirement, so several skills off for one reason cost one line), so "can you do X?" gets a
+    true answer.
+    """
+    if not skills and not hidden:
         return ''
-    lines = ['\nSKILLS (instructions for tasks you do often). When a request matches one, call skill_load with its '
-             'name first and follow what it says:']
-    lines += [f'- {skill.name}: {skill.description}' + (' (personalized)' if skill.adjustments else '')
-              for skill in skills]
-    if can_adjust:
-        lines.append('When the user corrects how you did a skill\'s task in a way that should hold every time '
-                     '("always...", "never...", "put X first"), call skill_adjust with the rule: it asks them to save '
-                     'it. A preference for everything, not one task, goes to memory instead.')
+    lines = []
+    if skills:
+        lines += ['\nSKILLS. When a request matches one, call skill_load with its name first and follow it:']
+        lines += [f'- {skill.name}: {skill.description}' + (' (personalized)' if skill.adjustments else '')
+                  for skill in skills]
+        if can_adjust:
+            lines.append('When the user corrects how you did a skill\'s task for every time ("always...", "never..."), '
+                         'call skill_adjust with the rule; a preference for everything goes to memory instead.')
+    if hidden:
+        by_need: dict[str, list[str]] = {}
+        for name, missing in hidden:
+            by_need.setdefault(', '.join(missing), []).append(name)
+        lines.append('Skills that are off (if asked, say what turns one on): '
+                     + '; '.join(f'{", ".join(names)} need{"s" if len(names) == 1 else ""} {need}'
+                               for need, names in by_need.items()) + '.')
     return '\n'.join(lines) + '\n'
