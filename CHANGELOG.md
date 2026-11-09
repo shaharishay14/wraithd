@@ -11,6 +11,15 @@
 - Skills that are off are named in one line with what turns them on, so the agent can tell you. Replies end with
   the one right next step or question, when there is one. The prompt grew by about 100 tokens.
 
+- No recap: an answer that is exactly `NO_REPLY` sends nothing on any channel (Telegram, terminal chat, web), and
+  the prompt says not to recap after `notify_owner` messages.
+- Telegram shows "typing…" for the whole run.
+- Telegram quick actions: `[telegram.commands]` (default `/news`, `/drafts`, `/jobs`, `/watchlist`, `/review`) fills
+  the "/" menu and sends that message from your chat; `/pair` and `/mcp_add` can't be taken. A slabbed-x draft card
+  gets Post · Rewrite · Skip buttons; they send "post D<n>" etc. as if typed, so posting still asks for approval.
+- `skill_load` returns the files a skill's instructions name (up to 6,000 characters) in the same call, which saves
+  a model turn.
+
 ### Claude subscription
 - `[web] search = "claude"`: web search through your Claude login. wraithd's web_search runs a separate one-shot
   Claude Code whose only tool is WebSearch; its results come back as third-party text (tainted, logged, counted).
