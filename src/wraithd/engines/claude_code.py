@@ -16,6 +16,7 @@ log records every tool call and the tokens used, so the budgets count.
 
 import asyncio
 import contextlib
+import gc
 import logging
 import time
 from collections.abc import Mapping
@@ -54,6 +55,45 @@ def usage_numbers(usage: Mapping | None) -> dict[str, int]:
     cache_write = usage.get('cache_creation_input_tokens') or 0
     return {'input_tokens': (usage.get('input_tokens') or 0) + cache_read + cache_write,
             'output_tokens': usage.get('output_tokens') or 0, 'cache_read': cache_read, 'cache_write': cache_write}
+
+
+def one_shot(claude, prompt, options):
+    """
+    A one-shot's messages, to close with contextlib.aclosing. The SDK's public query() only wraps its client's
+    process_query() and leaves that inner generator for the event loop to close later, so the Claude Code process
+    could still be shutting down when asyncio.run() closes the loop ("RuntimeError: Event loop is closed" from
+    BaseSubprocessTransport.__del__ as `wraithd doctor` exits). Iterating process_query() itself closes the process,
+    in order, before aclosing returns. Any other SDK (or the tests' fake) gets query() as it is.
+    """
+    client = getattr(claude.query, '__globals__', {}).get('InternalClient')
+    if client is None:
+        return claude.query(prompt=prompt, options=options)
+    return client().process_query(prompt=prompt, options=options)
+
+
+def _claude_transport(found) -> bool:
+    """An asyncio subprocess transport of a Claude Code program (started with --input-format stream-json)."""
+    from asyncio.base_subprocess import BaseSubprocessTransport
+
+    if not isinstance(found, BaseSubprocessTransport):  # first: other objects' attributes can do anything
+        return False
+    args = getattr(getattr(found, '_proc', None), 'args', None) or ()
+    return '--input-format' in args and 'stream-json' in args
+
+
+async def close_leftover_pipes() -> int:
+    """
+    Closes the pipes of Claude Code programs that have exited but whose stdout something they started still holds
+    open: left alone, their transport outlives the event loop, and its __del__ then fails with "Event loop is
+    closed". Only exited Claude Code processes: the SDK has stopped reading them, so nothing is lost. How many.
+    """
+    leftover = [found for found in gc.get_objects()
+                if _claude_transport(found) and not found.is_closing() and found.get_returncode() is not None]
+    for transport in leftover:
+        transport.close()
+    if leftover:
+        await asyncio.sleep(0)  # the pipes' connection_lost callbacks run now, in this loop
+    return len(leftover)
 
 
 def _ready() -> None:
@@ -151,10 +191,11 @@ async def run_once(instructions: str, prompt: str, guarded, model: str, callback
     try:
         # Closed here, in order, before returning: left open, the event loop closes the SDK's nested generators
         # all at once when it ends, and one of them is still closing ("aclose(): ... already running").
-        async with contextlib.aclosing(claude.query(prompt=prompt, options=options)) as messages:
+        async with contextlib.aclosing(one_shot(claude, prompt, options)) as messages:
             return await _consume(claude, messages, callback, log, progress, started=time.monotonic())
     finally:
         slot.detach()
+        await close_leftover_pipes()
 
 
 async def complete(prompt: str, model: str) -> str:

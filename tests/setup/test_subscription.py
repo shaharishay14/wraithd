@@ -98,6 +98,11 @@ class FakeClaude:
         options.subscription_env_problem = self.subscription_env_problem
         engine = types.ModuleType('wraithd.engines.claude_code')
         engine.SubscriptionUnavailable = SubscriptionUnavailable
+        engine.one_shot = lambda claude, prompt, options: claude.query(prompt=prompt, options=options)
+
+        async def close_leftover_pipes():
+            return 0
+        engine.close_leftover_pipes = close_leftover_pipes
         monkeypatch.setitem(sys.modules, 'claude_agent_sdk', sdk)
         if importlib.util.find_spec('wraithd.engines') is None:  # before the engine branch is merged
             package = types.ModuleType('wraithd.engines')
