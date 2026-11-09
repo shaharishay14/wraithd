@@ -16,6 +16,7 @@ claude_agent_sdk is an optional extra (wraithd[claude], ~300 MB with its bundled
 
 import os
 
+from wraithd.core import secrets
 from wraithd.core.loop import MAX_AGENT_STEPS
 
 SERVER = 'wraithd'  # the in-process MCP server with wraithd's guarded tools (claude_bridge.py)
@@ -59,6 +60,17 @@ def subscription_env_problem() -> str | None:
     return None
 
 
+def claude_env() -> dict[str, str]:
+    """
+    The env Claude Code gets over the one it inherits: claude-agent-sdk starts it with wraithd's whole environment
+    and can only override values, never drop one. So every key wraithd knows about (secrets.is_secret_variable:
+    the model keys, MCP values, every OP_* 1Password variable) is blanked, and ANTHROPIC_API_KEY always is, so
+    Claude Code stays on the owner's login.
+    """
+    blanked = {name: '' for name in os.environ if secrets.is_secret_variable(name)}
+    return {**blanked, 'ANTHROPIC_API_KEY': ''}
+
+
 def claude_options(instructions: str, server, names: list[str], model: str, stream: bool = False):
     """
     ClaudeAgentOptions for one Claude Code session. server: the bridge's MCP server (None for a tool-less call),
@@ -69,5 +81,5 @@ def claude_options(instructions: str, server, names: list[str], model: str, stre
     return sdk().ClaudeAgentOptions(
         system_prompt=instructions, tools=[], mcp_servers={SERVER: server} if server else {},
         allowed_tools=list(names), strict_mcp_config=True, setting_sources=[],
-        env={'ANTHROPIC_API_KEY': ''}, extra_args={'no-session-persistence': None},
+        env=claude_env(), extra_args={'no-session-persistence': None},
         max_turns=MAX_AGENT_STEPS, model=model, include_partial_messages=stream)

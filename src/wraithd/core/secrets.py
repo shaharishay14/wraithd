@@ -10,6 +10,7 @@ that the agent's tools never hand it credentials in the first place.
 
 import os
 import re
+from pathlib import Path
 
 from wraithd.rename import OLD_MCP_ENV_PREFIX
 
@@ -35,12 +36,59 @@ ENV_SECRETS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'SERPAPI_KEY', 'TELEGRAM_B
                'OP_SERVICE_ACCOUNT_TOKEN']
 # An MCP server's values in the environment (mcp/config.py env_name): WRAITHD_MCP_<SERVER>_<KEY>
 MCP_ENV_PREFIX = 'WRAITHD_MCP_'
+# Every 1Password CLI variable (OP_SERVICE_ACCOUNT_TOKEN, OP_SESSION_<account>, OP_CONNECT_TOKEN...): any of them
+# can unlock the vault, so none reaches a subprocess. Only mcp/config.py op_read's own `op read` keeps them.
+OP_ENV_PREFIX = 'OP_'
 
 
 def is_secret_variable(name: str) -> bool:
     """True for an environment variable that holds a key: kept out of every command the agent runs."""
     # the old name's prefix too (rename.py): still read, so still kept from the shell
-    return name in ENV_SECRETS or name.startswith((MCP_ENV_PREFIX, OLD_MCP_ENV_PREFIX))
+    return name in ENV_SECRETS or name.startswith((MCP_ENV_PREFIX, OLD_MCP_ENV_PREFIX, OP_ENV_PREFIX))
+
+
+def scrubbed_environment(environ=None) -> dict[str, str]:
+    """The environment without any variable that holds a key: what a subprocess wraithd starts may get."""
+    environ = os.environ if environ is None else environ
+    return {name: value for name, value in environ.items() if not is_secret_variable(name)}
+
+
+# systemd's encrypted credentials (LoadCredentialEncrypted=): the decrypted files are in this folder, readable only
+# by the service, for as long as it runs. docs/keys.md has the setup.
+CREDENTIALS_ENV = 'CREDENTIALS_DIRECTORY'
+CREDENTIAL_NAME = re.compile(r'^[A-Za-z0-9_.-]+$')
+MAX_CREDENTIAL_BYTES = 64 * 1024
+
+
+def credential(*names: str) -> str | None:
+    """
+    A key from systemd's credentials folder ($CREDENTIALS_DIRECTORY), by the first of names that has a file there
+    (the environment variable's name, then wraithd's own name for it). None when the folder isn't set or none
+    of the files is there. The value is registered for redaction. A trailing newline (`echo` adds one) is dropped.
+    """
+    folder = os.environ.get(CREDENTIALS_ENV)
+    if not folder:
+        return None
+    for name in names:
+        if not name or not CREDENTIAL_NAME.match(name) or name in ('.', '..'):
+            continue  # a plain file name only: never a path out of the folder
+        path = Path(folder) / name
+        try:
+            with path.open('rb') as file:
+                data = file.read(MAX_CREDENTIAL_BYTES + 1)
+        except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
+            continue
+        except OSError:
+            continue  # unreadable: the keychain or the environment may still have it
+        if len(data) > MAX_CREDENTIAL_BYTES:
+            continue
+        value = data.decode('utf-8', errors='replace').rstrip('\r\n')
+        if value:
+            register_secret(value)
+            return value
+    return None
+
+
 MIN_SECRET_LENGTH = 12  # shorter values would match ordinary text
 
 # Values registered at runtime: keys read from the keychain, MCP server tokens

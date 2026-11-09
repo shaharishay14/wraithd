@@ -25,7 +25,7 @@ OUTPUT_CHARS = 10_000  # per stream; the guard caps the result for the model aga
 
 def _environment() -> dict[str, str]:
     """The owner's environment without the keys the harness knows about: a command has no need for them."""
-    return {name: value for name, value in os.environ.items() if not secrets.is_secret_variable(name)}
+    return secrets.scrubbed_environment()
 
 
 def _cut(data: bytes) -> str:

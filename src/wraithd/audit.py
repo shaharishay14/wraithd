@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from wraithd.config import ConfigError, Home, load_config
-from wraithd.core import gate
+from wraithd.core import gate, secrets
 from wraithd.core.secrets import redact
 from wraithd.daemon import app as daemon_app
 from wraithd.daemon.security import TOKEN_FILE
@@ -324,6 +324,8 @@ def subscription_rules(home: Home, config) -> list[Check]:
         ('other MCP servers may load (strict_mcp_config is off)', getattr(options, 'strict_mcp_config', None) is True),
         ('your Claude Code settings load (setting_sources is not [])', getattr(options, 'setting_sources', None) == []),
         ('it is handed a login token (CLAUDE_CODE_OAUTH_TOKEN)', 'CLAUDE_CODE_OAUTH_TOKEN' not in env),
+        ('it inherits a key wraithd holds (a model key, an MCP value or an OP_* variable)',
+         all(env.get(name) == '' for name in os.environ if secrets.is_secret_variable(name))),
     ) if not safe]
     add(OK if not loose else FAIL, 'Claude Code gets only wraithd\'s guarded tools, no other settings' if not loose
         else f'Claude Code isn\'t locked down: {"; ".join(loose)}', 'reinstall wraithd')
