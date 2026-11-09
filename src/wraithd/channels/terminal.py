@@ -51,10 +51,14 @@ class Terminal:
     # --- chat: the plain look --------------------------------------------------------------------------------
 
     def welcome(self, rt: Runtime) -> None:
-        self.say('wraithd. Type /quit to end; what you share is remembered for next time.')
+        self.say('wraithd. Type /new for a fresh conversation, /quit to end; what you share is remembered for next '
+                 'time.')
 
     async def message(self) -> str | None:
         return await self.ask('\n> ')
+
+    def new_conversation(self) -> None:
+        self.say('New conversation.')
 
     def answered(self, rt: Runtime, result, state: dict) -> None:
         # A streamed answer is already on screen; a refusal or failure message never streamed
@@ -124,13 +128,15 @@ async def _session(rt: Runtime, terminal: Terminal, mcp, warming: list) -> str:
                 break
             if not message.strip():
                 continue
-            if terminal.rich and (command := terminal.command_of(message)):
-                if command == '/new':  # this conversation is remembered now, and the next one starts fresh
-                    await _remember(rt, terminal, conversation.id)
-                    conversation = rt.store.start_conversation('terminal')
-                    terminal.new_conversation()
-                else:
-                    terminal.slash(rt, command)
+            command = terminal.command_of(message) if terminal.rich else message.strip().lower()
+            if command == '/new':  # this conversation is remembered now, and the next one starts fresh
+                old = conversation.id
+                conversation = await _new_conversation(rt, mcp, warming, old)
+                terminal.new_conversation()
+                await _remember(rt, terminal, old)  # while the new conversation's Claude Code starts
+                continue
+            if terminal.rich and command:
+                terminal.slash(rt, command)
                 continue
             rt.store.add_message(conversation.id, 'user', message)
             history = await compaction.history_for(rt.store, conversation.id, rt.completer('compaction'))
@@ -142,6 +148,20 @@ async def _session(rt: Runtime, terminal: Terminal, mcp, warming: list) -> str:
     finally:
         await _remember(rt, terminal, conversation.id)
     return conversation.id
+
+
+async def _new_conversation(rt: Runtime, mcp, warming: list, old: str):
+    """/new: any early start still under way stops, the old conversation's warm Claude Code closes, and the new
+    conversation's starts now, in the background, as when the chat opened (its first message waits for it)."""
+    for task in warming:
+        task.cancel()
+    await asyncio.gather(*warming, return_exceptions=True)
+    warming.clear()
+    await rt.sessions.drop(old)
+    conversation = rt.store.start_conversation('terminal')
+    warming.append(asyncio.create_task(start_warm_session(rt, conversation.id, mcp=mcp)))
+    await asyncio.sleep(0)  # it takes the conversation's lock now, so the first message waits for it
+    return conversation
 
 
 async def _remember(rt: Runtime, terminal: Terminal, conversation_id: str) -> None:
