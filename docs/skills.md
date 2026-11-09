@@ -19,17 +19,18 @@
 - **Disclosure:** the prompt holds names and descriptions; `skill_load(name)` returns the instructions;
   `skill_load(name, file=...)` returns a file the skill points to (a third level).
 - **Named files come along:** `skill_load(name)` also returns, under `bundled_files`, every extra `.md` that
-  SKILL.md names by file name (news-feed's "read sources.md"), whole, in the order named, up to 6,000 characters
+  SKILL.md names by file name (radar's "the pages in sources.md"), whole, in the order named, up to 6,000 characters
   together (`registry.BUNDLED_CHARS`); the rest stay listed under `files` for `skill_load(name, file=...)`. That
   saves a model turn per skill run. Only SKILL.md's own text counts, never the Your way rules. Links the owner
   wrote in a bundled file count as the owner's like the instructions' own (`gate.trust_owner_skills`).
 - **Skills that are off:** for the owner, the prompt also names the skills a run can't offer, with what turns each
   on in words, grouped by what's missing: `Skills that are off (if asked, say what turns one on): expenses,
-  morning-brief need an email app (wraithd mcp add); news-feed needs web search ([web] search and its key).` So
-  "can you do my news feed?" gets "it's off, it needs web search" instead of a guess. Words per requirement are in
+  morning-brief need an email app (wraithd mcp add); radar needs web reading ([web] read = true).` So
+  "can you run radar?" gets "it's off, it needs web reading" instead of a guess. Words per requirement are in
   `registry.REQUIREMENT_WORDS`; anything else is named as a tool. Not in other people's runs (their skills are the
   owner's business) and not in a run limited to some tools (a schedule's), where off would be misleading.
-- **Starter set:** morning-brief, inbox-triage, meeting-prep, research-report, weekly-review, skill-writer. Short
+- **Starter set:** morning-brief, inbox-triage, meeting-prep, research-report, weekly-review, skill-writer, and
+  [radar](radar.md) (the daily digest of AI-agent news and ideas for wraithd, which replaces news-feed). Short
   on purpose: steps, rules and gotchas only, nothing a capable model knows already.
 
 ## The strong model
@@ -42,7 +43,7 @@ event. Chit-chat stays on the cheap model; without a separate strong model confi
 
 That switch is the API engine (`agents-sdk`). On the Claude Code engine the model is fixed when the run starts, so
 `model: strong` works up front instead: a scheduled run whose message names the skill as a whole word (`run
-news-feed (scheduled)`) runs on `[engine] chat_model` from the start rather than `background_model`. Chats are on
+radar (scheduled)`) runs on `[engine] chat_model` from the start rather than `background_model`. Chats are on
 `chat_model` already. See [engines.md](engines.md#a-scheduled-runs-model).
 
 ## Personalization: "your way"
