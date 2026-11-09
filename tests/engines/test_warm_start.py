@@ -27,20 +27,29 @@ class TypingTerminal(ScriptedTerminal):
     """The owner takes `typing` seconds to type the first message; keeps when it was sent and when the answer's
     first token was on screen."""
 
-    def __init__(self, *lines, typing: float = 0.0):
+    def __init__(self, *lines, typing: float = 0.0, until=None):
         super().__init__(*lines)
-        self.typing, self.sent, self.first_token = typing, None, None
+        self.typing, self.sent, self.first_token, self.until = typing, None, None, until
 
     async def message(self):
         if not self.prompts:  # typing the first message (or waiting before Ctrl-D)
             await asyncio.sleep(self.typing)
+            if self.until is not None:  # then until a condition holds (not a guess at how long it takes)
+                await asyncio.wait_for(wait_until(self.until), timeout=10)
             self.sent = time.monotonic() if self.lines else None
         return await super().message()
+
 
     def say(self, text='', end='\n'):
         if self.sent is not None and self.first_token is None and end == '' and text:
             self.first_token = time.monotonic()
         super().say(text, end)
+
+
+async def wait_until(condition) -> None:
+    """Yields to the event loop until condition() holds: deterministic, whatever the machine's load."""
+    while not condition():
+        await asyncio.sleep(0.001)
 
 
 def engine_connects(rt, run_id):
@@ -97,8 +106,11 @@ def test_quitting_before_the_first_message_closes_it_cleanly(claude_rt, claude_s
     rt = claude_rt()
     problems = []
 
+    def started():  # the early start has connected: quitting now has a session to close
+        return any(session.connected for session in rt.sessions.sessions.values())
+
     async def main():
-        await chat(rt, TypingTerminal(*typed, typing=typing), problems)
+        await chat(rt, TypingTerminal(*typed, typing=typing, until=started if typing else None), problems)
         assert rt.sessions.sessions == {}
 
     asyncio.run(main())

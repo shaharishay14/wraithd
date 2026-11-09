@@ -149,8 +149,10 @@ def doctor_lines(home):
 
 async def test_onboard_subscription_writes_claude_code_through_the_real_login_check(home, claude):
     term = ScriptedTerminal('subscription', '', 'n', 'n')
+    # Whether the claude extra or a `claude` command exists on this machine doesn't matter here (CI has neither)
     wizard = onboard.Wizard(home, term, service=Launchd(home, runner=FakeServiceManager()),
-                            health_transport=no_daemon(), claude_installed=lambda: (True, True))
+                            health_transport=no_daemon(), claude_installed=lambda: (True, True),
+                            claude_program=lambda: None)
     assert await wizard.run() == 0
     assert term.lines == []
     assert '[engine]\nname = "claude-code"' in home.config_path.read_text()

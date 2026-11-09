@@ -79,9 +79,19 @@ class Stopped(Exception):
     """The owner ended input (Ctrl-D)."""
 
 
+def _sdk_spec():
+    """claude-agent-sdk's import spec, or None, without importing it. A module already in sys.modules may have no
+    __spec__ (a stand-in, an odd loader): find_spec raises ValueError then, which means "can't tell", not a crash."""
+    try:
+        return importlib.util.find_spec('claude_agent_sdk')
+    except (ImportError, ValueError):
+        return None
+
+
 def claude_installed() -> tuple[bool, bool]:
     """(the Claude Agent SDK is importable, a `claude` command is on PATH). Looks, doesn't import or start it."""
-    return importlib.util.find_spec('claude_agent_sdk') is not None, shutil.which('claude') is not None
+    sdk = 'claude_agent_sdk' in sys.modules or _sdk_spec() is not None
+    return sdk, shutil.which('claude') is not None
 
 
 def claude_program() -> str | None:
@@ -89,7 +99,7 @@ def claude_program() -> str | None:
     found = shutil.which('claude')
     if found:
         return found
-    spec = importlib.util.find_spec('claude_agent_sdk')
+    spec = _sdk_spec()
     for folder in (spec.submodule_search_locations or []) if spec else []:
         bundled = Path(folder) / '_bundled' / ('claude.exe' if os.name == 'nt' else 'claude')
         if bundled.is_file() and os.access(bundled, os.X_OK):
