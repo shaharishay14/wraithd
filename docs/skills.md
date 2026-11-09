@@ -18,6 +18,11 @@
   offered skills it can actually do, so without email nobody sees inbox-triage.
 - **Disclosure:** the prompt holds names and descriptions; `skill_load(name)` returns the instructions;
   `skill_load(name, file=...)` returns a file the skill points to (a third level).
+- **Named files come along:** `skill_load(name)` also returns, under `bundled_files`, every extra `.md` that
+  SKILL.md names by file name (news-feed's "read sources.md"), whole, in the order named, up to 6,000 characters
+  together (`registry.BUNDLED_CHARS`); the rest stay listed under `files` for `skill_load(name, file=...)`. That
+  saves a model turn per skill run. Only SKILL.md's own text counts, never the Your way rules. Links the owner
+  wrote in a bundled file count as the owner's like the instructions' own (`gate.trust_owner_skills`).
 - **Skills that are off:** for the owner, the prompt also names the skills a run can't offer, with what turns each
   on in words, grouped by what's missing: `Skills that are off (if asked, say what turns one on): expenses,
   morning-brief need an email app (wraithd mcp add); news-feed needs web search ([web] search and its key).` So

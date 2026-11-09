@@ -1,6 +1,7 @@
 """
 The agent's skill tools:
-- skill_load: view a skill (with the owner's adjustments), or one of its files
+- skill_load: view a skill (with the owner's adjustments) and the files its SKILL.md names (up to
+  registry.BUNDLED_CHARS in all, so no second call), or one of its other files
 - skill_propose: draft a new skill from a run that went well. Stored as a proposal and queued for the owner's
   review (skills/review.py): only the owner can turn it on, so a run that read something malicious can't teach the
   agent new standing instructions. A draft from such a run is flagged.
@@ -46,9 +47,14 @@ def skill_tools(folder: registry.SkillFolder, skills: list[registry.SkillSpec], 
             if file not in skill.files:
                 return json.dumps({'error': f'{name} has no file {file!r}.', 'files': sorted(skill.files)})
             return json.dumps({'skill': name, 'file': file, 'content': skill.files[file]})
+        # 'skill' and 'instructions' come first: the gate reads them from the result's start (trust_owner_skills)
         result = {'skill': name, 'instructions': skill.full_instructions()}
-        if skill.files:
-            result['files'] = sorted(skill.files)
+        bundled = skill.bundled_files()
+        if bundled:
+            result['bundled_files'] = bundled  # the files the instructions name, already here
+        rest = sorted(set(skill.files) - set(bundled))
+        if rest:
+            result['files'] = rest
             result['hint'] = f'Load a file with {LOAD} and "file" only if the instructions call for it.'
         return json.dumps(result)
 

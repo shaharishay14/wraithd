@@ -437,7 +437,8 @@ class PermissionGate:
         The skills this run offers. Only the owner's own (source 'user': a folder in workspace/skills/, which the
         agent's tools can't write to) count: not the built-in library (wraithd's authors wrote those links, not the
         owner), and drafts in _proposed/ are never loaded as skills. Of each, only SKILL.md's instructions and its
-        extra .md files, as read when the run started: never your-way.md, which skill_adjust (the agent) writes.
+        extra .md files (loaded with "file", or bundled with the instructions because SKILL.md names them), as read
+        when the run started: never your-way.md, which skill_adjust (the agent) writes.
         """
         self.owner_skills = {skill.name: skill for skill in skills if getattr(skill, 'source', '') == 'user'}
 
@@ -456,8 +457,8 @@ class PermissionGate:
                 written = skill.files.get(json.loads(match.group(3) or '""'))
             except ValueError:
                 return set()
-        else:
-            written = skill.instructions  # SKILL.md's own text: the Your way rules after it don't count
+        else:  # SKILL.md's own text and the files it names, bundled in the result: the Your way rules don't count
+            written = '\n'.join([skill.instructions, *skill.bundled_files().values()])
         if not isinstance(written, str):
             return set()
         # as the result spells it: JSON-escaped (skill_load's json.dumps escapes non-ASCII; either form counts)

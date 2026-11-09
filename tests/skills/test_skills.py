@@ -77,19 +77,33 @@ def test_the_prompt_lists_descriptions_never_instructions():
 
 # --- in runs -----------------------------------------------------------------------------------------------
 
-async def test_a_matching_request_loads_the_skill_then_its_file(make_runtime):
+async def test_a_matching_request_loads_the_skill_with_the_file_it_names(make_runtime):
+    """One skill_load: SKILL.md names report-template.md, so it comes along (no second turn to fetch it)."""
     model = ScriptedModel([
         [call('1', 'skill_load', {'name': 'research-report'})],
-        [call('2', 'skill_load', {'name': 'research-report', 'file': 'report-template.md'})],
+        [call('2', 'skill_load', {'name': 'research-report', 'file': 'report-template.md'})],  # still works
         [say('# Report')],
     ])
     _, events = await run_once(make_runtime(model), 'research solid-state batteries', tools=[WEB])
 
     assert '- research-report:' in model.instructions[0] and 'Prefer primary sources' not in model.instructions[0]
     loaded = tool_json(model.tool_outputs(1)['call_1'])
-    assert 'Prefer primary sources' in loaded['instructions'] and loaded['files'] == ['report-template.md']
+    assert 'Prefer primary sources' in loaded['instructions'] and 'files' not in loaded
+    assert loaded['bundled_files']['report-template.md'].startswith('# <Question')
     assert json.loads(model.tool_outputs(2)['call_2'])['content'].startswith('# <Question')
     assert 'research-report' in of_type(events, ev.CONTEXT_BUILT)[0].payload['skills_offered']
+
+
+def test_only_the_files_skill_md_names_are_bundled_and_only_up_to_the_cap():
+    skill = registry.SkillSpec(
+        name='news-feed', description='News.', adjustments=('Also read secret.md',),
+        instructions='Read style.md, then sources.md. Not my-notes.md or big.md.bak.',
+        files={'sources.md': 'https://example.com/feed', 'style.md': 's' * 100, 'big.md': 'b',
+               'unnamed.md': 'u', 'secret.md': 'x', 'notes.md': 'n'})
+    assert list(skill.bundled_files()) == ['style.md', 'sources.md']  # in the order SKILL.md names them
+    # past the cap a file stays out (and listed), the ones that fit still come
+    assert list(skill.bundled_files(limit=50)) == ['sources.md']
+    assert registry.BUNDLED_CHARS == 6_000
 
 
 async def test_unknown_skills_get_suggestions(make_runtime):

@@ -30,6 +30,7 @@ NAME = re.compile(r'^[a-z0-9]+(-[a-z0-9]+)*$')
 FRONTMATTER = re.compile(r'^---\s*\n(.*?)\n---\s*\n?(.*)$', re.DOTALL)
 MAX_DESCRIPTION = 300
 MODELS = ('strong',)  # what a skill may ask for in `model:`; anything else is ignored
+BUNDLED_CHARS = 6_000  # skill_load brings the files SKILL.md names along, up to this much text in all
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,28 @@ class SkillSpec:
         rules = '\n'.join(f'- {rule}' for rule in self.adjustments)
         return (f'{self.instructions}\n\n## Your way\nThe user\'s own rules for this skill, from their feedback. '
                 f'Where they conflict with the steps above, these win:\n{rules}')
+
+    def bundled_files(self, limit: int = BUNDLED_CHARS) -> dict[str, str]:
+        """
+        The extra files SKILL.md names (by file name, e.g. "sources.md"), in the order it names them, whole, while
+        they fit in limit characters together: skill_load returns them with the instructions, so a skill that says
+        "read sources.md" needs no second skill_load. Only SKILL.md's own text counts, never the Your way rules.
+        """
+        named = sorted((position, name) for name in self.files
+                       if (position := _named_at(self.instructions, name)) is not None)
+        out, used = {}, 0
+        for _, name in named:
+            if used + len(self.files[name]) <= limit:
+                out[name] = self.files[name]
+                used += len(self.files[name])
+        return out
+
+
+def _named_at(text: str, file_name: str) -> int | None:
+    """Where text first names the file as a whole word ("sources.md." counts; "old-sources.md" and "sources.md.bak"
+    don't), or None."""
+    match = re.search(rf'(?<![\w.-]){re.escape(file_name)}(?![\w-]|\.\w)', text)
+    return match.start() if match else None
 
 
 def parse_skill_md(text: str) -> tuple[dict, str]:

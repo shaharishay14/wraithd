@@ -50,17 +50,40 @@ def blocked(answer):
 
 
 async def test_a_link_in_the_owners_skill_opens_after_a_private_read(tmp_path, store):
-    gate, load, inbox = setup(tmp_path, store, extra={'status.md': f'The page: {FILE_LINK}.'})
+    other = 'https://other.example.com/page'
+    gate, load, inbox = setup(tmp_path, store, extra={'status.md': f'The page: {FILE_LINK}.',
+                                                      'extra.md': f'Also: {other}'})
     await inbox.on_invoke_tool(None, '{}')
     assert blocked(await gate.check('read_website', {'url': LINK}))  # not loaded yet: not trusted yet
 
     await load.on_invoke_tool(None, '{"name": "runbook"}')
     assert await gate.check('read_website', {'url': LINK}) is None
     assert await gate.check('read_website', {'url': LINK + '/'}) is None  # the same link, normalized
-    assert blocked(await gate.check('read_website', {'url': FILE_LINK}))  # status.md wasn't loaded
-
-    await load.on_invoke_tool(None, '{"name": "runbook", "file": "status.md"}')
+    # SKILL.md names status.md, so it came with the instructions; extra.md (not named) wasn't loaded
     assert await gate.check('read_website', {'url': FILE_LINK}) is None
+    assert blocked(await gate.check('read_website', {'url': other}))
+
+    await load.on_invoke_tool(None, '{"name": "runbook", "file": "extra.md"}')
+    assert await gate.check('read_website', {'url': other}) is None
+
+
+async def test_a_named_file_over_the_cap_is_not_bundled_or_trusted(tmp_path, store):
+    gate, load, inbox = setup(tmp_path, store, extra={
+        'status.md': f'The page: {FILE_LINK}.' + 'x' * registry.BUNDLED_CHARS})
+    result = json.loads(await load.on_invoke_tool(None, '{"name": "runbook"}'))
+    assert 'bundled_files' not in result and result['files'] == ['status.md']
+    await inbox.on_invoke_tool(None, '{}')
+    assert blocked(await gate.check('read_website', {'url': FILE_LINK}))
+
+
+async def test_a_file_named_only_in_your_way_is_not_bundled(tmp_path, store):
+    """skill_adjust (the agent) writes your-way.md: naming a file there doesn't bring it, or its links, along."""
+    gate, load, inbox = setup(tmp_path, store, extra={'notes.md': f'See {FILE_LINK}'},
+                              your_way='# Your way: runbook\n\n- also read notes.md\n')
+    result = json.loads(await load.on_invoke_tool(None, '{"name": "runbook"}'))
+    assert 'bundled_files' not in result and result['files'] == ['notes.md']
+    await inbox.on_invoke_tool(None, '{}')
+    assert blocked(await gate.check('read_website', {'url': FILE_LINK}))
 
 
 async def test_only_the_exact_link(tmp_path, store):
