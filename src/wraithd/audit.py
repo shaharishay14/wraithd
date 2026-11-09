@@ -300,6 +300,8 @@ def subscription_rules(home: Home, config) -> list[Check]:
         f'wraithd holds a Claude login token ({", ".join(held)}): it must never have one',
         'remove it (wraithd key rm <name>, or edit the config); Claude Code keeps its own login')
 
+    if config.search == 'claude' or engine_name(home) == CLAUDE_ENGINE:
+        found += search_helper_rules(config)
     if engine_name(home) != CLAUDE_ENGINE:
         return found
     # --- Claude Code only gets wraithd's guarded tools, and none of the owner's other Claude Code settings --------
@@ -331,6 +333,29 @@ def subscription_rules(home: Home, config) -> list[Check]:
         add(WARN, 'ANTHROPIC_API_KEY is set: wraithd blanks it for Claude Code, but elsewhere it quietly wins over '
                   'your Claude login', 'unset ANTHROPIC_API_KEY where wraithd runs, unless you want the key')
     return found
+
+
+def search_helper_rules(config) -> list[Check]:
+    """[web] search = "claude" runs a separate Claude Code for each search (engines/claude_search.py): it may use
+    exactly its WebSearch tool, nothing else, and none of the owner's Claude Code settings or MCP servers."""
+    try:
+        from wraithd.engines.claude_search import SEARCH_TOOL, search_options
+        options = search_options('haiku')
+    except Exception:  # no claude extra (SubscriptionUnavailable): the helper can't run, so nothing to check
+        return [] if config.search != 'claude' else [Check(
+            FAIL, 'Web search through Claude needs the Claude Code extra, which isn\'t installed', CLAUDE_EXTRA)]
+    env = dict(getattr(options, 'env', None) or {})
+    loose = [name for name, safe in (
+        ('it may use more than WebSearch', getattr(options, 'tools', None) == [SEARCH_TOOL]
+         and getattr(options, 'allowed_tools', None) == [SEARCH_TOOL]),
+        ('it gets MCP servers', not getattr(options, 'mcp_servers', None)
+         and getattr(options, 'strict_mcp_config', None) is True),
+        ('your Claude Code settings load', getattr(options, 'setting_sources', None) == []),
+        ('it is handed a login token or an API key', 'CLAUDE_CODE_OAUTH_TOKEN' not in env
+         and env.get('ANTHROPIC_API_KEY') == ''),
+    ) if not safe]
+    return [Check(OK if not loose else FAIL, 'The Claude web search helper may use only WebSearch' if not loose
+                  else f'The Claude web search helper isn\'t locked down: {"; ".join(loose)}', 'reinstall wraithd')]
 
 
 def main(home: Home) -> int:

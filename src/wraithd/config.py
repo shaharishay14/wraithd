@@ -34,7 +34,7 @@ HOME_ENV = 'WRAITHD_HOME'
 
 PROVIDERS = ('openai', 'anthropic', 'ollama', 'openai-compatible')
 # [web] search: auto is the model provider's own search (openai, anthropic) or duckduckgo for local models
-SEARCH_BACKENDS = ('auto', 'openai', 'anthropic', 'duckduckgo', 'serpapi')
+SEARCH_BACKENDS = ('auto', 'openai', 'anthropic', 'duckduckgo', 'serpapi', 'claude')
 # [voice] transcribe: auto is openai if its key is set, else local whisper if installed, else off
 TRANSCRIBERS = ('auto', 'openai', 'whisper', 'elevenlabs')
 # Where a key comes from when it isn't in the keychain (and the variable is set)
@@ -64,6 +64,7 @@ run_tool_calls = 40          # per run
 [web]
 search = "auto"              # your model provider's own search, on your model key; DuckDuckGo for local models
                              # or openai | anthropic | duckduckgo | serpapi (needs a key) | "" (off)
+                             # | claude (your Claude subscription, through Claude Code's web search)
 # read = false               # the agent can't open web pages (read_website); true is the default
 
 [voice]

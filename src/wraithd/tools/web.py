@@ -602,10 +602,39 @@ class DuckDuckGo:
         return Searched(rows[:count])
 
 
+class ClaudeSearch:
+    """Web search through the owner's Claude subscription: a separate one-shot Claude Code whose only tool is its
+    WebSearch (engines/claude_search.py). The rows come back here, so the gate still sees them as third-party text,
+    and the helper's tokens go into the run's count like a native search's."""
+
+    name = 'claude'
+
+    def __init__(self, engine_config: dict, run=None):
+        self.engine_config = engine_config
+        self.run = run  # tests: async (query, count, engine_config) -> claude_search.Found
+
+    async def search(self, query: str, count: int) -> Searched:
+        try:
+            from wraithd.engines import claude_search
+            from wraithd.engines.claude_options import SubscriptionUnavailable
+        except ImportError:  # pragma: no cover - the engines package is part of wraithd
+            raise SearchFailed('Web search through Claude is not available in this install.') from None
+        try:
+            found = await (self.run or claude_search.search)(query, count, self.engine_config)
+        except SubscriptionUnavailable as e:
+            raise SearchFailed(f'Web search through your Claude subscription is unavailable: {e}') from None
+        except claude_search.SearchError as e:
+            raise SearchFailed(str(e)) from None
+        return Searched([SearchResult(title=row['title'], url=row['url'], snippet=row['snippet'])
+                         for row in found.rows], searches=found.searches, input_tokens=found.input_tokens,
+                        output_tokens=found.output_tokens)
+
+
 # What each backend costs the owner, for doctor and onboard (searches only: a native search also uses model tokens)
 COST = {'openai': 'about $10 per 1,000 searches on your OpenAI account',
         'anthropic': 'about $10 per 1,000 searches on your Anthropic account',
-        'duckduckgo': 'free, no key', 'serpapi': 'billed by your SerpAPI plan'}
+        'duckduckgo': 'free, no key', 'serpapi': 'billed by your SerpAPI plan',
+        'claude': 'your Claude subscription, through a separate Claude Code that can only search'}
 
 
 def web_search_tool(provider: SearchProvider):
