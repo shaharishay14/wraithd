@@ -31,6 +31,7 @@ import asyncio
 import html
 import logging
 import re
+import time
 from datetime import UTC, datetime
 
 import httpx
@@ -236,11 +237,16 @@ class TelegramBot:
             raise TelegramError(f'Telegram file download failed ({type(e).__name__}).') from None
         return bytes(data)
 
-    async def send(self, chat_id, text: str, buttons=None, markdown: bool = True) -> int | None:
+    async def send(self, chat_id, text: str, buttons=None, markdown: bool = True, stats: dict | None = None
+                   ) -> int | None:
         """Sends text (split as needed; buttons go on each part) and returns the last message's id. Markdown is
-        sent as Telegram HTML, and a part Telegram can't parse goes again as the plain Markdown."""
+        sent as Telegram HTML, and a part Telegram can't parse goes again as the plain Markdown. stats, if given, is
+        filled with chunks, parse_mode ('HTML' if any part went as HTML, else None) and fallback (a part went plain
+        after Telegram refused its HTML), for telegram_sent."""
         message_id = None
         parts = formatted_parts(text) if markdown else [(None, part) for part in _chunks(text)]
+        stats = stats if stats is not None else {}
+        stats.update(chunks=len(parts), parse_mode=None, fallback=False)
         for converted, plain in parts:
             params = {'chat_id': chat_id, 'text': plain}
             if buttons:
@@ -249,11 +255,13 @@ class TelegramBot:
                 try:
                     message_id = (await self.call('sendMessage', **{**params, 'text': converted,
                                                                      'parse_mode': 'HTML'}))['message_id']
+                    stats['parse_mode'] = 'HTML'
                     continue
                 except TelegramError as e:
                     if 'entit' not in str(e).lower() and 'tag' not in str(e).lower():
                         raise
                     logger.info('Telegram refused the formatting; sending it plain')
+                    stats['fallback'] = True
             message_id = (await self.call('sendMessage', **params))['message_id']
         return message_id
 
@@ -300,6 +308,12 @@ class TelegramChannel(base.Channel):
         buttons = [[{'text': c.label, 'callback_data': c.data} for c in choices]] if choices else None
         # cards (with choices) go plain: their arguments must show exactly as they are
         return chat, await self.bot.send(chat, text, buttons, markdown=not choices)
+
+    async def send_answer(self, chat, result, ended: float) -> None:
+        """The answer, then telegram_sent: how long it took from the run's end until Telegram replied."""
+        stats: dict = {}
+        await self.bot.send(chat, result.answer, markdown=True, stats=stats)
+        record_sent(self.rt.store, result.run_id, ended, stats)
 
     async def fetch(self, attachment: base.Attachment, limit: int) -> bytes:
         return await self.bot.download(attachment.ref, limit)
@@ -404,6 +418,13 @@ def draft_buttons(text: str) -> list | None:
              {'text': 'Skip', 'callback_data': f'draft:{number}:skip'}]]
 
 
+def record_sent(store, run_id: str | None, since: float, stats: dict, kind: str = 'answer') -> None:
+    """telegram_sent, between runs: ms from since (time.monotonic(): the run's end, or a notify's send) until
+    Telegram replied, and how it went (TelegramBot.send's stats)."""
+    ev.record_event(store, ev.TELEGRAM_SENT, kind=kind, run_id=run_id, ms=int((time.monotonic() - since) * 1000),
+                    **stats)
+
+
 class TelegramNotifier:
     """notify_owner (and schedules' and the heartbeat's messages) through Telegram when there's a paired owner chat.
     Every message is also kept in the store's inbox (Notifications), sent or not, once: the web UI lists it, and the
@@ -419,7 +440,9 @@ class TelegramNotifier:
         delivered = self.inbox.channel
         if owner:
             try:
-                await self.bot.send(int(owner), text, draft_buttons(text))
+                stats, started = {}, time.monotonic()
+                await self.bot.send(int(owner), text, draft_buttons(text), stats=stats)
+                record_sent(self.store, None, started, stats, kind='notify')
                 delivered = self.channel
             except TelegramError as e:
                 logger.warning(f'{e}; kept in the inbox instead')

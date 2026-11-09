@@ -30,6 +30,9 @@ RUN_END = 'run_end'
 COMPACTION = 'compaction'  # older chat messages were folded into the summary (between runs)
 DISTILL = 'distill'  # new chat messages were turned into memory notes (between runs)
 TELEGRAM_IGNORED = 'telegram_ignored'  # a chat that isn't the owner's wrote to the bot (at most hourly per chat)
+# Telegram sent an answer or a notify: run_id (None for a notify), ms from the run's end (a notify: from the send) to
+# Telegram's reply, chunks, parse_mode (HTML or None), fallback (a part went again as plain text)
+TELEGRAM_SENT = 'telegram_sent'
 # New event types: each worker inside its own block only
 # >>> security
 REVIEW_QUEUED = 'review_queued'  # something from third-party text waits for the owner (review/queue.py); no content
@@ -67,7 +70,7 @@ SANDBOX_MCP_START = 'sandbox_mcp_start'  # a sandboxed stdio MCP server started 
 
 # Events that belong to no run. A worker adds its own between-runs types inside its block.
 BETWEEN_RUNS = (
-    COMPACTION, DISTILL, TELEGRAM_IGNORED,
+    COMPACTION, DISTILL, TELEGRAM_IGNORED, TELEGRAM_SENT,
     # >>> security
     REVIEW_QUEUED, REVIEW_APPROVED, REVIEW_REJECTED, REVIEW_NOTIFIED, MCP_TOOL_CHANGED, MCP_TOOL_NEW, MCP_TOOL_PINNED,
     # <<< security

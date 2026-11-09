@@ -31,6 +31,7 @@ import json
 import logging
 import re
 import secrets
+import time
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
@@ -264,10 +265,16 @@ class Channel:
             result = await reply(self.rt, conversation.id, text, source=self.name,
                                  callback=self.approval_callback(chat), mcp=self.mcp, images=images)
         finally:
+            ended = time.monotonic()  # the run has ended: what follows is the channel's own time
             busy.cancel()
             await asyncio.gather(busy, return_exceptions=True)
         if is_silent(result.answer):  # the run already messaged the owner: no recap
             return
+        await self.send_answer(chat, result, ended)
+
+    async def send_answer(self, chat, result, ended: float) -> None:
+        """Sends a run's answer. ended: time.monotonic() when the run ended, for a channel that measures its send
+        (Telegram's telegram_sent)."""
         await self.send(chat, result.answer)
 
     async def _busy(self, chat) -> None:

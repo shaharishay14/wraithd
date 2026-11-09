@@ -47,6 +47,7 @@ def summarize(events) -> dict[str, object]:
         'duration_ms': end.payload.get('duration_ms') if end else None,
         'turns': views.turns(events),
         'tokens': views.tokens_used(events),
+        'weighted_tokens': views.weighted_tokens(events),  # what the budgets count (cache reads at a tenth)
         'tool_calls': len(views.tools_called(events)),
         'tool_errors': sum(1 for e in tool_results if e.payload.get('outcome') == 'error'),
         'denied': sum(1 for e in tool_results if e.payload.get('outcome') == 'denied'),
@@ -77,13 +78,13 @@ HEADLINE = {
     ev.RUN_START: ('source', 'message'),
     ev.CONTEXT_BUILT: ('model', 'disclosure', 'instructions_chars'),
     ev.TURN_START: ('turn',),
-    ev.MODEL_OUTPUT: ('input_tokens', 'output_tokens', 'tool_calls'),
+    ev.MODEL_OUTPUT: ('input_tokens', 'output_tokens', 'cache_read', 'cache_write', 'tool_calls'),
     ev.TOOL_CALL: ('tool', 'access', 'allowed', 'arguments'),
     ev.TOOL_RESULT: ('tool', 'outcome', 'chars', 'untrusted', 'redacted'),
     ev.REMINDER: ('name', 'at'),
     ev.STOP: ('reason',),
     ev.MODEL_UPGRADE: ('skill', 'model'),
-    ev.RUN_END: ('outcome', 'turns', 'tokens', 'duration_ms', 'stop_reason'),
+    ev.RUN_END: ('outcome', 'turns', 'tokens', 'weighted_tokens', 'duration_ms', 'stop_reason'),
     ev.SUBAGENT_RESULT: ('child_run_id', 'outcome', 'tokens', 'untrusted_sources'),
     ev.ENGINE_CONNECT: ('engine', 'kind', 'ms'),
 }
@@ -119,6 +120,9 @@ BETWEEN_RUNS_LINES = {
     ev.HEARTBEAT_RUN: lambda p: f'Heartbeat{_run_of(p)}: ' + ('sent you a message' if p.get('sent')
                                                               else 'nothing worth a message')
                                 + f' · {p.get("tokens", 0)} tokens',
+    ev.TELEGRAM_SENT: lambda p: f'Telegram sent {"a notify" if p.get("kind") == "notify" else "the answer"}'
+                                + f'{_run_of(p)}: {p.get("chunks")} part(s) in {p.get("ms")} ms'
+                                + (' (plain retry)' if p.get('fallback') else ''),
     ev.HEARTBEAT_SILENT: lambda p: f'Heartbeat stayed quiet{_run_of(p)}'
                                    + (f' (the run {p["outcome"]})' if p.get('outcome') not in (None, 'answered')
                                       else ''),
@@ -157,6 +161,7 @@ def render_text(run_id: str, events, children=None, indent: str = '') -> str:
         f'Run {run_id}',
         f'  {summary["outcome"]}' + (f' (stopped: {summary["stop_reason"]})' if summary['stop_reason'] else '')
         + f' · {summary["turns"]} model calls · {summary["tool_calls"]} tool calls · {summary["tokens"]} tokens'
+        + (f' ({summary["weighted_tokens"]} weighted)' if summary['weighted_tokens'] != summary['tokens'] else '')
         + (f' (+{summary["subagent_tokens"]} by subagents)' if summary['subagents'] else '')
         + (f' · {summary["duration_ms"]} ms' if summary['duration_ms'] is not None else ''),
         f'  message: {_short(summary["message"] or "")}',

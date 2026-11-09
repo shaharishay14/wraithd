@@ -336,3 +336,42 @@ async def test_a_failed_typing_call_doesnt_stop_the_answer(make_daemon, fake_tel
     await daemon.telegram.poll_once(timeout=0)
     await daemon.telegram.settle()
     assert fake_telegram.sent(OWNER)[-1]['text'] == 'Hi.'
+
+
+# --- telegram_sent -------------------------------------------------------------------------------------------
+
+def sent_events(daemon):
+    return [event.payload for event in daemon.rt.store.events_between_runs(types=[ev.TELEGRAM_SENT])]
+
+
+async def test_an_answer_and_a_notify_are_logged_as_telegram_sent(make_daemon, fake_telegram):
+    """telegram_sent: the time after the run (until Telegram replied) is measurable, with no message content."""
+    model = ScriptedModel([[call('1', 'notify_owner', {'message': 'Heads up.'})], [say('Done: **3 files**')]])
+    daemon, _ = await make_daemon(model, telegram_transport=httpx.MockTransport(fake_telegram.handler))
+    await paired(daemon, fake_telegram)
+    fake_telegram.message(OWNER, 'tidy my files')
+    await daemon.telegram.poll_once(timeout=0)
+    await daemon.telegram.settle()
+    notify, answer = sorted(sent_events(daemon), key=lambda p: p['kind'] != 'notify')
+    run_id = daemon.rt.store.recent_runs(1)[0].run_id
+    assert answer == {'kind': 'answer', 'run_id': run_id, 'ms': answer['ms'], 'chunks': 1, 'parse_mode': 'HTML',
+                      'fallback': False}
+    assert answer['ms'] >= 0 and ev.TELEGRAM_SENT in ev.BETWEEN_RUNS
+    assert (notify['kind'], notify['run_id'], notify['parse_mode']) == ('notify', None, None)
+    assert 'Heads up.' not in json.dumps(notify) and '3 files' not in json.dumps(answer)
+
+
+async def test_a_plain_retry_is_logged_as_a_fallback(make_daemon, fake_telegram):
+    def refuses_html(request):
+        if json.loads(request.content or b'{}').get('parse_mode'):
+            return httpx.Response(400, json={'ok': False, 'description': "Bad Request: can't parse entities"})
+        return fake_telegram.handler(request)
+
+    daemon, _ = await make_daemon(ScriptedModel([[say('A **bold** claim')]]),
+                                  telegram_transport=httpx.MockTransport(refuses_html))
+    await paired(daemon, fake_telegram)
+    fake_telegram.message(OWNER, 'hi')
+    await daemon.telegram.poll_once(timeout=0)
+    await daemon.telegram.settle()
+    [sent] = sent_events(daemon)
+    assert (sent['chunks'], sent['parse_mode'], sent['fallback']) == (1, None, True)
