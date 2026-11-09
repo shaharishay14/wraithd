@@ -72,6 +72,15 @@
   Secrets never go in the chat: give names (`--env KEY`, value in the server's env file over SSH) or 1Password
   references (`--env KEY=op://vault/item/field`); a value or anything shaped like a token is refused, stored
   nowhere, and the message is deleted. Details in [MCP](mcp.md#adding-a-server-from-telegram-mcp_add).
+- **Formatting:** the model writes Markdown, and replies (and `notify_owner`, schedules, the heartbeat) go as
+  Telegram HTML (`parse_mode=HTML`): bold, italics, strikethrough, inline code, code blocks, links (http, https,
+  mailto, tg only), quotes; headings become bold lines, bullets `•`, tables a monospace block. Everything else is
+  escaped (`&`, `<`, `>`), and every tag the converter writes is closed on the same line, so the HTML is always
+  balanced. A long reply is split at line ends (4,000 characters of Markdown, smaller if escaping pushes the HTML
+  past Telegram's 4,096), never inside a tag; a code block that has to be split is closed in one message and
+  opened again in the next. If Telegram still refuses a part's entities ("can't parse entities"), that part is
+  sent again as plain text; any other error isn't retried. Approval and `/mcp_add` cards go plain, with no
+  parse mode, so their arguments show exactly as they are. Text with no Markdown goes plain too.
 - **Errors** never include the API URL or the file download URL, since the bot token is in both.
 
 ## On a laptop

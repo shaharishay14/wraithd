@@ -22,7 +22,11 @@ schemas are cheap. The run (Phase 2) records which mode it used and the size of 
 choice can be measured.
 
 The same pattern runs through every registry: memory (profile and keyword map in the prompt, then search,
-then read), skills (one line each, then `skill_load`), the web (search snippets, then a page in parts).
+then read), skills (one line each, then `skill_load`; skills that are off get one short line saying what turns
+them on, see [Skills](skills.md)), the web (search snippets, then a page in parts).
+
+The prompt's size has a budget, checked by `tests/efficiency/test_prompt_size.py` on an empty home and on a home
+with four owner skills (`core/tokens.py` counts): a change that grows it much fails and says by how much.
 
 ## Why it stays safe
 

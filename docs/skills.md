@@ -18,6 +18,12 @@
   offered skills it can actually do, so without email nobody sees inbox-triage.
 - **Disclosure:** the prompt holds names and descriptions; `skill_load(name)` returns the instructions;
   `skill_load(name, file=...)` returns a file the skill points to (a third level).
+- **Skills that are off:** for the owner, the prompt also names the skills a run can't offer, with what turns each
+  on in words, grouped by what's missing: `Skills that are off (if asked, say what turns one on): expenses,
+  morning-brief need an email app (wraithd mcp add); news-feed needs web search ([web] search and its key).` So
+  "can you do my news feed?" gets "it's off, it needs web search" instead of a guess. Words per requirement are in
+  `registry.REQUIREMENT_WORDS`; anything else is named as a tool. Not in other people's runs (their skills are the
+  owner's business) and not in a run limited to some tools (a schedule's), where off would be misleading.
 - **Starter set:** morning-brief, inbox-triage, meeting-prep, research-report, weekly-review, skill-writer. Short
   on purpose: steps, rules and gotchas only, nothing a capable model knows already.
 
